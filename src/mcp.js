@@ -145,13 +145,19 @@ const MCP_TOOLS = Object.freeze([
       properties: {
         action: {
           type: 'string',
-          enum: ['list', 'show', 'use', 'default', 'tune', 'burn', 'unburn', 'sync'],
+          enum: ['packs', 'list', 'show', 'use', 'sub', 'default', 'tune', 'burn', 'unburn', 'set', 'sync'],
         },
         target: {
           type: 'string',
-          description: "ROM name (for show/use/default, or 'off' to clear default), dial=val pairs (for tune, e.g. 'edge=0.8 terse=0.9'), directive text (for burn), or 1-based index (for unburn)",
+          description: "ROM or Crew Bank name (sprawl, anathem, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, or index for unburn)",
         },
         rom: { type: 'string', description: 'Optional ROM name when tuning or burning a non-active ROM' },
+        pack: { type: 'string', description: 'Crew bank name when filtering list or creating a custom ROM with `set`' },
+        seat: { type: 'string' },
+        tier: { type: 'string' },
+        handle: { type: 'string' },
+        tagline: { type: 'string' },
+        voice: { type: 'string' },
         session: { type: 'string', description: 'Optional session ID when slotting a ROM for a specific session' },
       },
       required: ['action'],
@@ -304,6 +310,12 @@ function executeMcpTool(name, input = {}) {
         }
       }
       if (input.rom) args.push('--rom', String(input.rom));
+      if (input.pack) args.push('--pack', String(input.pack));
+      if (input.seat) args.push('--seat', String(input.seat));
+      if (input.tier) args.push('--tier', String(input.tier));
+      if (input.handle) args.push('--handle', String(input.handle));
+      if (input.tagline) args.push('--tagline', String(input.tagline));
+      if (input.voice) args.push('--voice', String(input.voice));
       const sid = input.session || process.env.CONSTRUCT_SESSION_ID || '';
       if (sid) args.push('--session', String(sid));
       return runConstructCli(args);

@@ -51,22 +51,28 @@ Sequential Tape & Project Continuity:
                               Correct an existing frame out loud.
   projects [--json]           List all projects in the construct with open counts and last seq.
 
-Swappable & Tunable Personality ROMs:
+Swappable & Tunable Personality ROMs & Crew Banks:
   rom [show [<name>]] [--json]
-  rom list [--json]           List all ROM constructs and dial settings (* = default/active).
-  rom use <name> [--session <id>]
-                              Slot <name> for the current session only (does not mutate other sessions).
-  rom default <name|off>      Set or clear your "until further notice" default ROM for new sessions.
-                              When set to "off", new sessions begin with razor asking who you want to work with.
+  rom packs [--json]          List all Crew Banks (sprawl, anathem, generic, or custom) with their
+                              9 primary seat starters and bench backups.
+  rom list [--pack <bank>] [--json]
+                              List all ROM constructs and dial settings (* = default/active).
+  rom use <name|bank|roster> [--session <id>]
+                              Slot a Crew Bank (sprawl, anathem, generic), a custom roster
+                              (erasmus,jad,cord), or a solo ROM for the current session only.
+  rom sub <backup_name> [--session <id>]
+                              Substitute a bench backup (e.g. marly, armitage, lodoghir, jules)
+                              into its matched seat in the current session's crew.
+  rom default <name|bank|off> Set or clear your "until further notice" default ROM or Crew Bank.
   rom tune <dial>=<0..1> [...] [--rom <name>]
                               Tune dials (${store.DIAL_KEYS.join(', ')}) and recompile active-rom.md.
   rom burn "<directive>" [--rom <name>]
                               Burn a new permanent directive into the ROM.
   rom unburn <number> [--rom <name>]
                               Remove directive #<number> (1-based) from the ROM.
-  rom set <name> [--handle ..] [--tagline ..] [--voice ..] [--use]
-  rom clone <src> <dest> [--handle ..] [--use]
-  rom sync                    Recompile ~/.config/opencode/active-rom.md (ROM + operator + protocol + gotchas).
+  rom set <name> [--pack ..] [--seat ..] [--tier primary|backup] [--handle ..] [--tagline ..] [--voice ..] [--use]
+  rom clone <src> <dest> [--pack ..] [--seat ..] [--tier ..] [--handle ..] [--use]
+  rom sync                    Recompile ~/.config/opencode/active-rom.md (operator + protocol + gotchas).
 
 Operator Agreements (Who the Construct is Talking To):
   user [show [<id>]] [--json] Show current operator agreement (or onboarding state if unrecognized).
@@ -121,6 +127,9 @@ const OPTIONS = {
   limit: { type: 'string', short: 'n' },
   window: { type: 'string', short: 'w' },
   rom: { type: 'string' },
+  pack: { type: 'string' },
+  seat: { type: 'string' },
+  tier: { type: 'string' },
   session: { type: 'string' },
   handle: { type: 'string' },
   tagline: { type: 'string' },
@@ -321,16 +330,36 @@ function printZoom(data) {
 function handleRomCommand(rest, o) {
   const sub = rest[0] || 'show';
   switch (sub) {
+    case 'packs':
+    case 'banks': {
+      const packs = store.listPacks();
+      if (o.json) {
+        console.log(JSON.stringify(packs, null, 2));
+        return 0;
+      }
+      for (const p of packs) {
+        console.log(`=== BANK: ${p.pack} — ${p.title} ===`);
+        console.log(`  Starters (${p.starters.length}): ${p.starters.map((r) => `${r.name}[${r.seat}]`).join(' -> ')}`);
+        if (p.backups.length) {
+          console.log(`  Backups  (${p.backups.length}): ${p.backups.map((r) => `${r.name}[${r.seat}]`).join(', ')}`);
+        }
+      }
+      return 0;
+    }
     case 'list':
     case 'ls': {
-      const roms = store.listRoms();
+      let roms = store.listRoms({ sessionId: o.session });
+      if (o.pack) {
+        roms = roms.filter((r) => r.pack === o.pack.toLowerCase());
+      }
       if (o.json) {
         console.log(JSON.stringify(roms, null, 2));
         return 0;
       }
       for (const r of roms) {
         const mark = r.active ? '*' : ' ';
-        console.log(`${mark} ${r.name.padEnd(11)} ${r.handle}`);
+        const badge = `[${r.pack}/${r.seat}${r.tier === 'backup' ? ':backup' : ''}]`.padEnd(24);
+        console.log(`${mark} ${r.name.padEnd(11)} ${badge} ${r.handle}`);
         console.log(`    ${r.tagline}`);
         console.log(`    dials: ${formatDialsInline(r.dials)}  (${r.directives.length} directives)`);
       }
@@ -358,6 +387,16 @@ function handleRomCommand(rest, o) {
       } else {
         console.log(`slotted ROM "${rom.name}" (${rom.handle}) -> default\n`);
         console.log((rom.isCrew ? rom.voice : store.compileRomPersonaOnly(rom)).trimEnd());
+      }
+      return 0;
+    }
+    case 'sub': {
+      const rom = store.subRom(rest[1], { sessionId: o.session });
+      if (o.json) {
+        console.log(JSON.stringify(rom, null, 2));
+      } else {
+        const scopeLabel = rom.sessionId ? `session ${rom.sessionId}` : 'default';
+        console.log(`substituted "${rest[1]}" into crew roster -> ${rom.name} (${scopeLabel})`);
       }
       return 0;
     }
@@ -413,18 +452,24 @@ function handleRomCommand(rest, o) {
     case 'set': {
       const name = rest[1] || o.rom;
       const rom = store.setRom(name, {
+        pack: o.pack,
+        seat: o.seat,
+        tier: o.tier,
         handle: o.handle,
         tagline: o.tagline,
         voice: o.voice,
         active: o.use ? true : undefined,
       });
-      console.log(`saved ROM "${rom.name}" (${rom.handle})${rom.active ? ' [ACTIVE]' : ''}`);
+      console.log(`saved ROM "${rom.name}" [${rom.pack}/${rom.seat}/${rom.tier}] (${rom.handle})${rom.active ? ' [ACTIVE]' : ''}`);
       return 0;
     }
     case 'clone': {
       const [src, dest] = rest.slice(1);
-      if (!src || !dest) throw new Error('usage: construct rom clone <src> <dest> [--handle ..] [--use]');
+      if (!src || !dest) throw new Error('usage: construct rom clone <src> <dest> [--pack ..] [--seat ..] [--tier ..] [--handle ..] [--use]');
       const rom = store.cloneRom(src, dest, {
+        pack: o.pack,
+        seat: o.seat,
+        tier: o.tier,
         handle: o.handle,
         tagline: o.tagline,
         voice: o.voice,
@@ -870,7 +915,12 @@ function main(argv) {
       return 0;
     }
 
-    case 'rom': {
+    case 'rom':
+    case 'pack':
+    case 'packs': {
+      if (cmd === 'pack' || cmd === 'packs') {
+        return handleRomCommand(rest.length ? rest : ['packs'], o);
+      }
       return handleRomCommand(rest, o);
     }
 

@@ -106,16 +106,52 @@ export function stripShadowedInstructions(systemParts, shadowedPaths = []) {
 }
 
 const KNOWN_ROM_NAMES = new Set([
+  // Crew banks & aliases
   "crew",
   "all",
+  "sprawl",
+  "anathem",
+  "generic",
+  "standard",
+  "plain",
+  // Sprawl bank (9 starters + 3 backups)
+  "colin",
   "dixie",
-  "molly",
   "wintermute",
   "architect",
-  "continuity",
+  "molly",
   "finn",
   "case",
-  "colin",
+  "lupus",
+  "angie",
+  "continuity",
+  "armitage",
+  "marly",
+  "3jane",
+  // Anathem bank (9 starters + 3 backups)
+  "erasmus",
+  "raz",
+  "sammann",
+  "jad",
+  "cord",
+  "orolo",
+  "jesry",
+  "lio",
+  "tulia",
+  "ala",
+  "paphlagon",
+  "jules",
+  "lodoghir",
+  // Generic bank (9 starters + instrument)
+  "guide",
+  "trace",
+  "arch",
+  "strike",
+  "audit",
+  "pulse",
+  "redteam",
+  "ux",
+  "ledger",
   "razor",
 ])
 
@@ -128,15 +164,22 @@ function isValidRomTarget(spec) {
   return parts.length > 0 && parts.every((p) => KNOWN_ROM_NAMES.has(p))
 }
 
-// Detect explicit ROM-slot or default-ROM commands at the start of a user prompt
-// so `ctx.session.hook("prompt")` can pre-slot the ROM in <4ms BEFORE `context`
-// assembles `event.system`, eliminating a 4-6s LLM tool round-trip.
+// Detect explicit ROM-slot, bank-switch, backup-sub, or subagent `[ROM: <name>]` tags
+// at the start of a prompt so `ctx.session.hook("prompt")` can pre-slot the ROM in <4ms
+// BEFORE `context` assembles `event.system`.
 export function detectPreSlotRomDirective(promptText) {
   const text = String(promptText || "").trim()
   if (!text) return null
 
+  // 1. Subagent tag: `[ROM: lupus]` or `[ROM: finn,case]` at the start of a subagent prompt
+  const tagMatch = text.match(/^\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
+  if (tagMatch && isValidRomTarget(tagMatch[1])) {
+    return { action: "use", target: tagMatch[1].toLowerCase() }
+  }
+
+  // 2. Default ROM / Bank command: "make anathem my default..."
   const defaultMatch = text.match(
-    /^(?:make|set)\s+(?:the\s+)?([a-z]+(?:,[a-z]+)*)\s+(?:as\s+)?(?:my\s+)?default(?:\s+rom)?(?:\s+until\s+further\s+notice)?\b/i
+    /^(?:make|set)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+crew|\s+bank|\s+pack|\s+rom)?\s+(?:as\s+)?(?:my\s+)?default(?:\s+rom)?(?:\s+until\s+further\s+notice)?\b/i
   )
   if (defaultMatch && isValidRomTarget(defaultMatch[1])) {
     return { action: "default", target: defaultMatch[1].toLowerCase() }
@@ -147,8 +190,15 @@ export function detectPreSlotRomDirective(promptText) {
     return { action: "default", target: "off" }
   }
 
+  // 3. Backup substitution: "sub marly in", "substitute lodoghir"
+  const subMatch = text.match(/^(?:please\s+|let'?s\s+)?(?:sub|substitute)\s+([a-z0-9_]+)(?:\s+in|\s+into\s+the\s+crew)?(?:[\s,.:;!-]|$)/i)
+  if (subMatch && isValidRomTarget(subMatch[1])) {
+    return { action: "sub", target: subMatch[1].toLowerCase() }
+  }
+
+  // 4. Session ROM / Crew Bank switch: "slot anathem", "switch to generic crew", "use lio"
   const useMatch = text.match(
-    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z]+(?:,[a-z]+)*)(?:\s+(?:rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
+    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
   )
   if (useMatch && isValidRomTarget(useMatch[1])) {
     return { action: "use", target: useMatch[1].toLowerCase() }
@@ -396,19 +446,28 @@ export default {
 
       editor.add({
         name: "rom",
-        description: "List, inspect, slot for this session (`use`), set/clear an until-further-notice default (`default`), tune, or burn directives into a Personality ROM.",
+        description: "List, inspect, slot a ROM or Crew Bank (`use`: sprawl, anathem, generic, or solo/roster), substitute a bench backup (`sub`), set/clear default (`default`), list banks (`packs`), tune dials, or create custom ROMs (`set`).",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["list", "show", "use", "default", "tune", "burn", "unburn", "sync"],
+              enum: ["packs", "list", "show", "use", "sub", "default", "tune", "burn", "unburn", "set", "sync"],
             },
             target: {
               type: "string",
-              description: "ROM name (for show/use/default, or 'off' to clear default), dial=val pairs (for tune, e.g. 'edge=0.8 terse=0.9'), directive text (for burn), or 1-based index (for unburn)",
+              description: "ROM or Crew Bank name (sprawl, anathem, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, index for unburn, or new ROM name for set)",
             },
             rom: { type: "string", description: "Optional ROM name when tuning or burning a non-active ROM" },
+            pack: { type: "string", description: "Crew bank name when filtering list or creating a custom ROM with `set`" },
+            seat: {
+              type: "string",
+              enum: ["recon", "diagnostics", "architect", "blitz", "forensics", "velocity", "redteam", "ergonomics", "archivist", "instrument"],
+            },
+            tier: { type: "string", enum: ["primary", "backup"] },
+            handle: { type: "string" },
+            tagline: { type: "string" },
+            voice: { type: "string" },
           },
           required: ["action"],
           additionalProperties: false,
@@ -424,6 +483,12 @@ export default {
             }
           }
           if (input.rom) args.push("--rom", String(input.rom))
+          if (input.pack) args.push("--pack", String(input.pack))
+          if (input.seat) args.push("--seat", String(input.seat))
+          if (input.tier) args.push("--tier", String(input.tier))
+          if (input.handle) args.push("--handle", String(input.handle))
+          if (input.tagline) args.push("--tagline", String(input.tagline))
+          if (input.voice) args.push("--voice", String(input.voice))
           if (context?.sessionID) args.push("--session", String(context.sessionID))
           return { content: runConstruct(args) }
         },

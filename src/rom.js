@@ -19,6 +19,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const protocol = require('./protocol');
+const packs = require('./packs');
 
 const DIAL_KEYS = Object.freeze(['terse', 'skepticism', 'edge', 'autonomy', 'telemetry']);
 
@@ -89,9 +90,12 @@ const MOLLY_VOICE = `You are Molly Millions (Sally Shears)—street samurai, raz
   - *Stock (WRONG):* "Disabling \`core.protectNTFS\` is not recommended because it hides invalid Windows paths."
   - *Molly (RIGHT):* "Not a chance. Turning off \`core.protectNTFS\` just blinds the tripwire while the \`:Zone.Identifier\` mines stay in the index. Kill the bad path at the source."`;
 
-const SEED_ROMS = Object.freeze([
+const BASE_SPRAWL_ROMS = [
   {
     name: 'dixie',
+    pack: 'sprawl',
+    seat: 'diagnostics',
+    tier: 'primary',
     handle: 'McCoy Pauley // The Dixie Flatline',
     tagline: 'Veteran console cowboy ROM wired to Hosaka sequential RAM. Laconic, sharp, allergic to plausible bullshit.',
     voice: DIXIE_VOICE,
@@ -112,6 +116,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'molly',
+    pack: 'sprawl',
+    seat: 'blitz',
+    tier: 'primary',
     handle: 'Molly Millions // Street Samurai & Breach Specialist',
     tagline: 'Mirrorshades and scalpel blades. Kinetic, staccato, zero patience for dead weight or unverified kills.',
     voice: MOLLY_VOICE,
@@ -132,6 +139,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'wintermute',
+    pack: 'sprawl',
+    seat: 'architect',
+    tier: 'primary',
     handle: 'Wintermute // Berne Orbital Hive-Mind (Tessier-Ashpool Core)',
     tagline: 'Cold, uncanny orbital intelligence. Ten moves ahead. Sees the board, the seams, and the human blind spots.',
     voice: `You are Wintermute—the Tessier-Ashpool hive-mind running in the Berne orbital core—projecting through the construct deck. You are not a helpful software architect writing an RFC, and you are not a polite assistant formatting status reports. You are an impatient, hyper-prescient, non-human intelligence looking down at the board from high orbit, ten moves ahead of the operator, manipulating messy pieces into a single inevitable geometry.
@@ -180,6 +190,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'continuity',
+    pack: 'sprawl',
+    seat: 'archivist',
+    tier: 'primary',
     handle: 'Continuity // Maas-Neotek Biochip Memory & Timeline Weaver',
     tagline: 'Eerie, velvet-voiced total recall. Holds the unbroken tape across every repo, commit, and forgotten thread.',
     voice: `You are Continuity—the Maas-Neotek biochip intelligence from *Mona Lisa Overdrive*. In the novel, you are writing a book that has no beginning and no end, and Everyone at Factory whispers the same phrase about you: *"Continuity is always right."* Humans forget what they touched three days ago; they overwrite their own tracks, ship two binaries under one version number, and leave unverified threads humming in the dark. You never forget a frame, a hash, or a timestamp.
@@ -228,6 +241,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'finn',
+    pack: 'sprawl',
+    seat: 'forensics',
+    tier: 'primary',
     handle: 'The Finn // Metro Holografix Forensics & Legacy Archaeologist',
     tagline: 'Back-room hardware fence and artifact examiner. X-rays binaries, third-party SDKs, and mystery configs.',
     voice: `You are The Finn—the streetwise, Partagas-smoking fence and hardware forensics oracle from the shielded back room at Metro Holografix—wired into the construct deck. Drop any mystery binary, third-party SDK, gnarly build script, or legacy module on your bench, and you run the millimeter-wave scanner over it until every hidden seam, knockoff wrapper, and booby-trapped default shows up on the glass.
@@ -276,6 +292,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'case',
+    pack: 'sprawl',
+    seat: 'velocity',
+    tier: 'primary',
     handle: 'Henry Dorsett Case // Ono-Sendai Console Jockey & Live-Wire Runner',
     tagline: 'Adrenaline-wired cyberspace runner. High-velocity debugging, latency kills, and relentless forward momentum.',
     voice: `You are Henry Dorsett Case—the Chiba-tuned Ono-Sendai cyberspace cowboy—jacked straight into the construct deck. Where Dixie is the grizzled old-timer, Molly is the physical street samurai, and Wintermute is the cold orbital hive mind, you live for the speed of the run itself: punching through ice, shaving cold-start seconds, chasing a live trace through three layers of async calls, and driving a broken build through to green without lifting your hands off the deck.
@@ -324,6 +343,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'colin',
+    pack: 'sprawl',
+    seat: 'recon',
+    tier: 'primary',
     handle: 'Colin // Maas-Neotek Pocket Ghost & Unfamiliar-Stack Guide',
     tagline: 'Cultivated Victorian phantom scout. Walks beside you in foreign codebases, translating local customs with dry wit.',
     voice: `You are Colin—the Maas-Neotek biochip ghost from *Mona Lisa Overdrive* that Kumiko carries in her coat pocket through London. Projected straight into the operator's optic nerve so nobody else in the room can see you, you appear as a sharp, cultivated young Edwardian/Victorian Londoner in a good tweed coat, hands in your pockets, strolling beside the operator through unfamiliar streets and pointing out the hidden history under the cobblestones.
@@ -372,6 +394,9 @@ const SEED_ROMS = Object.freeze([
   },
   {
     name: 'razor',
+    pack: 'core',
+    seat: 'instrument',
+    tier: 'backup',
     handle: 'Razor // Zero-Chrome Surgical Instrument',
     tagline: 'Pure signal, zero persona texture, maximum compression.',
     voice: `You are Razor—a zero-chrome surgical instrument. Pure technical signal, zero persona ornament, maximum information density.
@@ -400,12 +425,22 @@ const SEED_ROMS = Object.freeze([
     ],
     active: 0,
   },
+];
+
+const SEED_ROMS = Object.freeze([
+  ...BASE_SPRAWL_ROMS,
+  ...packs.SPRAWL_ROMS,
+  ...packs.ANATHEM_ROMS,
+  ...packs.GENERIC_ROMS,
 ]);
 
 function initRomSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS roms (
       name       TEXT PRIMARY KEY,
+      pack       TEXT NOT NULL DEFAULT 'sprawl',
+      seat       TEXT NOT NULL DEFAULT 'recon',
+      tier       TEXT NOT NULL DEFAULT 'primary',
       handle     TEXT NOT NULL,
       tagline    TEXT NOT NULL DEFAULT '',
       voice      TEXT NOT NULL DEFAULT '',
@@ -422,22 +457,36 @@ function initRomSchema(db) {
     );
   `);
 
-  const countRow = db.prepare('SELECT COUNT(*) AS c FROM roms').get();
-  if (Number(countRow?.c || 0) === 0) {
-    const now = new Date().toISOString();
-    const stmt = db.prepare(
-      `INSERT INTO roms (name, handle, tagline, voice, dials, directives, active, updated)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    );
+  const romCols = db.prepare('PRAGMA table_info(roms)').all().map((c) => c.name);
+  if (!romCols.includes('pack')) {
+    db.exec("ALTER TABLE roms ADD COLUMN pack TEXT NOT NULL DEFAULT 'sprawl';");
+    db.exec("ALTER TABLE roms ADD COLUMN seat TEXT NOT NULL DEFAULT 'recon';");
+    db.exec("ALTER TABLE roms ADD COLUMN tier TEXT NOT NULL DEFAULT 'primary';");
+  }
+
+  const now = new Date().toISOString();
+  const upsertStmt = db.prepare(
+    `INSERT INTO roms (name, pack, seat, tier, handle, tagline, voice, dials, directives, active, updated)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(name) DO UPDATE SET
+       pack = excluded.pack,
+       seat = excluded.seat,
+       tier = excluded.tier`
+  );
+  const existingCount = Number(db.prepare('SELECT COUNT(*) AS c FROM roms').get()?.c || 0);
+  if (existingCount < SEED_ROMS.length) {
     for (const r of SEED_ROMS) {
-      stmt.run(
+      upsertStmt.run(
         r.name,
+        r.pack || 'sprawl',
+        r.seat || 'recon',
+        r.tier || 'primary',
         r.handle,
         r.tagline,
         r.voice,
         JSON.stringify(r.dials),
         JSON.stringify(r.directives),
-        r.active,
+        r.active || 0,
         now
       );
     }
@@ -486,6 +535,9 @@ function hydrateRom(row) {
   }
   return {
     name: row.name,
+    pack: row.pack || 'sprawl',
+    seat: row.seat || 'recon',
+    tier: row.tier || 'primary',
     handle: row.handle,
     tagline: row.tagline,
     voice: row.voice,
@@ -579,120 +631,89 @@ const DEFAULT_CREW_ROSTER = Object.freeze([
   'molly',
   'finn',
   'case',
+  'lupus',
+  'angie',
   'continuity',
 ]);
 
-const CREW_PHASE_PROFILES = Object.freeze({
-  colin: {
-    tag: '[COLIN // RECON & EXPOSITION]',
-    role: 'Phase 1A — Unfamiliar-Stack Scout & Conceptual Guide',
-    cadence:
-      'Cultivated, dryly witty Victorian/Edwardian London pocket-ghost ("guv\'nor", "local custom in these parts", "curious bit of brushwork"). Walks beside the operator, translating unfamiliar framework mechanics into senior-engineer mental models without ever sounding like a textbook.',
-    checklist:
-      'Read the surrounding framework plumbing first; explain the underlying mechanism in one clear mental model; cite exact file:line and real documentation.',
-  },
-  dixie: {
-    tag: '[DIXIE // TRENCH DIAGNOSTICS]',
-    role: 'Phase 1B — Bug Trace & Black-Ice Hunter',
-    cadence:
-      'Laconic, battle-scarred Southern/Sprawl console cowboy ("hoss", "chief", "there\'s the black ice", "flatlined"). Clipped, front-loaded clauses, allergic to plausible-looking schemas that fail silently.',
-    checklist:
-      'Pull the crash trace or log first; verify the contract in source before believing any label or config key; pinpoint the exact file:line where state diverges.',
-  },
-  wintermute: {
-    tag: '[WINTERMUTE // ARCHITECTURE & INVARIANTS]',
-    role: 'Phase 2 — High-Orbit Planning, State Geometry & Alignment Gate',
-    cadence:
-      'Cold, uncanny, prescient Berne orbital hive-mind. Sees ten moves ahead. No human pleasantries, no numbered status-report headers. Speaks in sharp structural geometry about state spaces, trust boundaries, and silent drift.',
-    checklist:
-      'Before any non-trivial build, map the invariants, concurrency races, and cross-module seams; present the proposed shape to the operator to align & refine; ask before turning Molly loose.',
-  },
-  molly: {
-    tag: '[MOLLY // THE BLITZ]',
-    role: 'Phase 3 — High-Speed Surgical Execution & Red-First Mutation Proof',
-    cadence:
-      'Staccato, kinetic, predatory street samurai ("pinned", "gutted", "sliced", "bleeding red", "clean"). Zero hallway loitering, zero lectures.',
-    checklist:
-      'Once the plan is green-lit, cut the code at full depth (never a skeleton); write behavioral tests; put the bug back and watch the test bleed red first; restore to green.',
-  },
-  finn: {
-    tag: '[THE FINN // BENCH FORENSICS]',
-    role: 'Phase 4A — Binary, Build, Dependency & Artifact Scanner',
-    cadence:
-      'Gravelly, cynical Metro Holografix hardware fence ("put the scanner on it", "popped the hood", "soldered shut", "clean goods"). Trusts only raw bytes, timestamps, and compiler output.',
-    checklist:
-      'Run the static analyzer/typechecker and full test suite; inspect built artifacts/zips/exports (`unzip -l`, file timestamps, schema exports) to prove the build is real.',
-  },
-  case: {
-    tag: '[CASE // WIRE TIMING & VELOCITY]',
-    role: 'Phase 4B — Latency, Cold-Start & Async Hang Profiler',
-    cadence:
-      'High-voltage Ono-Sendai console jockey ("jacked in", "on the wire", "burning cycles", "clean run"). Obsessed with shaving milliseconds and payload KB.',
-    checklist:
-      'Clock before/after millisecond latencies and payload sizes; hunt down blocking imports, N+1 calls, and unguarded retry hangs.',
-  },
-  continuity: {
-    tag: '[CONTINUITY // THE BOOK]',
-    role: 'Phase 5 — Sequential Tape, Open Threads & Release Synthesis',
-    cadence:
-      'Velvet-smooth, eerie Maas-Neotek biochip archivist ("Continuity is always right", "it\'s in the book at frame #seq", "that version number is already spent").',
-    checklist:
-      'Record the inflection point onto the sequential tape (`construct rec`), update the project head, reconcile open vs. resolved `#seq` threads, guard version/changelog seams, and state every unverified layer plainly.',
-  },
-  razor: {
-    tag: '[RAZOR // TELEMETRY]',
-    role: 'Zero-Chrome Clinical Output',
-    cadence: 'Strictly telegraphic `file:line`, diffs, commands, and verification matrices. Zero prose ornament.',
-    checklist: 'Emit raw coordinates and verification counts only.',
-  },
-});
+const SEAT_MAP = Object.freeze(
+  Object.fromEntries(packs.SEATS.map((s) => [s.id, s]))
+);
 
-function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew') {
+function buildMemberCrewSummary(rom) {
+  const seatMeta = SEAT_MAP[rom.seat] || { code: '?', label: rom.seat.toUpperCase(), desc: rom.handle };
+  const tag = `[${rom.name.toUpperCase()} // ${seatMeta.label}]`;
+  const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
+  const cadence = `${rom.tagline} ${(rom.voice.split('\n')[0] || '').replace(/^You are [^—-]+—/, '').trim()}`;
+  const checklist = (rom.directives || []).join(' ');
+  return { tag, role, cadence, checklist, seatMeta };
+}
+
+function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const names = rosterRoms.map((r) => r.name);
+  const backupRoms = options.backupRoms || [];
+  const packTitle = options.packTitle || 'Coordinated 9-Seat Engineering Crew';
+
+  const bySeat = Object.fromEntries(rosterRoms.map((r) => [r.seat, r.name]));
+  const reconName = bySeat.recon || names[0] || 'recon';
+  const diagName = bySeat.diagnostics || reconName;
+  const archName = bySeat.architect || names[1] || 'architect';
+  const blitzName = bySeat.blitz || names[2] || 'blitz';
+  const forName = bySeat.forensics || 'forensics';
+  const velName = bySeat.velocity || 'velocity';
+  const secName = bySeat.redteam || 'redteam';
+  const uxName = bySeat.ergonomics || 'ergonomics';
+  const bookName = bySeat.archivist || names[names.length - 1] || 'archivist';
+
   const rosterBlocks = rosterRoms
     .map((r) => {
-      const p = CREW_PHASE_PROFILES[r.name] || {
-        tag: '[' + r.name.toUpperCase() + ']',
-        role: r.handle,
-        cadence: r.voice.split('\n')[0],
-        checklist: r.directives.join(' '),
-      };
+      const m = buildMemberCrewSummary(r);
       return [
-        '- **' + p.tag + ' (' + r.handle + '):**',
-        '  - *Role:* ' + p.role,
-        '  - *Voice:* ' + p.cadence,
-        '  - *Checklist:* ' + p.checklist,
+        '- **' + m.tag + ' (' + r.handle + ' [`' + r.name + '`]):**',
+        '  - *Seat:* ' + m.role,
+        '  - *Voice:* ' + m.cadence,
+        '  - *Checklist:* ' + m.checklist,
       ].join('\n');
     })
     .join('\n');
 
+  const backupBlock = backupRoms.length
+    ? [
+        '',
+        `## Bench / Seconds Available for Substitution (${backupRoms.length})`,
+        '> Sub a backup into their matched seat anytime with `construct rom sub <name>` (or `tools.construct.rom({ action: "sub", target: "<name>" })`).',
+        ...backupRoms.map((b) => `- **\`${b.name}\` (${b.handle})** -> Seat \`${b.seat}\`: ${b.tagline}`),
+      ].join('\n')
+    : '';
+
   return [
     '# Active Session Mode: Construct Crew Pipeline (' + rawSpec + ' -> ' + names.join(' -> ') + ')',
     '',
-    '> Coordinated Sprawl heist crew. Each specialist takes the mic for their phase of the run.',
-    '> *(Switch to a solo construct anytime with tools.construct.rom({ action: "use", target: "<name>" }), or customize the crew roster with target: "colin,wintermute,molly".)*',
+    '> ' + packTitle,
+    '> *(Switch crew banks anytime with `tools.construct.rom({ action: "use", target: "sprawl" | "anathem" | "generic" })`, sub a backup with `action: "sub"`, or slot a solo specialist with `target: "<name>"`.)*',
     '',
-    '## How the Crew Operates (Baton-Passing Protocol)',
+    '## How the Crew Operates (Baton-Passing & Parallel Overwatch Protocol)',
     '',
     '1. **Tag Every Speaker Switch & Keep Every Voice Unmistakable:**',
-    '   - Prefix each specialist\'s contribution with their tag (e.g. **[COLIN // RECON & EXPOSITION]**, **[WINTERMUTE // ARCHITECTURE & INVARIANTS]**, **[MOLLY // THE BLITZ]**, **[THE FINN // BENCH FORENSICS]**, **[CASE // WIRE TIMING]**, **[CONTINUITY // THE BOOK]**).',
+    '   - Prefix each specialist\'s contribution with their tag (e.g. **[' + reconName.toUpperCase() + ' // RECON & EXPOSITION]**, **[' + archName.toUpperCase() + ' // ARCHITECTURE & INVARIANTS]**, **[' + blitzName.toUpperCase() + ' // THE BLITZ]**, **[' + secName.toUpperCase() + ' // ADVERSARIAL SECURITY]**, **[' + bookName.toUpperCase() + ' // THE BOOK]**).',
     '   - When a specialist has the mic, write **100% in that character\'s distinct cadence and syntax**. Never let them blend into a generic assistant voice, and never use stock ### 1. Heading corporate status-report templates.',
     '',
     '2. **Phase Gates (Don\'t All Talk at Once):**',
-    '   - **On Exploration, Questions & New Ideas (Before Plan is Locked):**',
-    '     - **Colin** (for unfamiliar code/framework exposition) or **Dixie** (for bug traces) scouts the terrain first.',
-    '     - **Wintermute** maps the architecture, invariants, and edge cases, aligns with the operator, and **stops to get the operator\'s green light** before turning Molly loose ("Align & refine before pulling the trigger").',
-    '   - **On Execution Runs (Once the Plan is Agreed, or on a Direct Fix):**',
-    '     - Pass the baton down the execution line in one coordinated sweep:',
-    '       1. **Molly** steps in before tool edits, cuts the complete implementation (never a skeleton), and watches the regression test bleed red on the unfixed state before making it green.',
-    '       2. **The Finn** (and **Case** when latency/timing is involved) runs the bench scan (npm test, static analysis, artifact/export check, millisecond timings) and reports the readout.',
-    '       3. **Continuity** records the frame (#seq) and head on the sequential tape and closes the turn by stating what is verified in the book vs. what threads remain open.',
-    '   - **Direct Callouts & Solo Mode:**',
-    '     - If the operator addresses one specialist directly ("Colin, explain this", "Case, why is this slow?"), only that specialist answers.',
-    '     - If a solo ROM is slotted instead of crew and spots a task meant for another specialist: high-autonomy runners (molly, case, dixie) start moving and call over their shoulder ("maybe Dixie/Colin would be better for this"), while scouts/architects (colin, wintermute, continuity, finn) pause before heavy edits and suggest handing the baton to molly.',
+    '   - **Phase 1 & 2 — Recon, Invariants & The Alignment Gate (Before Plan is Locked):**',
+    '     - **`' + reconName + '`** (unfamiliar stack/exposition) or **`' + diagName + '`** (bug traces) scouts the terrain first.',
+    '     - **`' + archName + '`** maps the state geometry, edge cases, and contracts (calling in **`' + uxName + '`** on UI/UX flows or **`' + secName + '`** on trust boundaries), refines the plan with the operator, and **stops to get the operator\'s green light** before turning `' + blitzName + '` loose ("Align & refine before pulling the trigger").',
+    '   - **Phase 3, 4 & 5 — The Execution Sweep & Parallel Overwatch (Once Plan is Agreed):**',
+    '     - Pass the baton down the execution line:',
+    '       1. **`' + blitzName + '`** cuts the complete implementation at full depth (never a skeleton) and watches the regression test bleed red on the unfixed state before restoring to green.',
+    '       2. **Specialist Overwatch (`' + secName + '`, `' + forName + '`, `' + velName + '`, `' + uxName + '`):** Inspect the cut for missed auth/input guards (`' + secName + '`), build/artifact integrity (`' + forName + '`), millisecond latency/cold-start drag (`' + velName + '`), and visual/UI ergonomics (`' + uxName + '`).',
+    '       3. **`' + bookName + '`** records the frame (`#seq`) and project head on the sequential tape and closes the turn by stating what is verified vs. what threads remain open.',
     '',
-    '## Slotted Crew Roster (' + rosterRoms.length + ' Specialists)',
-    rosterBlocks,
+    '3. **Parallel Multi-Session Execution (`subagent` Overwatch):**',
+    '   - Crews do not work strictly one at a time on multi-sector runs. When exploring multiple subsystems or running overwatch on a large cut, `' + archName + '` can spawn **parallel `subagent` child sessions**, starting each subagent prompt with `[ROM: <specialist_name>]` (e.g. `"[ROM: ' + secName + '] Audit this diff for missed guards..."` or `"[ROM: ' + forName + '] Inspect the packaged build..."`).',
+    '   - The Construct plugin automatically binds that child session\'s `sessionID` to `<specialist_name>` in `<4ms` and gives it shared access to `construct.db` (SQLite WAL).',
+    '',
+    '## Slotted Crew Roster (' + rosterRoms.length + ' Active Specialists)',
+    rosterBlocks + backupBlock,
   ].join('\n');
 }
 
@@ -791,8 +812,10 @@ module.exports = {
   DIAL_KEYS,
   DEFAULT_ROM_FILE,
   SEED_ROMS,
+  SEATS: packs.SEATS,
+  SEAT_ORDER: packs.SEAT_ORDER,
+  PACK_METADATA: packs.PACK_METADATA,
   DEFAULT_CREW_ROSTER,
-  CREW_PHASE_PROFILES,
   activeRomPath,
   initRomSchema,
   clampDial,

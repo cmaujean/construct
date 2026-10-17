@@ -223,18 +223,23 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds built-in generic ROMs (dixie, molly, wintermute, continuity, finn, case, colin, razor), defaults to crew mode, isolates ROMs per session, and supports razor selector mode', () => {
+  it('seeds all 34 ROMs across sprawl, anathem, and generic banks, defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 8);
+    assert.equal(roms.length, 34);
+    const packs = store.listPacks();
+    assert.deepEqual(packs.map((p) => p.pack), ['anathem', 'generic', 'sprawl']);
     const active = store.getRom();
     assert.equal(active.name, 'crew');
     assert.equal(active.isCrew, true);
+    assert.equal(active.roster.length, 9);
 
-    // 1. Out of the box, a new session boots into `crew` mode by default
+    // 1. Out of the box, a new session boots into the 9-seat `sprawl` crew mode by default
     const bootDefaultCrew = store.bootProject('acme/alpha_app', { sessionId: 'ses_default_crew' });
     assert.equal(bootDefaultCrew.rom.name, 'crew');
     assert.equal(bootDefaultCrew.romSlotted, true);
     assert.match(bootDefaultCrew.sessionRomPrompt, /Construct Crew Pipeline/);
+    assert.match(bootDefaultCrew.sessionRomPrompt, /lupus/);
+    assert.match(bootDefaultCrew.sessionRomPrompt, /angie/);
 
     // Clearing the default (`setDefaultRom('off')`) makes a brand-new session (`ses_new`) boot with `razor` and the bootloader selector prompt
     store.setDefaultRom('off');
@@ -277,14 +282,62 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.equal(bootAfterClear.romSlotted, false);
     assert.match(bootAfterClear.sessionRomPrompt, /SESSION BOOTLOADER/);
 
-    // 4. Full `crew` mode and custom comma-separated crew rosters (`colin,wintermute,molly`)
+    // 4. Full `crew` mode (9 seats), `anathem` bank, `generic` bank, bench `subRom`, and custom rosters
     const crewRom = store.useRom('crew', { sessionId: 'ses_crew' });
     assert.equal(crewRom.isCrew, true);
-    assert.deepEqual(crewRom.roster, ['colin', 'dixie', 'wintermute', 'molly', 'finn', 'case', 'continuity']);
+    assert.deepEqual(crewRom.roster, [
+      'colin',
+      'dixie',
+      'wintermute',
+      'molly',
+      'finn',
+      'case',
+      'lupus',
+      'angie',
+      'continuity',
+    ]);
     const bootCrew = store.bootProject('acme/alpha_app', { sessionId: 'ses_crew' });
     assert.match(bootCrew.sessionRomPrompt, /Construct Crew Pipeline/);
     assert.match(bootCrew.sessionRomPrompt, /\[COLIN \/\/ RECON & EXPOSITION\]/);
     assert.match(bootCrew.sessionRomPrompt, /\[MOLLY \/\/ THE BLITZ\]/);
+
+    // Substitute bench backup `marly` into Seat 4D (`ergonomics`), replacing `angie`
+    const subbedSprawl = store.subRom('marly', { sessionId: 'ses_crew' });
+    assert.ok(subbedSprawl.roster.includes('marly'));
+    assert.ok(!subbedSprawl.roster.includes('angie'));
+
+    // Switch to the `anathem` 9-seat crew bank and sub `lodoghir` into `jad`'s seat (`architect`)
+    const anathemCrew = store.useRom('anathem', { sessionId: 'ses_anathem' });
+    assert.equal(anathemCrew.isCrew, true);
+    assert.deepEqual(anathemCrew.roster, [
+      'erasmus',
+      'sammann',
+      'jad',
+      'cord',
+      'orolo',
+      'jesry',
+      'lio',
+      'tulia',
+      'ala',
+    ]);
+    const subbedAnathem = store.subRom('lodoghir', { sessionId: 'ses_anathem' });
+    assert.ok(subbedAnathem.roster.includes('lodoghir'));
+    assert.ok(!subbedAnathem.roster.includes('jad'));
+
+    // Switch to the `generic` zero-fiction 9-seat crew bank
+    const genericCrew = store.useRom('generic', { sessionId: 'ses_generic' });
+    assert.equal(genericCrew.isCrew, true);
+    assert.deepEqual(genericCrew.roster, [
+      'guide',
+      'trace',
+      'arch',
+      'strike',
+      'audit',
+      'pulse',
+      'redteam',
+      'ux',
+      'ledger',
+    ]);
 
     const customCrew = store.useRom('colin,wintermute,molly', { sessionId: 'ses_custom' });
     assert.equal(customCrew.isCrew, true);
@@ -613,7 +666,19 @@ Found 2026-09-28.
   it('enforces the pre-execution shell guard, switches >12 project gotchas to compact index mode, and shadows/detects drift on shared repo instruction files', async () => {
     const { validateShellCommand, stripShadowedInstructions, detectPreSlotRomDirective } = await import('../plugin/construct.js');
 
-    // Zero-round-trip ROM pre-slot detector
+    // Zero-round-trip ROM pre-slot detector (including subagent `[ROM: <name>]` tags and backup substitutions)
+    assert.deepEqual(detectPreSlotRomDirective('[ROM: lupus] Audit this diff for missed auth guards'), {
+      action: 'use',
+      target: 'lupus',
+    });
+    assert.deepEqual(detectPreSlotRomDirective('switch to the anathem crew'), {
+      action: 'use',
+      target: 'anathem',
+    });
+    assert.deepEqual(detectPreSlotRomDirective('sub lodoghir in'), {
+      action: 'sub',
+      target: 'lodoghir',
+    });
     assert.deepEqual(detectPreSlotRomDirective('slot colin for this session'), { action: 'use', target: 'colin' });
     assert.deepEqual(detectPreSlotRomDirective('switch to colin,wintermute,molly'), {
       action: 'use',

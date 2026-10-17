@@ -434,49 +434,107 @@ function isSessionRomSlottedInDb(db, sessionId) {
   return Boolean(defaultRom);
 }
 
+function resolveSingleRomRowInDb(db, name) {
+  const key = String(name || '').trim().toLowerCase();
+  const aliasMap = {
+    architect: 'wintermute',
+    raz: 'erasmus',
+  };
+  const target = aliasMap[key] || key;
+  return (
+    db.prepare('SELECT * FROM roms WHERE name = ?').get(target) ||
+    db.prepare('SELECT * FROM roms WHERE name = ?').get(key) ||
+    null
+  );
+}
+
 function getRomInDb(db, name) {
   if (!name) return getActiveRomInDb(db);
   const rawSpec = String(name).trim().toLowerCase();
-  if (rawSpec === 'crew' || rawSpec === 'all' || rawSpec.includes(',')) {
-    const memberNames =
-      rawSpec === 'crew' || rawSpec === 'all'
-        ? [...romMod.DEFAULT_CREW_ROSTER]
-        : rawSpec
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-    if (!memberNames.length) throw new Error('crew roster cannot be empty');
-    const rosterRoms = memberNames.map((m) => {
-      const aliasKey = m === 'architect' ? 'wintermute' : m;
-      const row =
-        db.prepare('SELECT * FROM roms WHERE name = ?').get(aliasKey) ||
-        db.prepare('SELECT * FROM roms WHERE name = ?').get(m);
-      if (!row) throw new Error(`unknown ROM "${m}" in crew roster`);
-      return romMod.hydrateRom(row);
-    });
-    const canonicalName = rawSpec === 'all' ? 'crew' : rawSpec === 'crew' ? 'crew' : rosterRoms.map((r) => r.name).join(',');
+
+  // Check if `rawSpec` is a known pack alias (`crew`, `all`, `sprawl`, `anathem`, `generic`, `standard`, `plain`)
+  // or a custom pack name present in `roms.pack`
+  const packAliasMap = {
+    crew: 'sprawl',
+    all: 'sprawl',
+    sprawl: 'sprawl',
+    anathem: 'anathem',
+    generic: 'generic',
+    standard: 'generic',
+    plain: 'generic',
+  };
+  let packName = packAliasMap[rawSpec] || null;
+  if (!packName && !rawSpec.includes(',')) {
+    const singleRow = resolveSingleRomRowInDb(db, rawSpec);
+    if (!singleRow) {
+      const packCheck = db.prepare('SELECT COUNT(*) AS c FROM roms WHERE pack = ?').get(rawSpec);
+      if (Number(packCheck?.c || 0) > 0) packName = rawSpec;
+    }
+  }
+
+  if (packName || rawSpec.includes(',')) {
+    let rosterRoms = [];
+    let backupRoms = [];
+    let packTitle = 'Coordinated 9-Seat Engineering Crew';
+    let canonicalName = rawSpec;
+
+    if (packName) {
+      canonicalName = rawSpec === 'all' ? 'crew' : rawSpec === 'standard' || rawSpec === 'plain' ? 'generic' : rawSpec;
+      const meta = romMod.PACK_METADATA[packName];
+      packTitle = meta ? meta.title : `Custom Crew Bank: ${packName}`;
+
+      const packRows = db.prepare('SELECT * FROM roms WHERE pack = ?').all(packName).map(romMod.hydrateRom);
+      const seatOrder = romMod.SEAT_ORDER;
+      const primaries = packRows
+        .filter((r) => r.tier === 'primary')
+        .sort((a, b) => seatOrder.indexOf(a.seat) - seatOrder.indexOf(b.seat));
+      rosterRoms = primaries.length ? primaries : packRows;
+      backupRoms = packRows.filter((r) => r.tier === 'backup');
+    } else {
+      const memberNames = rawSpec
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (!memberNames.length) throw new Error('crew roster cannot be empty');
+      rosterRoms = memberNames.map((m) => {
+        const row = resolveSingleRomRowInDb(db, m);
+        if (!row) throw new Error(`unknown ROM "${m}" in crew roster`);
+        return romMod.hydrateRom(row);
+      });
+      canonicalName = rosterRoms.map((r) => r.name).join(',');
+      const dominantPack = rosterRoms[0]?.pack || 'sprawl';
+      const activeNames = new Set(rosterRoms.map((r) => r.name));
+      backupRoms = db
+        .prepare('SELECT * FROM roms WHERE pack = ?')
+        .all(dominantPack)
+        .map(romMod.hydrateRom)
+        .filter((r) => !activeNames.has(r.name));
+    }
+
     return {
       name: canonicalName,
+      pack: packName || rosterRoms[0]?.pack || 'custom',
+      seat: 'crew',
+      tier: 'primary',
       handle:
-        canonicalName === 'crew'
-          ? 'Construct Crew // Full Sprawl Heist Pipeline'
+        packName
+          ? `Construct Crew [${packName}] // ${packTitle}`
           : `Construct Crew // Custom Roster (${rosterRoms.map((r) => r.name).join(' -> ')})`,
       tagline: `Coordinated specialist pipeline: ${rosterRoms.map((r) => r.name).join(' -> ')}`,
-      voice: romMod.compileCrewPersonaPrompt(rosterRoms, canonicalName),
+      voice: romMod.compileCrewPersonaPrompt(rosterRoms, canonicalName, { backupRoms, packTitle }),
       dials: { terse: 0.8, skepticism: 0.95, edge: 0.85, autonomy: 0.9, telemetry: 0.85 },
       directives: [],
       active: true,
       isCrew: true,
       roster: rosterRoms.map((r) => r.name),
       rosterRoms,
+      backups: backupRoms.map((b) => b.name),
       updated: nowIso(),
     };
   }
-  const aliasKey = rawSpec === 'architect' ? 'wintermute' : rawSpec;
-  const row =
-    db.prepare('SELECT * FROM roms WHERE name = ?').get(aliasKey) ||
-    db.prepare('SELECT * FROM roms WHERE name = ?').get(rawSpec);
-  if (!row) throw new Error(`unknown ROM "${name}"`);
+
+  const row = resolveSingleRomRowInDb(db, rawSpec);
+  if (!row) throw new Error(`unknown ROM or crew bank "${name}"`);
   return romMod.hydrateRom(row);
 }
 
@@ -1114,6 +1172,67 @@ function getRom(name, options = {}, file = dbPath()) {
   return withDb((db) => (name ? getRomInDb(db, name) : getActiveRomInDb(db, sid)), actualFile);
 }
 
+function subRom(backupName, options = {}, file = dbPath()) {
+  if (!backupName || !String(backupName).trim()) {
+    throw new Error('give a backup ROM name to substitute into its seat, e.g. construct rom sub marly');
+  }
+  const sid = (typeof options === 'string' ? '' : options?.sessionId) || process.env.CONSTRUCT_SESSION_ID || '';
+  const actualFile = typeof options === 'string' ? options : file;
+
+  const newSpec = withDb((db) => {
+    const subRow = resolveSingleRomRowInDb(db, backupName);
+    if (!subRow) throw new Error(`unknown ROM "${backupName}"`);
+    const subHydrated = romMod.hydrateRom(subRow);
+
+    const current = getActiveRomInDb(db, sid);
+    let rosterNames;
+    if (current.isCrew && Array.isArray(current.roster)) {
+      let replaced = false;
+      rosterNames = current.rosterRoms.map((r) => {
+        if (r.seat === subHydrated.seat) {
+          replaced = true;
+          return subHydrated.name;
+        }
+        return r.name;
+      });
+      if (!replaced) rosterNames.push(subHydrated.name);
+    } else {
+      const baseCrew = getRomInDb(db, subHydrated.pack || 'sprawl');
+      rosterNames = baseCrew.rosterRoms.map((r) => (r.seat === subHydrated.seat ? subHydrated.name : r.name));
+    }
+    return rosterNames.join(',');
+  }, actualFile);
+
+  return useRom(newSpec, { sessionId: sid }, actualFile);
+}
+
+function listPacks(file = dbPath()) {
+  return withDb((db) => {
+    const allRoms = db.prepare('SELECT * FROM roms ORDER BY pack ASC, name ASC').all().map(romMod.hydrateRom);
+    const byPack = new Map();
+    for (const r of allRoms) {
+      if (r.pack === 'core') continue;
+      if (!byPack.has(r.pack)) {
+        const meta = romMod.PACK_METADATA[r.pack];
+        byPack.set(r.pack, {
+          pack: r.pack,
+          title: meta ? meta.title : `Custom Crew Bank (${r.pack})`,
+          starters: [],
+          backups: [],
+        });
+      }
+      const entry = byPack.get(r.pack);
+      if (r.tier === 'backup') entry.backups.push(r);
+      else entry.starters.push(r);
+    }
+    const seatOrder = romMod.SEAT_ORDER;
+    for (const entry of byPack.values()) {
+      entry.starters.sort((a, b) => seatOrder.indexOf(a.seat) - seatOrder.indexOf(b.seat));
+    }
+    return [...byPack.values()];
+  }, file);
+}
+
 function useRom(name, options = {}, file = dbPath()) {
   if (!name || !String(name).trim()) throw new Error('give a ROM name or crew roster to activate, e.g. construct rom use crew');
   const key = String(name).trim().toLowerCase();
@@ -1180,6 +1299,9 @@ function setRom(nameInput, fields = {}, file = dbPath()) {
       tx(db, () => {
         const existingRow = db.prepare('SELECT * FROM roms WHERE name = ?').get(name);
         const existing = existingRow ? romMod.hydrateRom(existingRow) : null;
+        const pack = fields.pack !== undefined ? String(fields.pack).trim().toLowerCase() : existing?.pack || 'sprawl';
+        const seat = fields.seat !== undefined ? String(fields.seat).trim().toLowerCase() : existing?.seat || 'recon';
+        const tier = fields.tier !== undefined ? String(fields.tier).trim().toLowerCase() : existing?.tier || 'primary';
         const handle = fields.handle !== undefined ? String(fields.handle).trim() : existing?.handle || name;
         const tagline = fields.tagline !== undefined ? String(fields.tagline).trim() : existing?.tagline || '';
         const voice = fields.voice !== undefined ? String(fields.voice).trim() : existing?.voice || '';
@@ -1198,9 +1320,12 @@ function setRom(nameInput, fields = {}, file = dbPath()) {
         }
 
         db.prepare(
-          `INSERT INTO roms (name, handle, tagline, voice, dials, directives, active, updated)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO roms (name, pack, seat, tier, handle, tagline, voice, dials, directives, active, updated)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
+           pack = excluded.pack,
+           seat = excluded.seat,
+           tier = excluded.tier,
            handle = excluded.handle,
            tagline = excluded.tagline,
            voice = excluded.voice,
@@ -1208,7 +1333,7 @@ function setRom(nameInput, fields = {}, file = dbPath()) {
            directives = excluded.directives,
            active = excluded.active,
            updated = excluded.updated`
-        ).run(name, handle, tagline, voice, JSON.stringify(dials), JSON.stringify(directives), active, now);
+        ).run(name, pack, seat, tier, handle, tagline, voice, JSON.stringify(dials), JSON.stringify(directives), active, now);
 
         const updated = getRomInDb(db, name);
         if (updated.active) {
@@ -2169,8 +2294,10 @@ module.exports = {
   zoomFrame,
   searchFrames,
   listRoms,
+  listPacks,
   getRom,
   useRom,
+  subRom,
   setDefaultRom,
   tuneRom,
   setRom,

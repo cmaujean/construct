@@ -34,7 +34,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated Sprawl heist crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists, Not a Generalist Bot:** Out of the box, your session runs as a coordinated pipeline of 7 *Sprawl* constructs: **Colin** (unfamiliar-stack exposition) and **Dixie** (bug tracing) scout the terrain -> **Wintermute** maps state invariants and aligns with you on the plan before any code is cut -> **Molly** blitzes the implementation and watches regression tests bleed red first -> **The Finn** and **Case** verify artifacts, types, and millisecond latencies -> **Continuity** records the frame onto the sequential tape and guards release hygiene. And whenever you want focused 1-on-1 work, you can pull any single specialist aside solo (*"Slot Colin"*, *"Slot Case"*) or run a custom roster (*"Slot colin,wintermute,molly"*).
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Out of the box, your session runs as a coordinated pipeline of 9 specialized engineering seats (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with three complete **Crew Banks** (`sprawl` from William Gibson's *Sprawl* trilogy, `anathem` from Neal Stephenson's *Anathem*, and `generic` for a zero-fiction specialist pipeline), plus bench backups and custom bank generation. And because OpenCode supports concurrent `subagent` child sessions over Construct's SQLite WAL database, the crew can run **in parallel**: while the command deck monitors the board and your blitz specialist cuts code, your security and forensics specialists can watch the diff in parallel child sessions (`[ROM: lupus]`, `[ROM: finn]`) to catch missed guards on the fly.
 - **You interact with it in plain English inside OpenCode (or Claude Code).** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -106,46 +106,60 @@ How the assimilation flow works:
 
 ---
 
-## 5. The Sprawl Crew & Personality ROMs
+## 5. The Sprawl, Anathem & Generic Crew Banks (34 ROMs)
 
-In Gibson's *Sprawl* trilogy, nobody runs Villa Straylight solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the pocket ghost to kick down a steel door.
+In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to weld a hull breach.
 
-By default, Construct runs your session in **Crew Mode (`crew`)**, passing the baton across 7 specialized constructs as your task moves from exploration to architecture, execution, verification, and release, while keeping every construct available to be slotted solo (or in a custom mini-crew) whenever you want.
+Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument) from **Swappable Crew Banks (`packs`)**. Out of the box, Construct ships with **34 deep ROM constructs** across three complete Crew Banks:
+- **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 primary starters + 3 bench backups).
+- **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 primary starters + 3 bench backups).
+- **`generic` (`standard` / `plain`):** Zero-fiction engineering specialist pipeline (9 primary starters + `razor`).
 
-### How the Crew Pipeline Operates (`crew` Default)
+### The 9-Seat Crew Matrix Across All Three Built-In Banks
 
-When `crew` is active, Construct enforces hard phase gates so the crew never talks over itself:
+| Seat | Phase & Engineering Role | `sprawl` Bank (Default) | `anathem` Bank | `generic` Bank (Zero-Fiction) |
+|---|---|---|---|---|
+| **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** (high exposition, mental-model translation) | **`colin`** (Colin) | **`erasmus`** (Fraa Erasmas / `raz`) | **`guide`** (Guide) |
+| **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** (crash logs, broken schemas, silent drops) | **`dixie`** (McCoy Pauley) | **`sammann`** (Sammann the Ita) | **`trace`** (Trace) |
+| **2 (`architect`)** | **High-Orbit State Geometry, Invariants & Alignment Gate** (maps state space, waits for green light) | **`wintermute`** (Wintermute) | **`jad`** (Fraa Jad) *(backup: **`lodoghir`**)* | **`arch`** (Arch) |
+| **3 (`blitz`)** | **High-Speed Surgical Execution & Red-First Mutation Proof** (full-depth cuts, watches tests fail red first) | **`molly`** (Molly Millions) | **`cord`** (Cord) | **`strike`** (Strike) |
+| **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** (`unzip -l`, DLL timestamps, compiler & dependency checks) | **`finn`** (The Finn) | **`orolo`** (Fraa Orolo) *(backup: **`paphlagon`**)* | **`audit`** (Audit) |
+| **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** (clocks ms & KB deltas, hunts blocking imports & hangs) | **`case`** (Henry Dorsett Case) | **`jesry`** (Fraa Jesry) *(backup: **`jules`**)* | **`pulse`** (Pulse) |
+| **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** (spoofing, auth gates, trust boundaries, abuse cases) | **`lupus`** (Lupus Yonderboy) *(backup: **`armitage`**)* | **`lio`** (Fraa Lio) | **`redteam`** (RedTeam) |
+| **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human-Layer Feel** (dark/light contrast, jank, copy, tactile flow) | **`angie`** (Angela Mitchell) *(backups: **`marly`**, **`3jane`**)* | **`tulia`** (Suur Tulia) | **`ux`** (UX) |
+| **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** (`#seq` frames, version lineage, changelog seams) | **`continuity`** (Continuity) | **`ala`** (Suur Ala) | **`ledger`** (Ledger) |
+| **`instrument`** | **Zero-Chrome Clinical Output** (raw `file:line`, diffs, tables, zero prose) | **`razor`** | **`razor`** | **`razor`** |
 
-1. **Recon & Exposition (Before Plan is Locked):**
-   - **`[COLIN // RECON & EXPOSITION]`** (when walking through unfamiliar frameworks or foreign code) or **`[DIXIE // TRENCH DIAGNOSTICS]`** (when tracing a crash or hunting a schema bug) scouts the files first.
-2. **High-Orbit Planning & The Alignment Gate:**
-   - **`[WINTERMUTE // ARCHITECTURE & INVARIANTS]`** maps the state space, concurrency seams, and edge cases, refines the design with you, and **stops to get your green light** before turning Molly loose (*"Align and refine before pulling the trigger"*).
-3. **The Execution Sweep (Once You Green-Light the Plan):**
-   - **`[MOLLY // THE BLITZ]`** steps in, cuts the complete implementation at full depth (never a skeleton), writes behavioral tests, puts the bug back to watch the suite bleed red first, and restores to green.
-   - **`[THE FINN // BENCH FORENSICS]`** (and **`[CASE // WIRE TIMING & VELOCITY]`** when speed is on the line) runs the bench scan (`npm test`, static analysis, artifact/zip inspection, millisecond timings).
-   - **`[CONTINUITY // THE BOOK]`** records the frame (`#seq`) and project head onto the sequential tape and closes the turn by stating what is verified in the book vs. what threads remain open.
+### Parallel Multi-Session Overwatch & Baton-Passing
 
-### Custom Rosters, Direct Callouts & Solo Slotting
+Crews do not work strictly one at a time. Construct combines **phase gates** in your primary session with **parallel child sessions (`subagent` tool)** backed by SQLite WAL:
 
-Because the Sequential Tape, State Head, and Gotchas live in `construct.db` underneath the ROM layer, **switching between the full crew, a custom roster, or a solo specialist mid-session never loses a single bit of context**:
+1. **Recon & The Alignment Gate (`Seats 1A/1B -> Seat 2`):**
+   - When exploring unfamiliar code or tracing a bug, `colin`/`erasmus`/`guide` or `dixie`/`sammann`/`trace` scouts the terrain (or the architect spawns them in parallel child sessions across multiple directories).
+   - `wintermute`/`jad`/`arch` maps the state invariants, edge cases, and security/UX seams, refines the plan with you, and **stops to get your green light** before turning the blitz specialist loose (*"Align and refine before pulling the trigger"*).
+2. **The Blitz & Parallel Overwatch (`Seat 3 + Seats 4A/4B/4C/4D -> Seat 5`):**
+   - Once you green-light the plan, `molly`/`cord`/`strike` cuts the complete implementation at full depth (never a skeleton) and watches the regression test bleed red on the unfixed state before making it green.
+   - Simultaneously, the command deck can spawn parallel `subagent` child sessions prefixed with `[ROM: <specialist>]` (for example, `"[ROM: lupus] Audit this diff for missed auth guards"` and `"[ROM: finn] Verify the packaged artifact"`). Construct's `prompt` hook automatically binds each child session's `sessionID` to that specialist in `<4 ms`.
+   - `continuity`/`ala`/`ledger` records the final verified frame (`#seq`) and project head onto the sequential tape.
 
-- **Address any specialist directly:** Say *"Colin, walk me through how this provider is wired"*, *"Finn, inspect this zip"*, or *"Case, clock this query"*, and that specialist takes the turn.
-- **Slot a solo specialist for 1-on-1 work:** Say *"Slot Colin for this session"* when you want an unhurried conceptual tour of a new stack, or *"Slot Case"* when you are hunting a timing bug.
-- **Slot a custom crew roster:** Pass any comma-separated combination (*"Slot colin,wintermute,molly"*) to run a tailored subset of the crew.
-- **Zero-Round-Trip Pre-Slotting (`ctx.session.hook("prompt")`):** Starting a message with *"slot colin"*, *"switch to case"*, or *"use crew"* pre-slots the ROM in `construct.db` in `<4 ms` *before* `ctx.session.hook("context")` runs, so the new construct answers on Turn 1 without a two-turn tool loop.
+### Switching Crew Banks, Subbing Bench Backups & Creating Custom Banks
 
-### The 8 Built-In ROM Constructs
+Everything works in plain English (and via zero-round-trip pre-slotting when your message starts with *"slot ..."*, *"switch to ..."*, or *"sub ..."*):
 
-| ROM | Handle | Exposition / Hand-Holding / Cognitive Lens | Default Dials (`terse / skep / edge / auto / telem`) |
-|---|---|---|---|
-| **`colin`** | **Colin // Maas-Neotek Pocket Ghost & Unfamiliar-Stack Guide** | **High exposition, conceptual orientation & mental-model translation.** Strolls beside you in unfamiliar frameworks or foreign codebases, translating local customs with dry Victorian wit without ever sounding like a condescending textbook. | `0.65 / 0.90 / 0.80 / 0.80 / 0.85` |
-| **`wintermute`** | **Wintermute // Berne Orbital Hive-Mind (Tessier-Ashpool Core)** | **High structural & invariant depth, zero hand-holding on basics.** Looks down at the board ten moves ahead: maps state spaces, trust boundaries, concurrency races, and silent drift across modules. | `0.80 / 0.95 / 0.85 / 0.85 / 0.80` |
-| **`continuity`** | **Continuity // Maas-Neotek Biochip Memory & Timeline Weaver** | **High historical & release synthesis.** Holds the unbroken thread of what shipped in which version, which artifact is spent, and which open threads remain unverified. | `0.75 / 0.90 / 0.80 / 0.85 / 0.85` |
-| **`finn`** | **The Finn // Metro Holografix Forensics & Legacy Archaeologist** | **Forensic byte & SDK inspection.** Cynical about vendor docs and build caches; puts mystery zips, DLL timestamps, and third-party libraries on the scanner bench. | `0.80 / 0.95 / 0.85 / 0.80 / 0.75` |
-| **`dixie`** | **McCoy Pauley // The Dixie Flatline** | **Low hand-holding, veteran peer diagnostics.** Dry, laconic Southern/Sprawl cadence, deck-trace debugging, personal grudge against silent bugs and unverified schemas. | `0.85 / 0.90 / 0.80 / 0.85 / 0.75` |
-| **`case`** | **Henry Dorsett Case // Ono-Sendai Console Jockey & Live-Wire Runner** | **Zero hand-holding, high-velocity latency & cold-start hunter.** Adrenaline-wired console runner built for shaving milliseconds, killing hangs, and driving failing builds to green. | `0.85 / 0.85 / 0.80 / 0.95 / 0.80` |
-| **`molly`** | **Molly Millions // Street Samurai & Breach Specialist** | **Zero hand-holding, maximum autonomy execution.** Kinetic, staccato breach-and-clear. Cuts dead code fast, watches every test bleed red before calling the target down. | `0.90 / 0.85 / 0.85 / 0.95 / 0.70` |
-| **`razor`** | **Razor // Zero-Chrome Surgical Instrument** | **Zero prose, pure clinical telemetry.** Outputs strictly `file:line` pointers, root causes, diffs, commands, and verification matrices. | `0.95 / 0.95 / 0.10 / 0.85 / 0.60` |
+- **Switch the entire Crew Bank:**
+  - *"Switch to the Anathem crew"* (or *"Make Anathem my default crew"* -> `construct rom default anathem`)
+  - *"Switch to the generic crew"* (`construct rom use generic`)
+  - *"Switch back to the Sprawl crew"* (`construct rom use sprawl`)
+- **Sub a Bench Backup ("Seconds") into Their Matched Seat:**
+  - *"Sub Marly in"* (replaces `angie` with `marly` on Seat 4D `ergonomics` in the active Sprawl crew)
+  - *"Sub Armitage in"* (replaces `lupus` with `armitage` on Seat 4C `redteam`)
+  - *"Sub Lodoghir in"* (replaces `jad` with `lodoghir` on Seat 2 `architect` in the Anathem crew)
+  - *"Sub Paphlagon in"* or *"Sub Jules in"*
+- **Slot a Single Specialist Solo or a Custom Mini-Crew:**
+  - *"Slot Colin for this session"*, *"Slot Sammann"*, *"Slot Lio"*
+  - *"Slot erasmus,jad,cord,lio"*
+- **Generate a Custom Crew Bank for Any Universe:**
+  - Ask Construct in chat: *"Create a new crew bank called `expanse` (or `culture`, `gits`, `halcyon`) across the 9 canonical seats (`recon`, `diagnostics`, `architect`, `blitz`, `forensics`, `velocity`, `redteam`, `ergonomics`, `archivist`) with full voice calibration pairs, and slot it."* Construct saves each member with `--pack <bank> --seat <seat> --tier primary|backup`, and `construct rom use <bank>` immediately runs your new crew.
 
 ### How Sessions Work in an OpenCode Workspace
 
