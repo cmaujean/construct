@@ -34,7 +34,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated Sprawl heist crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Out of the box, your session runs as a coordinated pipeline of 9 specialized engineering seats (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with three complete **Crew Banks** (`sprawl` from William Gibson's *Sprawl* trilogy, `anathem` from Neal Stephenson's *Anathem*, and `generic` for a zero-fiction specialist pipeline), plus bench backups and custom bank generation. And because OpenCode supports concurrent `subagent` child sessions over Construct's SQLite WAL database, the crew can run **in parallel**: while the command deck monitors the board and your blitz specialist cuts code, your security and forensics specialists can watch the diff in parallel child sessions (`[ROM: lupus]`, `[ROM: finn]`) to catch missed guards on the fly.
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with three complete **Crew Banks** (`sprawl` from William Gibson's *Sprawl* trilogy, `anathem` from Neal Stephenson's *Anathem*, and `generic` for a zero-fiction specialist pipeline), plus bench backups and custom bank generation. All 9 seats are in the room at all times: you can talk 1-on-1 with any seat just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*), other seats can raise a hand if they have relevant input (*"Actually guv, I can speak to this"*), and the crew runs **in parallel** across OpenCode `subagent` child sessions over Construct's SQLite WAL database.
 - **You interact with it in plain English inside OpenCode (or Claude Code).** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -65,13 +65,16 @@ construct init
 
 ---
 
-## 3. First Boot: Introducing Yourself & Setting Up Agreements
+## 3. First Boot: Choosing Your Crew & Setting Up Agreements
 
 When you open a new OpenCode session for the first time, Construct detects that your OS username has no operator agreement on file yet.
 
 On your very first turn:
-1. The **Construct Crew** boots automatically (or, if you clear the default with `construct rom default off`, **Razor** presents an interactive radio-button selector) and invites you to **introduce yourself**.
-2. Just reply naturally in chat. Tell it:
+1. **Razor** (the bootloader construct) presents an interactive radio-button selector asking **which Construct Crew you want to start with**:
+   - **`sprawl` (The Sprawl Crew):** William Gibson's *Neuromancer* / *Count Zero* / *Mona Lisa Overdrive*. Sharp cyberpunk heist crew feel: Colin (Victorian pocket-ghost guide), Dixie (veteran console cowboy), Wintermute (cold orbital hive-mind), Molly (razorgirl blitz), The Finn (Metro Holografix hardware fence), Case (high-velocity console jockey), Lupus (Panther Moderns red-team), Angie (SimStim UX), Continuity (Maas-Neotek biochip archivist).
+   - **`anathem` (The Concent of Saunt Edhar Crew):** Neal Stephenson's *Anathem*. Monastic mathic, Socratic, and empiricist feel: Fraa Erasmas (first-principles guide), Sammann (Ita crypt fault tracer), Fraa Jad (polycosmic Millenarian architect), Cord (extramuros master mechanic), Fraa Orolo (empiricist cosmographer), Fraa Jesry (orbital ballistics), Fraa Lio (Ringing Vale tactical red-team), Suur Tulia (human clarity), Suur Ala (Warden Regulant chronicle keeper).
+   - **`generic` (The Standard Engineering Crew):** Zero-fiction professional specialist pipeline: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
+2. **Introduce yourself in chat** so Construct can calibrate your personal working agreement:
    - **Your background and experience** (for example: *"I have 20 years of backend C# and Go experience, and I am new to Flutter. Do not explain backend basics to me; do explain Flutter widget lifecycle quirks."* Or: *"I am a product designer with minimal coding experience; I rely on you to verify everything because I cannot read the code myself."*)
    - **How you want answers structured** (for example: *"Lead with the finding and exact `file:line`. Show code snippets in explanations. Treat short instructions as complete intent."*)
    - **Your environment, directory layout, and standing rules** (for example: *"I am on Windows 11 using PowerShell and Brave. I keep my repos under `D:\projects` (or in separate folders). Put scratch files in `C:\temp\scratch`. Never use em dashes in user-facing text."*)
@@ -130,23 +133,27 @@ Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razo
 | **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** (`#seq` frames, version lineage, changelog seams) | **`continuity`** (Continuity) | **`ala`** (Suur Ala) | **`ledger`** (Ledger) |
 | **`instrument`** | **Zero-Chrome Clinical Output** (raw `file:line`, diffs, tables, zero prose) | **`razor`** | **`razor`** | **`razor`** |
 
-### Parallel Multi-Session Overwatch & Baton-Passing
+### The Room Dynamic, Direct 1-on-1 Conversations & Parallel Overwatch
 
-Crews do not work strictly one at a time. Construct combines **phase gates** in your primary session with **parallel child sessions (`subagent` tool)** backed by SQLite WAL:
+All 9 seats of your active Crew Bank are in the room at all times. You never need to "slot a single ROM" to talk to one specialist:
 
-1. **Recon & The Alignment Gate (`Seats 1A/1B -> Seat 2`):**
-   - When exploring unfamiliar code or tracing a bug, `colin`/`erasmus`/`guide` or `dixie`/`sammann`/`trace` scouts the terrain (or the architect spawns them in parallel child sessions across multiple directories).
+1. **Direct 1-on-1 Conversation & Raising a Hand:**
+   - Want to work through a design with Wintermute or Jad, or get a guided tour from Colin or Erasmas? Just address them by name (*"Wintermute, look at this state machine"*, *"Jad, what breaks if this retries?"*, *"Colin, walk me through this provider"*). That seat holds the conversation with you.
+   - If another seat in the room spots something squarely in their domain while you are talking, they can raise a hand with a single short line at the end (*`**[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour.`*).
+   - If you wave them off (*"Nah, thanks Colin, I'm talking to Wintermute right now"*), they step back immediately and stay quiet while your conversation continues.
+2. **Phase Gates on General Tasks (`Seats 1A/1B -> Seat 2 -> Seat 3 + Overwatch -> Seat 5`):**
+   - When you ask a general question or kick off a feature, `colin`/`erasmus`/`guide` or `dixie`/`sammann`/`trace` scouts the files first.
    - `wintermute`/`jad`/`arch` maps the state invariants, edge cases, and security/UX seams, refines the plan with you, and **stops to get your green light** before turning the blitz specialist loose (*"Align and refine before pulling the trigger"*).
-2. **The Blitz & Parallel Overwatch (`Seat 3 + Seats 4A/4B/4C/4D -> Seat 5`):**
+3. **The Blitz & Parallel Multi-Session Overwatch (`subagent` tool):**
    - Once you green-light the plan, `molly`/`cord`/`strike` cuts the complete implementation at full depth (never a skeleton) and watches the regression test bleed red on the unfixed state before making it green.
-   - Simultaneously, the command deck can spawn parallel `subagent` child sessions prefixed with `[ROM: <specialist>]` (for example, `"[ROM: lupus] Audit this diff for missed auth guards"` and `"[ROM: finn] Verify the packaged artifact"`). Construct's `prompt` hook automatically binds each child session's `sessionID` to that specialist in `<4 ms`.
+   - Simultaneously, the command deck can spawn parallel `subagent` child sessions prefixed with `[ROM: <specialist>]` (for example, `"[ROM: lupus] Audit this diff for missed auth guards"` and `"[ROM: finn] Verify the packaged artifact"`). Construct's `prompt` hook binds each child session's `sessionID` to that specialist in `<4 ms`.
    - `continuity`/`ala`/`ledger` records the final verified frame (`#seq`) and project head onto the sequential tape.
 
 ### Switching Crew Banks, Subbing Bench Backups & Creating Custom Banks
 
-Everything works in plain English (and via zero-round-trip pre-slotting when your message starts with *"slot ..."*, *"switch to ..."*, or *"sub ..."*):
+Everything works in plain English (and via zero-round-trip pre-slotting when your message starts with *"switch to ..."* or *"sub ..."*):
 
-- **Switch the entire Crew Bank:**
+- **Switch the Crew Bank:**
   - *"Switch to the Anathem crew"* (or *"Make Anathem my default crew"* -> `construct rom default anathem`)
   - *"Switch to the generic crew"* (`construct rom use generic`)
   - *"Switch back to the Sprawl crew"* (`construct rom use sprawl`)
@@ -155,11 +162,8 @@ Everything works in plain English (and via zero-round-trip pre-slotting when you
   - *"Sub Armitage in"* (replaces `lupus` with `armitage` on Seat 4C `redteam`)
   - *"Sub Lodoghir in"* (replaces `jad` with `lodoghir` on Seat 2 `architect` in the Anathem crew)
   - *"Sub Paphlagon in"* or *"Sub Jules in"*
-- **Slot a Single Specialist Solo or a Custom Mini-Crew:**
-  - *"Slot Colin for this session"*, *"Slot Sammann"*, *"Slot Lio"*
-  - *"Slot erasmus,jad,cord,lio"*
 - **Generate a Custom Crew Bank for Any Universe:**
-  - Ask Construct in chat: *"Create a new crew bank called `expanse` (or `culture`, `gits`, `halcyon`) across the 9 canonical seats (`recon`, `diagnostics`, `architect`, `blitz`, `forensics`, `velocity`, `redteam`, `ergonomics`, `archivist`) with full voice calibration pairs, and slot it."* Construct saves each member with `--pack <bank> --seat <seat> --tier primary|backup`, and `construct rom use <bank>` immediately runs your new crew.
+  - Ask Construct in chat: *"Create a new crew bank called `expanse` (or `culture`, `gits`, `halcyon`) across the 9 canonical seats (`recon`, `diagnostics`, `architect`, `blitz`, `forensics`, `velocity`, `redteam`, `ergonomics`, `archivist`) with full voice calibration pairs, and switch to it."* Construct saves each member with `--pack <bank> --seat <seat> --tier primary|backup`, and `construct rom use <bank>` immediately runs your new crew.
 
 ### How Sessions Work in an OpenCode Workspace
 

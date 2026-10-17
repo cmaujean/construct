@@ -241,12 +241,15 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.match(bootDefaultCrew.sessionRomPrompt, /lupus/);
     assert.match(bootDefaultCrew.sessionRomPrompt, /angie/);
 
-    // Clearing the default (`setDefaultRom('off')`) makes a brand-new session (`ses_new`) boot with `razor` and the bootloader selector prompt
+    // Clearing the default (`setDefaultRom('off')`) makes a brand-new session (`ses_new`) boot with `razor` and the 3-Crew bootloader selector prompt
     store.setDefaultRom('off');
     const bootNew = store.bootProject('acme/alpha_app', { sessionId: 'ses_new' });
     assert.equal(bootNew.rom.name, 'razor');
     assert.equal(bootNew.romSlotted, false);
-    assert.match(bootNew.sessionRomPrompt, /SESSION BOOTLOADER: NO ROM SLOTTED FOR THIS SESSION YET/);
+    assert.match(bootNew.sessionRomPrompt, /SESSION BOOTLOADER: SELECT YOUR CONSTRUCT CREW BANK/);
+    assert.match(bootNew.sessionRomPrompt, /sprawl \(The Sprawl Crew/);
+    assert.match(bootNew.sessionRomPrompt, /anathem \(The Concent of Saunt Edhar Crew\)/);
+    assert.match(bootNew.sessionRomPrompt, /generic \(The Standard Engineering Crew\)/);
 
     // 2. Slotting `molly` in `ses_A` and `wintermute` in `ses_B` keeps both isolated and leaves `ses_new` untouched
     store.useRom('molly', { sessionId: 'ses_A' });
@@ -400,7 +403,7 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const synced1 = store.syncRom();
     assert.equal(synced1.user, null);
     assert.equal(synced1.detectedLogin, 'newbie');
-    assert.match(fs.readFileSync(tmp.romFile, 'utf8'), /UNREGISTERED \(`newbie`\) — Onboarding Required/);
+    assert.match(fs.readFileSync(tmp.romFile, 'utf8'), /UNREGISTERED \(`newbie`\) — First-Boot Crew Selection/);
 
     const createdUser = store.setUser('newbie', {
       name: 'Case',

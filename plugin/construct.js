@@ -228,34 +228,34 @@ export default {
       runConstruct(["rom", directive.action, directive.target, ...sessionArgs])
     })
 
-    // 0. Watch for newly created sessions on the server event stream: if no ROM is slotted
-    //    and no default_rom is set, trigger a synthetic turn so Razor immediately presents
-    //    the interactive `question` radio-button array before the user types a prompt.
-    const eventAbort = new AbortController()
-    if (ctx.event?.subscribe) {
-      void (async () => {
-        try {
-          for await (const ev of ctx.event.subscribe({ signal: eventAbort.signal })) {
-            const type = ev?.type || ""
-            const sessionID = ev?.data?.id || ev?.data?.sessionID || ""
-            if (
-              sessionID &&
-              !promptedSessions.has(sessionID) &&
-              (type === "session.created" || type === "session.opened")
-            ) {
-              promptedSessions.add(sessionID)
-              const check = runConstruct(["projects", "--session", String(sessionID)])
-              if (check.includes("SESSION BOOTLOADER: NO ROM SLOTTED FOR THIS SESSION YET")) {
-                await ctx.session.synthetic({
-                  sessionID: String(sessionID),
-                  text: "Session opened. Call the `question` tool now to present the Construct Personality ROM radio-button selector.",
-                })
-              }
+  // Check for newly created sessions on the server event stream: if no Crew is bound
+  // and default_rom is 'off' (or operator is unregistered), trigger a synthetic turn so Razor
+  // immediately presents the interactive `question` Crew Bank radio-button selector.
+  const eventAbort = new AbortController()
+  if (ctx.event?.subscribe) {
+    void (async () => {
+      try {
+        for await (const ev of ctx.event.subscribe({ signal: eventAbort.signal })) {
+          const type = ev?.type || ""
+          const sessionID = ev?.data?.id || ev?.data?.sessionID || ""
+          if (
+            sessionID &&
+            !promptedSessions.has(sessionID) &&
+            (type === "session.created" || type === "session.opened")
+          ) {
+            promptedSessions.add(sessionID)
+            const check = runConstruct(["projects", "--session", String(sessionID)])
+            if (check.includes("SESSION BOOTLOADER:")) {
+              await ctx.session.synthetic({
+                sessionID: String(sessionID),
+                text: "Session opened. Call the `question` tool now to present the Construct Crew Bank radio-button selector.",
+              })
             }
           }
-        } catch (_) {}
-      })()
-    }
+        }
+      } catch (_) {}
+    })()
+  }
 
     // 1. Inject live sequential memory construct + session-scoped ROM into every primary model turn
     await ctx.session.hook("context", async (event) => {
