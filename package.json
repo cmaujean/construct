@@ -1,0 +1,22 @@
+{
+  "name": "construct",
+  "version": "0.1.0",
+  "license": "MIT",
+  "author": "Christopher Maujean <christopher@maujean.org>",
+  "description": "Sequential memory construct, swappable Personality ROMs, operator agreements, and DIDComm/MLS/CRDT sync for OpenCode.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cmaujean/construct.git"
+  },
+  "bin": {
+    "construct": "bin/construct.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "construct": "node bin/construct.js",
+    "install-plugin": "node -e \"require('./src/store').installPluginFile()\""
+  }
+}
