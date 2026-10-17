@@ -679,7 +679,38 @@ Found 2026-09-28.
   });
 
   it('enforces the pre-execution shell guard, switches >12 project gotchas to compact index mode, and shadows/detects drift on shared repo instruction files', async () => {
-    const { validateShellCommand, stripShadowedInstructions, detectPreSlotRomDirective } = await import('../plugin/construct.js');
+    const {
+      validateShellCommand,
+      stripShadowedInstructions,
+      detectPreSlotRomDirective,
+      resolveBootWithFallback,
+    } = await import('../plugin/construct.js');
+
+    // Bounded last-known-good boot cache prevents transient edits/errors from dropping a session's ROM mid-loop
+    const bootCache = new Map();
+    assert.equal(
+      resolveBootWithFallback('# Active Session Mode: Sprawl Crew', bootCache, 'ses_alpha', 'C:/src/alpha_app'),
+      '# Active Session Mode: Sprawl Crew'
+    );
+    assert.equal(
+      resolveBootWithFallback('', bootCache, 'ses_alpha', 'C:/src/alpha_app'),
+      '# Active Session Mode: Sprawl Crew'
+    );
+    assert.equal(
+      resolveBootWithFallback('error: transient syntax error', bootCache, 'ses_alpha', 'C:/src/alpha_app'),
+      '# Active Session Mode: Sprawl Crew'
+    );
+    // Moving to a different directory must NOT serve the previous directory's cache
+    assert.equal(resolveBootWithFallback('', bootCache, 'ses_alpha', 'C:/src/other_repo'), '');
+    // FIFO cap at 50 entries
+    for (let i = 0; i < 55; i++) {
+      resolveBootWithFallback(`boot_${i}`, bootCache, `ses_${i}`, `C:/src/repo_${i}`);
+    }
+    assert.equal(bootCache.size, 50);
+
+    // Crew prompt includes the multi-step tool loop voice continuity rule
+    const sprawlCrew = store.getRom('sprawl');
+    assert.match(sprawlCrew.voice, /Voice Continuity Across Multi-Step Tool Loops/);
 
     // Zero-round-trip ROM pre-slot detector (including subagent `[ROM: <name>]` tags and backup substitutions)
     assert.deepEqual(detectPreSlotRomDirective('[ROM: lupus] Audit this diff for missed auth guards'), {

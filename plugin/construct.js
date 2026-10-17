@@ -224,10 +224,32 @@ export function detectPreSlotRomDirective(promptText) {
   return null
 }
 
+const MAX_BOOT_CACHE_ENTRIES = 50
+
+// Keep a bounded last-known-good `<construct-live-memory>` cache keyed by `${sessionID}::${dir}`
+// so if `construct` is momentarily mid-edit or running a red-phase test in another tab, active
+// tool loops never lose their session ROM or project gotchas on an intermediate step.
+export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir = "") {
+  const key = `${String(sessionId || "default")}::${normPathForMatch(dir || "")}`
+  const isGood = Boolean(rawOutput && typeof rawOutput === "string" && !rawOutput.startsWith("error:"))
+  if (isGood) {
+    if (cacheMap.has(key)) cacheMap.delete(key)
+    cacheMap.set(key, rawOutput)
+    while (cacheMap.size > MAX_BOOT_CACHE_ENTRIES) {
+      const oldestKey = cacheMap.keys().next().value
+      if (oldestKey === undefined) break
+      cacheMap.delete(oldestKey)
+    }
+    return rawOutput
+  }
+  return cacheMap.get(key) || ""
+}
+
 export default {
   id: "construct",
   async setup(ctx) {
     const promptedSessions = new Set()
+    const lastGoodBootBySession = new Map()
 
     // 0a. Pre-execution Shell Guard: block known shell traps in 0 tokens before spawning a process
     if (ctx.shell?.hook) {
@@ -285,9 +307,10 @@ export default {
         } catch (_) {}
       }
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
-      let output = dir
+      const rawOutput = dir
         ? runConstruct(["boot", "--dir", String(dir), "-n", "15", ...sessionArgs])
         : runConstruct(["projects", ...sessionArgs])
+      let output = resolveBootWithFallback(rawOutput, lastGoodBootBySession, event.sessionID, dir)
 
       if (output && !output.startsWith("error:")) {
         const shadowMatch = output.match(/^<!-- CONSTRUCT_SHADOWED:(\[.*?\]) -->\r?\n?/)
