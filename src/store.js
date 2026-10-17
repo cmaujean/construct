@@ -392,9 +392,14 @@ function resolveProjectFromDir(dirInput, file = dbPath()) {
 
 function getDefaultRomNameInDb(db) {
   const user = protocol.getCurrentUserInDb(db);
-  if (user && user.defaultRom) return user.defaultRom;
+  if (user) {
+    if (user.defaultRom === 'off') return '';
+    if (user.defaultRom) return user.defaultRom;
+  }
+  const offRow = db.prepare('SELECT active FROM roms WHERE active = -1 LIMIT 1').get();
+  if (offRow) return '';
   const activeRow = db.prepare('SELECT name FROM roms WHERE active = 1 LIMIT 1').get();
-  return activeRow?.name || '';
+  return activeRow?.name || 'crew';
 }
 
 function getActiveRomInDb(db, sessionId) {
@@ -431,11 +436,46 @@ function isSessionRomSlottedInDb(db, sessionId) {
 
 function getRomInDb(db, name) {
   if (!name) return getActiveRomInDb(db);
-  const rawKey = String(name).trim().toLowerCase();
-  const aliasKey = rawKey === 'architect' ? 'wintermute' : rawKey;
+  const rawSpec = String(name).trim().toLowerCase();
+  if (rawSpec === 'crew' || rawSpec === 'all' || rawSpec.includes(',')) {
+    const memberNames =
+      rawSpec === 'crew' || rawSpec === 'all'
+        ? [...romMod.DEFAULT_CREW_ROSTER]
+        : rawSpec
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+    if (!memberNames.length) throw new Error('crew roster cannot be empty');
+    const rosterRoms = memberNames.map((m) => {
+      const aliasKey = m === 'architect' ? 'wintermute' : m;
+      const row =
+        db.prepare('SELECT * FROM roms WHERE name = ?').get(aliasKey) ||
+        db.prepare('SELECT * FROM roms WHERE name = ?').get(m);
+      if (!row) throw new Error(`unknown ROM "${m}" in crew roster`);
+      return romMod.hydrateRom(row);
+    });
+    const canonicalName = rawSpec === 'all' ? 'crew' : rawSpec === 'crew' ? 'crew' : rosterRoms.map((r) => r.name).join(',');
+    return {
+      name: canonicalName,
+      handle:
+        canonicalName === 'crew'
+          ? 'Construct Crew // Full Sprawl Heist Pipeline'
+          : `Construct Crew // Custom Roster (${rosterRoms.map((r) => r.name).join(' -> ')})`,
+      tagline: `Coordinated specialist pipeline: ${rosterRoms.map((r) => r.name).join(' -> ')}`,
+      voice: romMod.compileCrewPersonaPrompt(rosterRoms, canonicalName),
+      dials: { terse: 0.8, skepticism: 0.95, edge: 0.85, autonomy: 0.9, telemetry: 0.85 },
+      directives: [],
+      active: true,
+      isCrew: true,
+      roster: rosterRoms.map((r) => r.name),
+      rosterRoms,
+      updated: nowIso(),
+    };
+  }
+  const aliasKey = rawSpec === 'architect' ? 'wintermute' : rawSpec;
   const row =
     db.prepare('SELECT * FROM roms WHERE name = ?').get(aliasKey) ||
-    db.prepare('SELECT * FROM roms WHERE name = ?').get(rawKey);
+    db.prepare('SELECT * FROM roms WHERE name = ?').get(rawSpec);
   if (!row) throw new Error(`unknown ROM "${name}"`);
   return romMod.hydrateRom(row);
 }
@@ -847,7 +887,9 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       .map(crdt.hydrateMessage);
 
     const sessionRomPrompt = romSlotted
-      ? romMod.compileRomPersonaOnly(rom)
+      ? rom.isCrew
+        ? rom.voice
+        : romMod.compileRomPersonaOnly(rom)
       : romMod.compileUnassignedBootloaderPrompt(rom, allRoms);
 
     // Check assimilated instruction files on disk for this project:
@@ -1036,15 +1078,18 @@ function setDefaultRom(nameOrOff, options = {}, file = dbPath()) {
         const user = protocol.getCurrentUserInDb(db, options.user);
         if (isClear) {
           db.prepare('UPDATE roms SET active = 0').run();
+          db.prepare("UPDATE roms SET active = -1 WHERE name = 'razor'").run();
           if (user) {
-            db.prepare("UPDATE users SET default_rom = '', updated = ? WHERE id = ?").run(now, user.id);
+            db.prepare("UPDATE users SET default_rom = 'off', updated = ? WHERE id = ?").run(now, user.id);
           }
           return { cleared: true, defaultRom: null, user: user ? user.id : null };
         }
 
         const target = getRomInDb(db, raw);
         db.prepare('UPDATE roms SET active = 0').run();
-        db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
+        if (!target.isCrew) {
+          db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
+        }
         if (user) {
           db.prepare('UPDATE users SET default_rom = ?, updated = ? WHERE id = ?').run(target.name, now, user.id);
         }
@@ -1070,7 +1115,7 @@ function getRom(name, options = {}, file = dbPath()) {
 }
 
 function useRom(name, options = {}, file = dbPath()) {
-  if (!name || !String(name).trim()) throw new Error('give a ROM name to activate, e.g. construct rom use dixie');
+  if (!name || !String(name).trim()) throw new Error('give a ROM name or crew roster to activate, e.g. construct rom use crew');
   const key = String(name).trim().toLowerCase();
   const sid = (typeof options === 'string' ? '' : options?.sessionId) || process.env.CONSTRUCT_SESSION_ID || '';
   const actualFile = typeof options === 'string' ? options : file;
@@ -1081,7 +1126,6 @@ function useRom(name, options = {}, file = dbPath()) {
         const target = getRomInDb(db, key);
         const now = nowIso();
         if (sid) {
-          // Bind ROM strictly to this session_id; never mutate global ROM or other sessions!
           db.prepare(
             `INSERT INTO session_roms (session_id, rom_name, updated)
              VALUES (?, ?, ?)
@@ -1092,9 +1136,10 @@ function useRom(name, options = {}, file = dbPath()) {
           return { ...target, active: true, sessionId: sid };
         }
         db.prepare('UPDATE roms SET active = 0').run();
-        db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
-        syncActiveRomInDb(db);
-        return getRomInDb(db, target.name);
+        if (!target.isCrew) {
+          db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
+        }
+        return target;
       }),
     actualFile
   );

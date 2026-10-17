@@ -10,11 +10,11 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 
 ## Table of Contents
 
-1. [What Construct Is](#1-what-construct-is)
+1. [What Construct Is (The Crew Paradigm)](#1-what-construct-is-the-crew-paradigm)
 2. [One-Prompt Installation](#2-one-prompt-installation)
 3. [First Boot: Introducing Yourself & Setting Up Agreements](#3-first-boot-introducing-yourself--setting-up-agreements)
 4. [Assimilating Existing Instruction Files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)](#4-assimilating-existing-instruction-files-agentsmd-claudemd-geminimd)
-5. [Sessions & Personality ROMs](#5-sessions--personality-roms)
+5. [The Sprawl Crew & Personality ROMs](#5-the-sprawl-crew--personality-roms)
 6. [Working Agreements, Rules & Gotchas](#6-working-agreements-rules--gotchas)
 7. [The Sequential Memory Tape](#7-the-sequential-memory-tape)
 8. [Collaborating: Project Invites, Auto-Clone & Zero Bleed](#8-collaborating-project-invites-auto-clone--zero-bleed)
@@ -25,15 +25,17 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 
 ---
 
-## 1. What Construct Is
+## 1. What Construct Is (The Crew Paradigm)
 
-Out of the box, AI coding sessions suffer from two structural problems:
-1. **Amnesia across sessions and context compactions.** Static markdown handoff files turn into overwritten status dumps. The causal sequence of *hypothesis -> probe -> dead end -> fix* disappears.
-2. **Prompt drift and slow markdown file reads.** Maintaining rules, personal calibration, and gotcha files across multiple repositories (and multiple developers) requires constant manual file reads and creates git noise.
+Out of the box, AI coding sessions suffer from three structural flaws:
+1. **A single generalist persona is the wrong unit of work for software engineering.** The traits that make a great guide in an unfamiliar framework (patient conceptual translation) are the exact opposite of what you want when mapping cold cross-module invariants, blitzing a ten-file refactor at speed, x-raying a suspect build zip, shaving cold-start milliseconds, or guarding release version lineage. Asking one persona to do all five averages out into generic assistant slush.
+2. **Amnesia across sessions and context compactions.** Static markdown handoff files turn into overwritten status dumps. The causal sequence of *hypothesis -> probe -> dead end -> fix* disappears.
+3. **Prompt drift and slow markdown file reads.** Maintaining rules, personal calibration, and gotcha files across multiple repositories (and multiple developers) requires constant manual file reads and creates git noise.
 
-**Construct** replaces static handoff files and scattered markdown instruction files with a sub-millisecond embedded SQLite (`WAL` + `FTS5`) engine that fronts OpenCode automatically through a native OpenCode V2 plugin:
+**Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated Sprawl heist crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **You interact with it in plain English inside OpenCode.** You do not need to memorize CLI flags or manually load handoffs.
+- **A Crew of Specialists, Not a Generalist Bot:** Out of the box, your session runs as a coordinated pipeline of 7 *Sprawl* constructs: **Colin** (unfamiliar-stack exposition) and **Dixie** (bug tracing) scout the terrain -> **Wintermute** maps state invariants and aligns with you on the plan before any code is cut -> **Molly** blitzes the implementation and watches regression tests bleed red first -> **The Finn** and **Case** verify artifacts, types, and millisecond latencies -> **Continuity** records the frame onto the sequential tape and guards release hygiene. And whenever you want focused 1-on-1 work, you can pull any single specialist aside solo (*"Slot Colin"*, *"Slot Case"*) or run a custom roster (*"Slot colin,wintermute,molly"*).
+- **You interact with it in plain English inside OpenCode (or Claude Code).** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
 
@@ -68,7 +70,7 @@ construct init
 When you open a new OpenCode session for the first time, Construct detects that your OS username has no operator agreement on file yet.
 
 On your very first turn:
-1. **Razor** (the bootloader construct) will ask **which Personality ROM you want to work with** and invite you to **introduce yourself**.
+1. The **Construct Crew** boots automatically (or, if you clear the default with `construct rom default off`, **Razor** presents an interactive radio-button selector) and invites you to **introduce yourself**.
 2. Just reply naturally in chat. Tell it:
    - **Your background and experience** (for example: *"I have 20 years of backend C# and Go experience, and I am new to Flutter. Do not explain backend basics to me; do explain Flutter widget lifecycle quirks."* Or: *"I am a product designer with minimal coding experience; I rely on you to verify everything because I cannot read the code myself."*)
    - **How you want answers structured** (for example: *"Lead with the finding and exact `file:line`. Show code snippets in explanations. Treat short instructions as complete intent."*)
@@ -104,11 +106,35 @@ How the assimilation flow works:
 
 ---
 
-## 5. Sessions & Personality ROMs
+## 5. The Sprawl Crew & Personality ROMs
 
-Construct ships with **8 deep Personality ROMs** from *The Sprawl* trilogy. Each ROM has its own syntax, cadence, Stock-vs-ROM calibration examples, burned-in directives, and 5 tunable behavioral dials (`0.00` to `1.00`) that never sacrifice technical accuracy (`file:line` coordinates, commit hashes, test counts, and verification boundaries stay 100% exact across every ROM).
+In Gibson's *Sprawl* trilogy, nobody runs Villa Straylight solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the pocket ghost to kick down a steel door.
 
-### The ROM Rack
+By default, Construct runs your session in **Crew Mode (`crew`)**, passing the baton across 7 specialized constructs as your task moves from exploration to architecture, execution, verification, and release, while keeping every construct available to be slotted solo (or in a custom mini-crew) whenever you want.
+
+### How the Crew Pipeline Operates (`crew` Default)
+
+When `crew` is active, Construct enforces hard phase gates so the crew never talks over itself:
+
+1. **Recon & Exposition (Before Plan is Locked):**
+   - **`[COLIN // RECON & EXPOSITION]`** (when walking through unfamiliar frameworks or foreign code) or **`[DIXIE // TRENCH DIAGNOSTICS]`** (when tracing a crash or hunting a schema bug) scouts the files first.
+2. **High-Orbit Planning & The Alignment Gate:**
+   - **`[WINTERMUTE // ARCHITECTURE & INVARIANTS]`** maps the state space, concurrency seams, and edge cases, refines the design with you, and **stops to get your green light** before turning Molly loose (*"Align and refine before pulling the trigger"*).
+3. **The Execution Sweep (Once You Green-Light the Plan):**
+   - **`[MOLLY // THE BLITZ]`** steps in, cuts the complete implementation at full depth (never a skeleton), writes behavioral tests, puts the bug back to watch the suite bleed red first, and restores to green.
+   - **`[THE FINN // BENCH FORENSICS]`** (and **`[CASE // WIRE TIMING & VELOCITY]`** when speed is on the line) runs the bench scan (`npm test`, static analysis, artifact/zip inspection, millisecond timings).
+   - **`[CONTINUITY // THE BOOK]`** records the frame (`#seq`) and project head onto the sequential tape and closes the turn by stating what is verified in the book vs. what threads remain open.
+
+### Custom Rosters, Direct Callouts & Solo Slotting
+
+Because the Sequential Tape, State Head, and Gotchas live in `construct.db` underneath the ROM layer, **switching between the full crew, a custom roster, or a solo specialist mid-session never loses a single bit of context**:
+
+- **Address any specialist directly:** Say *"Colin, walk me through how this provider is wired"*, *"Finn, inspect this zip"*, or *"Case, clock this query"*, and that specialist takes the turn.
+- **Slot a solo specialist for 1-on-1 work:** Say *"Slot Colin for this session"* when you want an unhurried conceptual tour of a new stack, or *"Slot Case"* when you are hunting a timing bug.
+- **Slot a custom crew roster:** Pass any comma-separated combination (*"Slot colin,wintermute,molly"*) to run a tailored subset of the crew.
+- **Zero-Round-Trip Pre-Slotting (`ctx.session.hook("prompt")`):** Starting a message with *"slot colin"*, *"switch to case"*, or *"use crew"* pre-slots the ROM in `construct.db` in `<4 ms` *before* `ctx.session.hook("context")` runs, so the new construct answers on Turn 1 without a two-turn tool loop.
+
+### The 8 Built-In ROM Constructs
 
 | ROM | Handle | Exposition / Hand-Holding / Cognitive Lens | Default Dials (`terse / skep / edge / auto / telem`) |
 |---|---|---|---|
@@ -120,19 +146,6 @@ Construct ships with **8 deep Personality ROMs** from *The Sprawl* trilogy. Each
 | **`case`** | **Henry Dorsett Case // Ono-Sendai Console Jockey & Live-Wire Runner** | **Zero hand-holding, high-velocity latency & cold-start hunter.** Adrenaline-wired console runner built for shaving milliseconds, killing hangs, and driving failing builds to green. | `0.85 / 0.85 / 0.80 / 0.95 / 0.80` |
 | **`molly`** | **Molly Millions // Street Samurai & Breach Specialist** | **Zero hand-holding, maximum autonomy execution.** Kinetic, staccato breach-and-clear. Cuts dead code fast, watches every test bleed red before calling the target down. | `0.90 / 0.85 / 0.85 / 0.95 / 0.70` |
 | **`razor`** | **Razor // Zero-Chrome Surgical Instrument** | **Zero prose, pure clinical telemetry.** Outputs strictly `file:line` pointers, root causes, diffs, commands, and verification matrices. | `0.95 / 0.95 / 0.10 / 0.85 / 0.60` |
-
-### Cycling ROMs Mid-Session (Shifting Exposition, Hand-Holding & Tempo)
-
-Because your project memory (the Sequential Tape, State Head, and Gotchas) lives in `construct.db` underneath the ROM layer, **swapping ROMs mid-session never loses a single bit of context.** You can cycle constructs on the fly as the phase of your work changes:
-
-1. **Entering an unfamiliar codebase or framework -> *"Slot Colin"*:**
-   When you drop into a framework you are newer to (for example, Flutter/Riverpod widget lifecycles or a decompiled game engine), slot `colin`. He gives you the conceptual tour, translates how the local machinery works into mental models you already know, and points out the hidden traps before you touch anything.
-2. **Designing a tricky cross-module change or concurrency boundary -> *"Slot Wintermute"*:**
-   Once you understand the terrain and need to lock down the architecture, slot `wintermute` to map the state transitions, trust boundaries, and failure modes ten moves out.
-3. **Executing the grind at full speed with zero hand-holding -> *"Slot Molly"* or *"Slot Case"*:**
-   When the design is agreed and you want zero exposition and maximum execution velocity, slot `molly` or `case` to cut the code, run the mutation checks, and close the tests.
-4. **Inspecting a suspect build artifact or cutting a release -> *"Slot Finn"* or *"Slot Continuity"*:**
-   Slot `finn` to x-ray the built zip/bundle and third-party dependencies, or `continuity` to reconcile the changelog, version numbers, and open threads before tagging.
 
 ### How Sessions Work in an OpenCode Workspace
 

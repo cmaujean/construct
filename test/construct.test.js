@@ -223,13 +223,21 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds built-in generic ROMs (dixie, molly, wintermute, continuity, finn, case, colin, razor), isolates ROMs per session, and supports until-further-notice default ROMs', () => {
+  it('seeds built-in generic ROMs (dixie, molly, wintermute, continuity, finn, case, colin, razor), defaults to crew mode, isolates ROMs per session, and supports razor selector mode', () => {
     const roms = store.listRoms();
     assert.equal(roms.length, 8);
     const active = store.getRom();
-    assert.equal(active.name, 'razor');
+    assert.equal(active.name, 'crew');
+    assert.equal(active.isCrew, true);
 
-    // 1. A brand-new session (`ses_new`) with no default ROM set boots with `razor` and the bootloader selector prompt
+    // 1. Out of the box, a new session boots into `crew` mode by default
+    const bootDefaultCrew = store.bootProject('acme/alpha_app', { sessionId: 'ses_default_crew' });
+    assert.equal(bootDefaultCrew.rom.name, 'crew');
+    assert.equal(bootDefaultCrew.romSlotted, true);
+    assert.match(bootDefaultCrew.sessionRomPrompt, /Construct Crew Pipeline/);
+
+    // Clearing the default (`setDefaultRom('off')`) makes a brand-new session (`ses_new`) boot with `razor` and the bootloader selector prompt
+    store.setDefaultRom('off');
     const bootNew = store.bootProject('acme/alpha_app', { sessionId: 'ses_new' });
     assert.equal(bootNew.rom.name, 'razor');
     assert.equal(bootNew.romSlotted, false);
@@ -268,6 +276,22 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.equal(bootAfterClear.rom.name, 'razor');
     assert.equal(bootAfterClear.romSlotted, false);
     assert.match(bootAfterClear.sessionRomPrompt, /SESSION BOOTLOADER/);
+
+    // 4. Full `crew` mode and custom comma-separated crew rosters (`colin,wintermute,molly`)
+    const crewRom = store.useRom('crew', { sessionId: 'ses_crew' });
+    assert.equal(crewRom.isCrew, true);
+    assert.deepEqual(crewRom.roster, ['colin', 'dixie', 'wintermute', 'molly', 'finn', 'case', 'continuity']);
+    const bootCrew = store.bootProject('acme/alpha_app', { sessionId: 'ses_crew' });
+    assert.match(bootCrew.sessionRomPrompt, /Construct Crew Pipeline/);
+    assert.match(bootCrew.sessionRomPrompt, /\[COLIN \/\/ RECON & EXPOSITION\]/);
+    assert.match(bootCrew.sessionRomPrompt, /\[MOLLY \/\/ THE BLITZ\]/);
+
+    const customCrew = store.useRom('colin,wintermute,molly', { sessionId: 'ses_custom' });
+    assert.equal(customCrew.isCrew, true);
+    assert.deepEqual(customCrew.roster, ['colin', 'wintermute', 'molly']);
+    const bootCustom = store.bootProject('acme/alpha_app', { sessionId: 'ses_custom' });
+    assert.match(bootCustom.sessionRomPrompt, /colin -> wintermute -> molly/);
+    assert.doesNotMatch(bootCustom.sessionRomPrompt, /- \*\*\[THE FINN \/\/ BENCH FORENSICS\]/);
 
     // Verify wintermute (and architect alias), continuity, finn, and case are seeded with full voice architecture
     const wm = store.getRom('wintermute');
@@ -587,7 +611,20 @@ Found 2026-09-28.
   });
 
   it('enforces the pre-execution shell guard, switches >12 project gotchas to compact index mode, and shadows/detects drift on shared repo instruction files', async () => {
-    const { validateShellCommand, stripShadowedInstructions } = await import('../plugin/construct.js');
+    const { validateShellCommand, stripShadowedInstructions, detectPreSlotRomDirective } = await import('../plugin/construct.js');
+
+    // Zero-round-trip ROM pre-slot detector
+    assert.deepEqual(detectPreSlotRomDirective('slot colin for this session'), { action: 'use', target: 'colin' });
+    assert.deepEqual(detectPreSlotRomDirective('switch to colin,wintermute,molly'), {
+      action: 'use',
+      target: 'colin,wintermute,molly',
+    });
+    assert.deepEqual(detectPreSlotRomDirective('make crew my default until further notice'), {
+      action: 'default',
+      target: 'crew',
+    });
+    assert.deepEqual(detectPreSlotRomDirective('clear my default rom'), { action: 'default', target: 'off' });
+    assert.equal(detectPreSlotRomDirective('use a slot in the table for the button'), null);
 
     // Clean commands pass
     assert.equal(validateShellCommand('git status -sb'), true);
@@ -694,7 +731,7 @@ Found 2026-09-28.
     const hookCtx = mcp.runClaudeHook('context', JSON.stringify({ session_id: 'claude_ses_1', cwd: tmp.dir }));
     assert.equal(hookCtx.exitCode, 0);
     assert.match(hookCtx.stdout, /<construct-live-memory/);
-    assert.match(hookCtx.stdout, /SESSION BOOTLOADER/);
+    assert.match(hookCtx.stdout, /Construct Crew Pipeline/);
 
     // Clean Bash command passes pre-tool hook
     const hookClean = mcp.runClaudeHook('pre-tool', JSON.stringify({ tool_input: { command: 'git status -sb' } }));

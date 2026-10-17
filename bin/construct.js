@@ -340,6 +340,8 @@ function handleRomCommand(rest, o) {
       const rom = store.getRom(rest[1] || o.rom);
       if (o.json) {
         console.log(JSON.stringify(rom, null, 2));
+      } else if (rom.isCrew) {
+        console.log(rom.voice.trimEnd());
       } else {
         console.log(store.compileRomMarkdown(rom, { includeProtocol: false }).trimEnd());
       }
@@ -349,10 +351,13 @@ function handleRomCommand(rest, o) {
       const rom = store.useRom(rest[1], { sessionId: o.session });
       if (o.json) {
         console.log(JSON.stringify(rom, null, 2));
+      } else if (rom.sessionId) {
+        console.log(
+          `slotted ROM "${rom.name}" (${rom.handle}) -> session ${rom.sessionId} (active in <construct-live-memory> on this and all subsequent turns)`
+        );
       } else {
-        const scopeLabel = rom.sessionId ? `session ${rom.sessionId}` : 'default';
-        console.log(`slotted ROM "${rom.name}" (${rom.handle}) -> ${scopeLabel}\n`);
-        console.log(store.compileRomPersonaOnly(rom).trimEnd());
+        console.log(`slotted ROM "${rom.name}" (${rom.handle}) -> default\n`);
+        console.log((rom.isCrew ? rom.voice : store.compileRomPersonaOnly(rom)).trimEnd());
       }
       return 0;
     }

@@ -105,6 +105,58 @@ export function stripShadowedInstructions(systemParts, shadowedPaths = []) {
   return strippedCount
 }
 
+const KNOWN_ROM_NAMES = new Set([
+  "crew",
+  "all",
+  "dixie",
+  "molly",
+  "wintermute",
+  "architect",
+  "continuity",
+  "finn",
+  "case",
+  "colin",
+  "razor",
+])
+
+function isValidRomTarget(spec) {
+  const parts = String(spec || "")
+    .toLowerCase()
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  return parts.length > 0 && parts.every((p) => KNOWN_ROM_NAMES.has(p))
+}
+
+// Detect explicit ROM-slot or default-ROM commands at the start of a user prompt
+// so `ctx.session.hook("prompt")` can pre-slot the ROM in <4ms BEFORE `context`
+// assembles `event.system`, eliminating a 4-6s LLM tool round-trip.
+export function detectPreSlotRomDirective(promptText) {
+  const text = String(promptText || "").trim()
+  if (!text) return null
+
+  const defaultMatch = text.match(
+    /^(?:make|set)\s+(?:the\s+)?([a-z]+(?:,[a-z]+)*)\s+(?:as\s+)?(?:my\s+)?default(?:\s+rom)?(?:\s+until\s+further\s+notice)?\b/i
+  )
+  if (defaultMatch && isValidRomTarget(defaultMatch[1])) {
+    return { action: "default", target: defaultMatch[1].toLowerCase() }
+  }
+
+  const clearDefaultMatch = text.match(/^(?:clear|unset|reset)\s+(?:my\s+)?default\s+rom\b/i)
+  if (clearDefaultMatch) {
+    return { action: "default", target: "off" }
+  }
+
+  const useMatch = text.match(
+    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z]+(?:,[a-z]+)*)(?:\s+(?:rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
+  )
+  if (useMatch && isValidRomTarget(useMatch[1])) {
+    return { action: "use", target: useMatch[1].toLowerCase() }
+  }
+
+  return null
+}
+
 export default {
   id: "construct",
   async setup(ctx) {
@@ -116,6 +168,15 @@ export default {
         validateShellCommand(event.command)
       })
     }
+
+    // 0b. Zero-Round-Trip ROM Pre-Slotting: intercept explicit "slot <rom>" / "switch to <rom>"
+    //     prompts before `context` runs so the new ROM is already active on Turn 1 without a tool loop.
+    await ctx.session.hook("prompt", (event) => {
+      const directive = detectPreSlotRomDirective(event.prompt?.text)
+      if (!directive) return
+      const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
+      runConstruct(["rom", directive.action, directive.target, ...sessionArgs])
+    })
 
     // 0. Watch for newly created sessions on the server event stream: if no ROM is slotted
     //    and no default_rom is set, trigger a synthetic turn so Razor immediately presents
