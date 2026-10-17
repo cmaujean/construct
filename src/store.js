@@ -2043,6 +2043,48 @@ function initConstruct(options = {}, file = dbPath()) {
   }
 
   const syncRes = syncRom(file);
+
+  // Optional Claude Code configuration (`construct init --claude`)
+  let claudeConfigured = false;
+  let claudeMdPath = '';
+  let claudeSettingsPath = '';
+  if (options.claude) {
+    const claudeDir = options.claudeDir || path.join(os.homedir(), '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
+    fs.copyFileSync(syncRes.path, claudeMdPath);
+
+    claudeSettingsPath = path.join(claudeDir, 'settings.json');
+    let settings = {};
+    if (fs.existsSync(claudeSettingsPath)) {
+      try {
+        settings = JSON.parse(fs.readFileSync(claudeSettingsPath, 'utf8'));
+      } catch (_) {
+        settings = {};
+      }
+    }
+    const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
+    settings.mcpServers = settings.mcpServers || {};
+    settings.mcpServers.construct = {
+      command: 'node',
+      args: [binPath, 'mcp'],
+    };
+    settings.hooks = settings.hooks || {};
+    settings.hooks.UserPromptSubmit = [
+      {
+        hooks: [{ type: 'command', command: `node "${binPath}" claude-hook context` }],
+      },
+    ];
+    settings.hooks.PreToolUse = [
+      {
+        matcher: 'Bash',
+        hooks: [{ type: 'command', command: `node "${binPath}" claude-hook pre-tool` }],
+      },
+    ];
+    fs.writeFileSync(claudeSettingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8');
+    claudeConfigured = true;
+  }
+
   return {
     did: identity.did,
     rom: syncRes.rom.name,
@@ -2051,6 +2093,9 @@ function initConstruct(options = {}, file = dbPath()) {
     onboardingRequired: !syncRes.user,
     pluginPath: pluginDest,
     romFilePath: syncRes.path,
+    claudeConfigured,
+    claudeMdPath,
+    claudeSettingsPath,
     assimilated,
   };
 }

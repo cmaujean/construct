@@ -651,4 +651,61 @@ Found 2026-09-28.
       fs.rmSync(sharedRepo, { recursive: true, force: true });
     }
   });
+
+  it('serves all 11 tools over the JSON-RPC 2.0 MCP server and runs Claude Code context/pre-tool hooks', () => {
+    const mcp = require('../src/mcp');
+
+    // 1. JSON-RPC `initialize` and `tools/list`
+    const initRes = mcp.handleJsonRpcRequest({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'initialize',
+      params: { protocolVersion: '2024-11-05' },
+    });
+    assert.equal(initRes.result.serverInfo.name, 'construct');
+
+    const listRes = mcp.handleJsonRpcRequest({
+      jsonrpc: '2.0',
+      id: 2,
+      method: 'tools/list',
+    });
+    assert.equal(listRes.result.tools.length, 11);
+    assert.ok(listRes.result.tools.some((t) => t.name === 'construct_rec'));
+
+    // 2. JSON-RPC `tools/call` -> `construct_rec` and `construct_boot`
+    const callRec = mcp.handleJsonRpcRequest({
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: 'construct_rec',
+        arguments: {
+          project: 'acme/mcp_app',
+          kind: 'finding',
+          summary: 'Recorded via MCP server',
+          verified: 'mcp test',
+        },
+      },
+    });
+    assert.equal(callRec.result.isError, false);
+    assert.match(callRec.result.content[0].text, /recorded #1 \[acme\/mcp_app\/finding\]/);
+
+    // 3. Claude Code `claude-hook context` and `claude-hook pre-tool`
+    const hookCtx = mcp.runClaudeHook('context', JSON.stringify({ session_id: 'claude_ses_1', cwd: tmp.dir }));
+    assert.equal(hookCtx.exitCode, 0);
+    assert.match(hookCtx.stdout, /<construct-live-memory/);
+    assert.match(hookCtx.stdout, /SESSION BOOTLOADER/);
+
+    // Clean Bash command passes pre-tool hook
+    const hookClean = mcp.runClaudeHook('pre-tool', JSON.stringify({ tool_input: { command: 'git status -sb' } }));
+    assert.equal(hookClean.exitCode, 0);
+
+    // Heredoc in Bash command is blocked by pre-tool hook (exit code 2 on CLI)
+    const cliPreTool = spawnSync(process.execPath, [CLI, 'claude-hook', 'pre-tool'], {
+      input: JSON.stringify({ tool_input: { command: "cat <<'EOF'\nhello\nEOF" } }),
+      encoding: 'utf8',
+    });
+    assert.equal(cliPreTool.status, 2);
+    assert.match(cliPreTool.stderr, /Gotcha #1/);
+  });
 });

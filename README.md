@@ -1,6 +1,6 @@
 # Construct
 
-*Pronounced **CON-struct** (`/ˈkɒn.strʌkt/`, noun: a recorded personality and memory artifact), not con-STRUCT (verb: the act of building).*
+***CON-struct** (`/ˈkɒn.strʌkt/`, noun: a recorded personality and memory artifact)*
 
 Sequential memory tape, swappable Personality ROMs, operator working agreements, and encrypted multi-developer sync for [OpenCode](https://opencode.ai).
 
@@ -52,6 +52,8 @@ git clone https://github.com/cmaujean/construct.git
 cd construct && npm link
 construct init
 ```
+
+*(Using **Claude Code** or another MCP client alongside or instead of OpenCode? Run `construct init --claude` to also configure `~/.claude/CLAUDE.md`, the `construct mcp` server, and Claude Code's `UserPromptSubmit` / `PreToolUse` hooks against the same `construct.db`.)*
 
 ### What `construct init` Does Automatically
 1. Generates your local cryptographic identity (`~/.config/opencode/identity.json`, a W3C `did:key:z6Mk...` Ed25519 + X25519 keypair).

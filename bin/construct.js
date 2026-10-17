@@ -5,15 +5,23 @@
 'use strict';
 
 const { parseArgs } = require('node:util');
+const fs = require('node:fs');
 const store = require('../src/store');
+const mcp = require('../src/mcp');
 
 const USAGE = `usage: construct <command> [args]
 
 Setup & Instruction Assimilation:
-  init [--rom <name>] [--json]
-                              One-command OpenCode setup: generates DID identity, installs the
-                              OpenCode V2 plugin, wires active-rom.md into opencode.jsonc, and
-                              assimilates any existing global instruction files if present.
+  init [--rom <name>] [--claude] [--json]
+                              One-command setup for OpenCode (and Claude Code with --claude):
+                              generates DID identity, installs the OpenCode V2 plugin, wires
+                              active-rom.md (and ~/.claude/CLAUDE.md + MCP/hooks when --claude),
+                              and assimilates any existing global instruction files.
+  mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (exposes all 11
+                              construct_* tools to Claude Code, Cursor, Windsurf, Zed, etc.).
+  claude-hook [context | pre-tool]
+                              Claude Code hook handler for UserPromptSubmit/SessionStart and
+                              PreToolUse (Bash shell guard).
   assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
                               Scan a directory for existing AI instruction files (AGENTS.md,
                               CLAUDE.md, GEMINI.md, .cursorrules, docs/) and import agreements,
@@ -134,6 +142,7 @@ const OPTIONS = {
   setup: { type: 'string' },
   'remove-ldk': { type: 'boolean' },
   'remove-files': { type: 'boolean' },
+  claude: { type: 'boolean' },
   port: { type: 'string' },
   open: { type: 'boolean' },
   closed: { type: 'boolean' },
@@ -577,20 +586,44 @@ function main(argv) {
 
   switch (cmd) {
     case 'init': {
-      const res = store.initConstruct({ rom: o.rom || rest[0], configDir: o.dir });
+      const res = store.initConstruct({ rom: o.rom || rest[0], configDir: o.dir, claude: Boolean(o.claude) });
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else {
         console.log(`construct initialized (DID: ${res.did}, ROM: ${res.rom})`);
         console.log(`  plugin:   ${res.pluginPath}`);
         console.log(`  rom file: ${res.romFilePath}`);
+        if (res.claudeConfigured) {
+          console.log(`  claude:   ${res.claudeMdPath} (+ MCP & hooks in ${res.claudeSettingsPath})`);
+        }
         console.log(
-          `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first OpenCode turn`}`
+          `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first turn`}`
         );
         if (res.assimilated.length) {
-          console.log(`  assimilated ${res.assimilated.length} global llm-dev-kit folder(s)`);
+          console.log(`  assimilated ${res.assimilated.length} global instruction folder(s)`);
         }
       }
       return 0;
+    }
+
+    case 'mcp': {
+      mcp.startMcpStdioServer();
+      return new Promise(() => {});
+    }
+
+    case 'claude-hook': {
+      const mode = rest[0] || 'context';
+      let stdinText = '';
+      try {
+        stdinText = fs.readFileSync(0, 'utf8');
+      } catch (_) {}
+      try {
+        const res = mcp.runClaudeHook(mode, stdinText);
+        if (res.stdout) console.log(res.stdout);
+        return res.exitCode || 0;
+      } catch (err) {
+        console.error(err.message);
+        return 2; // Exit code 2 blocks PreToolUse in Claude Code and surfaces stderr to the model
+      }
     }
 
     case 'assimilate': {
