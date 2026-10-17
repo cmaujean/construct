@@ -19,9 +19,10 @@ Setup & Instruction Assimilation:
                               and assimilates any existing global instruction files.
   mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (exposes all 11
                               construct_* tools to Claude Code, Cursor, Windsurf, Zed, etc.).
-  claude-hook [context | pre-tool]
-                              Claude Code hook handler for UserPromptSubmit/SessionStart and
-                              PreToolUse (Bash shell guard).
+  claude-hook [context | pre-tool | subagent-start]
+                              Claude Code hook handler for SessionStart/UserPromptSubmit,
+                              SubagentStart (specialist ROM + live memory injection), and
+                              PreToolUse (Bash/PowerShell shell guard + Agent [ROM: x] routing).
   assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
                               Scan a directory for existing AI instruction files (AGENTS.md,
                               CLAUDE.md, GEMINI.md, .cursorrules, docs/) and import agreements,
@@ -645,7 +646,9 @@ function main(argv) {
         console.log(`  plugin:   ${res.pluginPath}`);
         console.log(`  rom file: ${res.romFilePath}`);
         if (res.claudeConfigured) {
-          console.log(`  claude:   ${res.claudeMdPath} (+ MCP & hooks in ${res.claudeSettingsPath})`);
+          console.log(
+            `  claude:   ${res.claudeMdPath} (+ MCP, hooks in ${res.claudeSettingsPath}, & ${res.claudeAgentsCount} subagents in ${res.claudeAgentsDir})`
+          );
         }
         console.log(
           `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first turn`}`

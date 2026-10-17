@@ -822,19 +822,102 @@ Found 2026-09-28.
     assert.equal(callRec.result.isError, false);
     assert.match(callRec.result.content[0].text, /recorded #1 \[acme\/mcp_app\/finding\]/);
 
-    // 3. Claude Code `claude-hook context` and `claude-hook pre-tool`
-    const hookCtx = mcp.runClaudeHook('context', JSON.stringify({ session_id: 'claude_ses_1', cwd: tmp.dir }));
+    // 3. Claude Code `initConstruct({ claude: true })`, `UserPromptSubmit` pre-slotting, and `SubagentStart` specialist injection
+    const claudeDir = path.join(tmp.dir, 'claude-home');
+    const initClaude = store.initConstruct({
+      configDir: path.join(tmp.dir, 'opencode-cfg'),
+      claude: true,
+      claudeDir,
+    });
+    assert.equal(initClaude.claudeConfigured, true);
+    assert.equal(initClaude.claudeAgentsCount, 33);
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
+    const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
+    assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
+    const claudeSettings = JSON.parse(fs.readFileSync(initClaude.claudeSettingsPath, 'utf8'));
+    assert.ok(claudeSettings.hooks.SessionStart);
+    assert.ok(claudeSettings.hooks.UserPromptSubmit);
+    assert.ok(claudeSettings.hooks.SubagentStart);
+    assert.equal(claudeSettings.hooks.PreToolUse[0].matcher, 'Bash|PowerShell|Agent|Task');
+
+    // Turn-1 zero-round-trip ROM pre-slotting on `UserPromptSubmit` (`claude-hook context`)
+    const hookCtx = mcp.runClaudeHook(
+      'context',
+      JSON.stringify({
+        session_id: 'claude_ses_1',
+        cwd: tmp.dir,
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'switch to anathem crew',
+      })
+    );
     assert.equal(hookCtx.exitCode, 0);
     assert.match(hookCtx.stdout, /<construct-live-memory/);
-    assert.match(hookCtx.stdout, /Construct Crew Pipeline/);
+    assert.match(hookCtx.stdout, /The Concent of Saunt Edhar Crew/);
+
+    // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
+    const subStartNamed = mcp.runClaudeHook(
+      'subagent-start',
+      JSON.stringify({
+        session_id: 'claude_ses_1',
+        cwd: tmp.dir,
+        hook_event_name: 'SubagentStart',
+        agent_id: 'agent-01',
+        agent_type: 'lio',
+      })
+    );
+    assert.equal(subStartNamed.exitCode, 0);
+    const subStartNamedJson = JSON.parse(subStartNamed.stdout);
+    assert.equal(subStartNamedJson.hookSpecificOutput.hookEventName, 'SubagentStart');
+    assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /session="claude_ses_1:agent-01"/);
+    assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /Active Session Personality ROM: Fraa Lio/);
+
+    // Subagent Path B: Generic `Explore` subagent spawned with `[ROM: orolo]` in `Agent` tool prompt
+    const preToolAgent = mcp.runClaudeHook(
+      'pre-tool',
+      JSON.stringify({
+        session_id: 'claude_ses_1',
+        cwd: tmp.dir,
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Agent',
+        tool_input: {
+          subagent_type: 'Explore',
+          description: 'Inspect built archive',
+          prompt: '[ROM: orolo] Inspect the built dist/ archive bytes and verify version headers.',
+        },
+      })
+    );
+    assert.equal(preToolAgent.exitCode, 0);
+
+    const subStartExplore = mcp.runClaudeHook(
+      'subagent-start',
+      JSON.stringify({
+        session_id: 'claude_ses_1',
+        cwd: tmp.dir,
+        hook_event_name: 'SubagentStart',
+        agent_id: 'agent-02',
+        agent_type: 'Explore',
+      })
+    );
+    const subStartExploreJson = JSON.parse(subStartExplore.stdout);
+    assert.equal(subStartExploreJson.hookSpecificOutput.hookEventName, 'SubagentStart');
+    assert.match(subStartExploreJson.hookSpecificOutput.additionalContext, /session="claude_ses_1:agent-02"/);
+    assert.match(subStartExploreJson.hookSpecificOutput.additionalContext, /Active Session Personality ROM: Fraa Orolo/);
+
+    // Verify parent session `claude_ses_1` is still on the full `anathem` 9-seat crew (zero subagent bleed)
+    const parentCheck = mcp.runClaudeHook('context', JSON.stringify({ session_id: 'claude_ses_1', cwd: tmp.dir }));
+    assert.match(parentCheck.stdout, /The Concent of Saunt Edhar Crew/);
 
     // Clean Bash command passes pre-tool hook
-    const hookClean = mcp.runClaudeHook('pre-tool', JSON.stringify({ tool_input: { command: 'git status -sb' } }));
+    const hookClean = mcp.runClaudeHook(
+      'pre-tool',
+      JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git status -sb' } })
+    );
     assert.equal(hookClean.exitCode, 0);
 
     // Heredoc in Bash command is blocked by pre-tool hook (exit code 2 on CLI)
     const cliPreTool = spawnSync(process.execPath, [CLI, 'claude-hook', 'pre-tool'], {
-      input: JSON.stringify({ tool_input: { command: "cat <<'EOF'\nhello\nEOF" } }),
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: "cat <<'EOF'\nhello\nEOF" } }),
       encoding: 'utf8',
     });
     assert.equal(cliPreTool.status, 2);

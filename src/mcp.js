@@ -527,7 +527,100 @@ function startMcpStdioServer() {
   });
 }
 
-// Claude Code Hook Runner (`construct claude-hook [context | pre-tool]`)
+const store = require('./store');
+
+const KNOWN_ROM_NAMES = new Set([
+  'crew',
+  'all',
+  'sprawl',
+  'anathem',
+  'generic',
+  'standard',
+  'plain',
+  'colin',
+  'dixie',
+  'wintermute',
+  'architect',
+  'molly',
+  'finn',
+  'case',
+  'lupus',
+  'angie',
+  'continuity',
+  'armitage',
+  'marly',
+  '3jane',
+  'erasmus',
+  'raz',
+  'sammann',
+  'jad',
+  'cord',
+  'orolo',
+  'jesry',
+  'lio',
+  'tulia',
+  'ala',
+  'paphlagon',
+  'jules',
+  'lodoghir',
+  'guide',
+  'trace',
+  'arch',
+  'strike',
+  'audit',
+  'pulse',
+  'redteam',
+  'ux',
+  'ledger',
+  'razor',
+]);
+
+function isValidRomTarget(spec) {
+  const parts = String(spec || '')
+    .toLowerCase()
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return parts.length > 0 && parts.every((p) => KNOWN_ROM_NAMES.has(p));
+}
+
+function detectPreSlotRomDirective(promptText) {
+  const text = String(promptText || '').trim();
+  if (!text) return null;
+
+  const tagMatch = text.match(/^\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
+  if (tagMatch && isValidRomTarget(tagMatch[1])) {
+    return { action: 'use', target: tagMatch[1].toLowerCase() };
+  }
+
+  const defaultMatch = text.match(
+    /^(?:make|set)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+crew|\s+bank|\s+pack|\s+rom)?\s+(?:as\s+)?(?:my\s+)?default(?:\s+rom)?(?:\s+until\s+further\s+notice)?\b/i
+  );
+  if (defaultMatch && isValidRomTarget(defaultMatch[1])) {
+    return { action: 'default', target: defaultMatch[1].toLowerCase() };
+  }
+
+  const clearDefaultMatch = text.match(/^(?:clear|unset|reset)\s+(?:my\s+)?default\s+rom\b/i);
+  if (clearDefaultMatch) {
+    return { action: 'default', target: 'off' };
+  }
+
+  const subMatch = text.match(/^(?:please\s+|let'?s\s+)?(?:sub|substitute)\s+([a-z0-9_]+)(?:\s+in|\s+into\s+the\s+crew)?(?:[\s,.:;!-]|$)/i);
+  if (subMatch && isValidRomTarget(subMatch[1])) {
+    return { action: 'sub', target: subMatch[1].toLowerCase() };
+  }
+
+  const useMatch = text.match(
+    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
+  );
+  if (useMatch && isValidRomTarget(useMatch[1])) {
+    return { action: 'use', target: useMatch[1].toLowerCase() };
+  }
+
+  return null;
+}
+
+// Claude Code Hook Runner (`construct claude-hook [context | pre-tool | subagent-start]`)
 function runClaudeHook(mode, stdinText = '') {
   let payload = {};
   try {
@@ -536,27 +629,80 @@ function runClaudeHook(mode, stdinText = '') {
     }
   } catch (_) {}
 
+  const sessionId = payload?.session_id || process.env.CONSTRUCT_SESSION_ID || '';
+
   if (mode === 'pre-tool') {
+    const toolName = String(payload?.tool_name || '');
+    if (toolName === 'Agent' || toolName === 'Task') {
+      const promptDirective = detectPreSlotRomDirective(payload?.tool_input?.prompt);
+      const explicitAgentType = String(payload?.tool_input?.subagent_type || '').trim().toLowerCase();
+      const targetRom =
+        promptDirective?.target || (isValidRomTarget(explicitAgentType) ? explicitAgentType : '');
+      if (targetRom) {
+        store.enqueuePendingSubagentRom(sessionId || 'claude', targetRom);
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    }
+
     const cmd = payload?.tool_input?.command || '';
     validateShellCommand(cmd);
     return { exitCode: 0, stdout: '', stderr: '' };
   }
 
+  if (mode === 'subagent-start' || payload?.hook_event_name === 'SubagentStart') {
+    const cwd = payload?.cwd || process.cwd();
+    const agentId = String(payload?.agent_id || '').trim();
+    const agentType = String(payload?.agent_type || '').trim().toLowerCase();
+    const subagentSessionId = agentId ? `${sessionId || 'claude'}:${agentId}` : sessionId || 'claude:subagent';
+
+    const queuedRom = store.consumePendingSubagentRom(sessionId || 'claude', agentType);
+    const resolvedRom = isValidRomTarget(agentType) ? agentType : queuedRom;
+    if (resolvedRom) {
+      store.useRom(resolvedRom, { sessionId: subagentSessionId });
+    }
+
+    const args = ['boot', '--dir', String(cwd), '-n', '15', '--session', String(subagentSessionId)];
+    let output = runConstructCli(args);
+    output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
+    const xml = `<construct-live-memory directory="${cwd}" session="${subagentSessionId}">\n${output}\n</construct-live-memory>`;
+    const jsonOut = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'SubagentStart',
+        additionalContext: xml,
+      },
+    });
+    return { exitCode: 0, stdout: jsonOut, stderr: '' };
+  }
+
   // Default: `context` (`UserPromptSubmit` / `SessionStart`)
   const cwd = payload?.cwd || process.cwd();
-  const sessionId = payload?.session_id || process.env.CONSTRUCT_SESSION_ID || '';
+  const effectiveSessionId = payload?.agent_id ? `${sessionId || 'claude'}:${payload.agent_id}` : sessionId;
+
+  // Zero-round-trip ROM pre-slotting on `UserPromptSubmit` before `boot` runs
+  if (payload?.prompt) {
+    const directive = detectPreSlotRomDirective(payload.prompt);
+    if (directive) {
+      const romArgs = ['rom', directive.action, directive.target];
+      if (effectiveSessionId) romArgs.push('--session', String(effectiveSessionId));
+      try {
+        runConstructCli(romArgs);
+      } catch (_) {}
+    }
+  }
+
   const args = ['boot', '--dir', String(cwd), '-n', '15'];
-  if (sessionId) args.push('--session', String(sessionId));
+  if (effectiveSessionId) args.push('--session', String(effectiveSessionId));
 
   let output = runConstructCli(args);
   output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
-  const xml = `<construct-live-memory directory="${cwd}" session="${sessionId}">\n${output}\n</construct-live-memory>`;
+  const xml = `<construct-live-memory directory="${cwd}" session="${effectiveSessionId}">\n${output}\n</construct-live-memory>`;
   return { exitCode: 0, stdout: xml, stderr: '' };
 }
 
 module.exports = {
   MCP_TOOLS,
   validateShellCommand,
+  detectPreSlotRomDirective,
   executeMcpTool,
   handleJsonRpcRequest,
   startMcpStdioServer,

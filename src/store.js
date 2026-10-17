@@ -1268,6 +1268,111 @@ function useRom(name, options = {}, file = dbPath()) {
   );
 }
 
+function enqueuePendingSubagentRom(sessionId, romName, file = dbPath()) {
+  const sid = String(sessionId || 'claude').trim();
+  const target = String(romName || '').trim().toLowerCase();
+  if (!sid || !target) return null;
+  const key = `pending_subagent:${sid}`;
+  return withDb(
+    (db) =>
+      tx(db, () => {
+        const row = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(key);
+        let queue = [];
+        if (row && row.rom_name) {
+          try {
+            const parsed = JSON.parse(row.rom_name);
+            if (Array.isArray(parsed)) queue = parsed;
+          } catch (_) {
+            queue = [row.rom_name];
+          }
+        }
+        queue.push(target);
+        db.prepare(
+          `INSERT INTO session_roms (session_id, rom_name, updated)
+           VALUES (?, ?, ?)
+           ON CONFLICT(session_id) DO UPDATE SET
+             rom_name = excluded.rom_name,
+             updated = excluded.updated`
+        ).run(key, JSON.stringify(queue), nowIso());
+        return queue;
+      }),
+    file
+  );
+}
+
+function consumePendingSubagentRom(sessionId, preferredAgentType = '', file = dbPath()) {
+  const sid = String(sessionId || 'claude').trim();
+  const pref = String(preferredAgentType || '').trim().toLowerCase();
+  const key = `pending_subagent:${sid}`;
+  return withDb(
+    (db) =>
+      tx(db, () => {
+        const row = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(key);
+        let queue = [];
+        if (row && row.rom_name) {
+          try {
+            const parsed = JSON.parse(row.rom_name);
+            if (Array.isArray(parsed)) queue = parsed;
+          } catch (_) {
+            queue = [row.rom_name];
+          }
+        }
+        if (!queue.length) return null;
+
+        // If `preferredAgentType` matches an item in the queue, remove that specific item; otherwise FIFO shift
+        let chosen = null;
+        if (pref && queue.includes(pref)) {
+          const idx = queue.indexOf(pref);
+          chosen = queue.splice(idx, 1)[0];
+        } else {
+          chosen = queue.shift();
+        }
+
+        if (queue.length) {
+          db.prepare('UPDATE session_roms SET rom_name = ?, updated = ? WHERE session_id = ?').run(
+            JSON.stringify(queue),
+            nowIso(),
+            key
+          );
+        } else {
+          db.prepare('DELETE FROM session_roms WHERE session_id = ?').run(key);
+        }
+        return chosen;
+      }),
+    file
+  );
+}
+
+function writeClaudeSubagentsInDb(db, claudeDir) {
+  const agentsDir = path.join(claudeDir, 'agents');
+  fs.mkdirSync(agentsDir, { recursive: true });
+  const allRoms = db.prepare('SELECT * FROM roms ORDER BY name ASC').all().map(romMod.hydrateRom);
+  const written = [];
+  for (const r of allRoms) {
+    if (r.name === 'razor') continue;
+    const seatMeta = romMod.SEAT_MAP[r.seat] || { code: '?', label: r.seat.toUpperCase(), desc: r.handle };
+    const safeDesc = `${r.handle} (${r.pack} Seat ${seatMeta.code} - ${seatMeta.desc}): ${r.tagline}`.replace(
+      /[\r\n"]+/g,
+      ' '
+    );
+    const body = romMod.compileRomPersonaOnly(r);
+    const md = [
+      '---',
+      `name: ${r.name}`,
+      `description: "${safeDesc}"`,
+      'model: inherit',
+      '---',
+      '',
+      body,
+      '',
+    ].join('\n');
+    const agentFile = path.join(agentsDir, `${r.name}.md`);
+    fs.writeFileSync(agentFile, md, 'utf8');
+    written.push(agentFile);
+  }
+  return { agentsDir, count: written.length };
+}
+
 function tuneRom(dialUpdates, options = {}, file = dbPath()) {
   if (!dialUpdates || typeof dialUpdates !== 'object' || !Object.keys(dialUpdates).length) {
     throw new Error(`give at least one dial=0..1 to tune (${romMod.DIAL_KEYS.join(', ')})`);
@@ -2222,11 +2327,17 @@ function initConstruct(options = {}, file = dbPath()) {
   let claudeConfigured = false;
   let claudeMdPath = '';
   let claudeSettingsPath = '';
+  let claudeAgentsDir = '';
+  let claudeAgentsCount = 0;
   if (options.claude) {
     const claudeDir = options.claudeDir || path.join(os.homedir(), '.claude');
     fs.mkdirSync(claudeDir, { recursive: true });
     claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
     fs.copyFileSync(syncRes.path, claudeMdPath);
+
+    const subRes = withDb((db) => writeClaudeSubagentsInDb(db, claudeDir), file);
+    claudeAgentsDir = subRes.agentsDir;
+    claudeAgentsCount = subRes.count;
 
     claudeSettingsPath = path.join(claudeDir, 'settings.json');
     let settings = {};
@@ -2244,14 +2355,24 @@ function initConstruct(options = {}, file = dbPath()) {
       args: [binPath, 'mcp'],
     };
     settings.hooks = settings.hooks || {};
+    settings.hooks.SessionStart = [
+      {
+        hooks: [{ type: 'command', command: `node "${binPath}" claude-hook context` }],
+      },
+    ];
     settings.hooks.UserPromptSubmit = [
       {
         hooks: [{ type: 'command', command: `node "${binPath}" claude-hook context` }],
       },
     ];
+    settings.hooks.SubagentStart = [
+      {
+        hooks: [{ type: 'command', command: `node "${binPath}" claude-hook subagent-start` }],
+      },
+    ];
     settings.hooks.PreToolUse = [
       {
-        matcher: 'Bash',
+        matcher: 'Bash|PowerShell|Agent|Task',
         hooks: [{ type: 'command', command: `node "${binPath}" claude-hook pre-tool` }],
       },
     ];
@@ -2270,6 +2391,8 @@ function initConstruct(options = {}, file = dbPath()) {
     claudeConfigured,
     claudeMdPath,
     claudeSettingsPath,
+    claudeAgentsDir,
+    claudeAgentsCount,
     assimilated,
   };
 }
@@ -2302,6 +2425,8 @@ module.exports = {
   getRom,
   useRom,
   subRom,
+  enqueuePendingSubagentRom,
+  consumePendingSubagentRom,
   setDefaultRom,
   tuneRom,
   setRom,
