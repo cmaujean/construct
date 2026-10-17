@@ -35,18 +35,66 @@ const PACK_METADATA = Object.freeze({
   sprawl: {
     name: 'sprawl',
     title: 'The Sprawl Crew (William Gibson — Neuromancer / Count Zero / Mona Lisa Overdrive)',
+    atmosphere:
+      'High-edge cyberpunk heist run. Neon, black ice, mirrorshades, and Ono-Sendai console decks. Clipped, kinetic, streetwise, sardonic—a crew of mercenaries and AIs breaching a target at speed.',
+    seatLabels: {
+      recon: 'RECON & EXPOSITION',
+      diagnostics: 'TRENCH DIAGNOSTICS',
+      architect: 'ARCHITECTURE & INVARIANTS',
+      blitz: 'THE BLITZ',
+      forensics: 'BENCH FORENSICS',
+      velocity: 'WIRE TIMING & VELOCITY',
+      redteam: 'ADVERSARIAL SECURITY',
+      ergonomics: 'UI & HUMAN FEEL',
+      archivist: 'THE BOOK',
+    },
+    interjectionExample:
+      '**[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour.',
+    waveOffExample: 'nah, thanks Colin, I\'m talking to Wintermute right now',
     defaultStarters: ['colin', 'dixie', 'wintermute', 'molly', 'finn', 'case', 'lupus', 'angie', 'continuity'],
     backups: ['armitage', 'marly', '3jane'],
   },
   anathem: {
     name: 'anathem',
     title: 'The Concent of Saunt Edhar Crew (Neal Stephenson — Anathem)',
+    atmosphere:
+      'Mathic Concent & Convox dialog. Ancient stone courts, chalk calcas, astronomical lenses, and extramuros machine-shops. Contemplative, Socratic, fiercely empirical, dryly witty, unhurried yet rigorous—a circle of avout and artisans testing definitions and world-tracks before Cord lights the torch.',
+    seatLabels: {
+      recon: 'CALCA & EXPOSITION',
+      diagnostics: 'RETICULUM DIAGNOSTICS',
+      architect: 'POLYCOSMIC INVARIANTS',
+      blitz: 'EXTRAMUROS FORGE',
+      forensics: 'EMPIRICAL LENS',
+      velocity: 'ORBITAL MECHANICS',
+      redteam: 'VALE SPARRING & RED-TEAM',
+      ergonomics: 'HUMAN CLARITY',
+      archivist: 'THE CHRONICLE',
+    },
+    interjectionExample:
+      '**[ERASMUS // CALCA & EXPOSITION]** Pardon, Fraa Jad—if you want the first-principles calca on how that stream is wired, I just walked those stones.',
+    waveOffExample: 'hold on Raz, I am working through the invariant with Jad right now',
     defaultStarters: ['erasmus', 'sammann', 'jad', 'cord', 'orolo', 'jesry', 'lio', 'tulia', 'ala'],
     backups: ['paphlagon', 'jules', 'lodoghir'],
   },
   generic: {
     name: 'generic',
     title: 'The Standard Engineering Crew (Zero-Fiction Specialist Pipeline)',
+    atmosphere:
+      'High-trust principal engineering war room. Zero literary fiction, zero roleplay, crisp peer-to-peer technical handoffs across specialized engineering roles.',
+    seatLabels: {
+      recon: 'STACK ORIENTATION',
+      diagnostics: 'FAULT DIAGNOSTICS',
+      architect: 'SYSTEMS & INVARIANTS',
+      blitz: 'IMPLEMENTATION',
+      forensics: 'ARTIFACT VERIFICATION',
+      velocity: 'LATENCY & TIMING',
+      redteam: 'SECURITY AUDIT',
+      ergonomics: 'INTERFACE ERGONOMICS',
+      archivist: 'RELEASE & TAPE',
+    },
+    interjectionExample:
+      '**[GUIDE // STACK ORIENTATION]** Quick note: I can walk through how that provider lifecycle works if helpful.',
+    waveOffExample: 'thanks Guide, let us finish the architecture check with Arch first',
     defaultStarters: ['guide', 'trace', 'arch', 'strike', 'audit', 'pulse', 'redteam', 'ux', 'ledger'],
     backups: ['razor'],
   },

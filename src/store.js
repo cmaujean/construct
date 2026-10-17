@@ -521,7 +521,11 @@ function getRomInDb(db, name) {
           ? `Construct Crew [${packName}] // ${packTitle}`
           : `Construct Crew // Custom Roster (${rosterRoms.map((r) => r.name).join(' -> ')})`,
       tagline: `Coordinated specialist pipeline: ${rosterRoms.map((r) => r.name).join(' -> ')}`,
-      voice: romMod.compileCrewPersonaPrompt(rosterRoms, canonicalName, { backupRoms, packTitle }),
+      voice: romMod.compileCrewPersonaPrompt(rosterRoms, canonicalName, {
+        backupRoms,
+        packTitle,
+        packName: packName || rosterRoms[0]?.pack || 'sprawl',
+      }),
       dials: { terse: 0.8, skepticism: 0.95, edge: 0.85, autonomy: 0.9, telemetry: 0.85 },
       directives: [],
       active: true,

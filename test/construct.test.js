@@ -309,7 +309,7 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.ok(subbedSprawl.roster.includes('marly'));
     assert.ok(!subbedSprawl.roster.includes('angie'));
 
-    // Switch to the `anathem` 9-seat crew bank and sub `lodoghir` into `jad`'s seat (`architect`)
+    // Switch to the `anathem` 9-seat crew bank and verify Concent-native tags/episteme with zero Sprawl slang bleed
     const anathemCrew = store.useRom('anathem', { sessionId: 'ses_anathem' });
     assert.equal(anathemCrew.isCrew, true);
     assert.deepEqual(anathemCrew.roster, [
@@ -323,11 +323,18 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
       'tulia',
       'ala',
     ]);
+    assert.match(anathemCrew.voice, /\[ERASMUS \/\/ CALCA & EXPOSITION\]/);
+    assert.match(anathemCrew.voice, /\[CORD \/\/ EXTRAMUROS FORGE\]/);
+    assert.match(anathemCrew.voice, /\[ALA \/\/ THE CHRONICLE\]/);
+    assert.match(anathemCrew.voice, /Pardon, Fraa Jad/);
+    assert.doesNotMatch(anathemCrew.voice, /Actually guv/);
+    assert.doesNotMatch(anathemCrew.voice, /THE BLITZ/);
+
     const subbedAnathem = store.subRom('lodoghir', { sessionId: 'ses_anathem' });
     assert.ok(subbedAnathem.roster.includes('lodoghir'));
     assert.ok(!subbedAnathem.roster.includes('jad'));
 
-    // Switch to the `generic` zero-fiction 9-seat crew bank
+    // Switch to the `generic` zero-fiction 9-seat crew bank and verify zero literary bleed
     const genericCrew = store.useRom('generic', { sessionId: 'ses_generic' });
     assert.equal(genericCrew.isCrew, true);
     assert.deepEqual(genericCrew.roster, [
@@ -341,6 +348,11 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
       'ux',
       'ledger',
     ]);
+    assert.match(genericCrew.voice, /\[GUIDE \/\/ STACK ORIENTATION\]/);
+    assert.match(genericCrew.voice, /\[STRIKE \/\/ IMPLEMENTATION\]/);
+    assert.match(genericCrew.voice, /\[LEDGER \/\/ RELEASE & TAPE\]/);
+    assert.doesNotMatch(genericCrew.voice, /Actually guv/);
+    assert.doesNotMatch(genericCrew.voice, /Fraa Jad/);
 
     const customCrew = store.useRom('colin,wintermute,molly', { sessionId: 'ses_custom' });
     assert.equal(customCrew.isCrew, true);

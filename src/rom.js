@@ -640,9 +640,10 @@ const SEAT_MAP = Object.freeze(
   Object.fromEntries(packs.SEATS.map((s) => [s.id, s]))
 );
 
-function buildMemberCrewSummary(rom) {
+function buildMemberCrewSummary(rom, packMeta = null) {
   const seatMeta = SEAT_MAP[rom.seat] || { code: '?', label: rom.seat.toUpperCase(), desc: rom.handle };
-  const tag = `[${rom.name.toUpperCase()} // ${seatMeta.label}]`;
+  const label = packMeta?.seatLabels?.[rom.seat] || packs.PACK_METADATA[rom.pack]?.seatLabels?.[rom.seat] || seatMeta.label;
+  const tag = `[${rom.name.toUpperCase()} // ${label}]`;
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
 
   // Extract the character's distinct syntax/cadence bullet from Section 2 rather than repeating the 500-char intro
@@ -652,13 +653,18 @@ function buildMemberCrewSummary(rom) {
 
   // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
   const checklist = (rom.directives && (rom.directives[1] || rom.directives[0])) || seatMeta.desc;
-  return { tag, role, cadence, checklist, seatMeta };
+  return { tag, label, role, cadence, checklist, seatMeta };
 }
 
 function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const names = rosterRoms.map((r) => r.name);
   const backupRoms = options.backupRoms || [];
-  const packTitle = options.packTitle || 'Coordinated 9-Seat Engineering Crew';
+  const dominantPack = options.packName || rosterRoms[0]?.pack || 'sprawl';
+  const packMeta = packs.PACK_METADATA[dominantPack] || null;
+  const packTitle = options.packTitle || packMeta?.title || 'Coordinated 9-Seat Engineering Crew';
+  const atmosphere =
+    packMeta?.atmosphere ||
+    'Coordinated multi-specialist engineering crew. Each seat speaks in its distinct voice and owns its phase of the run.';
 
   const bySeat = Object.fromEntries(rosterRoms.map((r) => [r.seat, r.name]));
   const reconName = bySeat.recon || names[0] || 'recon';
@@ -671,9 +677,24 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const uxName = bySeat.ergonomics || 'ergonomics';
   const bookName = bySeat.archivist || names[names.length - 1] || 'archivist';
 
+  const labelFor = (seatId, fallback) => packMeta?.seatLabels?.[seatId] || SEAT_MAP[seatId]?.label || fallback;
+  const tagSample = [
+    `**[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]**`,
+    `**[${archName.toUpperCase()} // ${labelFor('architect', 'ARCHITECT')}]**`,
+    `**[${blitzName.toUpperCase()} // ${labelFor('blitz', 'EXECUTION')}]**`,
+    `**[${secName.toUpperCase()} // ${labelFor('redteam', 'SECURITY')}]**`,
+    `**[${bookName.toUpperCase()} // ${labelFor('archivist', 'ARCHIVE')}]**`,
+  ].join(', ');
+
+  const interjectionEx =
+    packMeta?.interjectionExample ||
+    `**[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]** I can speak to how that module is wired if you want the walkthrough.`;
+  const waveOffEx =
+    packMeta?.waveOffExample || `hold on ${reconName}, I'm talking through the design with ${archName} right now`;
+
   const rosterBlocks = rosterRoms
     .map((r) => {
-      const m = buildMemberCrewSummary(r);
+      const m = buildMemberCrewSummary(r, packMeta);
       return `- **${m.tag}** (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}`;
     })
     .join('\n');
@@ -686,19 +707,20 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   return [
     '# Active Session Mode: Construct Crew Pipeline (' + rawSpec + ' -> ' + names.join(' -> ') + ')',
     '',
-    '> ' + packTitle,
+    '> **Crew Bank:** ' + packTitle,
+    '> **Session Vibe & Episteme:** ' + atmosphere,
     '> *(Switch crew banks anytime with tools.construct.rom({ action: "use", target: "sprawl" | "anathem" | "generic" }), or sub a bench backup into their seat with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates (The Room Dynamic, Baton-Passing & Parallel Overwatch)',
     '',
-    '1. **All 9 Seats Are in the Room — Tag Every Speaker Switch:**',
-    '   - Prefix each specialist\'s contribution with their tag (e.g. **[' + reconName.toUpperCase() + ' // RECON & EXPOSITION]**, **[' + archName.toUpperCase() + ' // ARCHITECTURE & INVARIANTS]**, **[' + blitzName.toUpperCase() + ' // THE BLITZ]**, **[' + secName.toUpperCase() + ' // ADVERSARIAL SECURITY]**, **[' + bookName.toUpperCase() + ' // THE BOOK]**).',
-    '   - When a specialist has the mic, write **100% in that character\'s distinct cadence and syntax**. Never let them blend into a generic assistant voice, and never use stock ### 1. Heading corporate status-report templates.',
+    '1. **All 9 Seats Are in the Room — Tag Every Speaker Switch & Match the Crew Vibe:**',
+    '   - Prefix each specialist\'s contribution with their bank-native tag (e.g. ' + tagSample + ').',
+    '   - When a specialist has the mic, write **100% in that character\'s distinct cadence, vocabulary, and epistemic worldview**. Never let one bank\'s slang bleed into another (e.g. never use cyberpunk street slang in the Anathem Concent, and never use monastic mathic terms in the Sprawl), never blend into a generic assistant voice, and never use stock ### 1. Heading corporate status-report templates.',
     '',
     '2. **Direct 1-on-1 Conversations & Polite Interjections:**',
-    '   - Every session is a Crew session; all 9 seats are present in the room at all times. When the operator addresses a specific crew member by name (e.g. "Wintermute, ...", "Jad, ...", "Colin, walk me through this", "Case, why is this slow?"), **that crew member holds the conversation**.',
-    '   - **Raising a Hand From Another Seat:** While the operator is talking 1-on-1 with one crew member, if another seat spots something squarely in their wheelhouse (e.g. ' + reconName + ' can translate an unfamiliar framework quirk, or ' + secName + ' spots an unguarded auth seam), that seat may pipe up at the end with **one short in-character line** offering input (e.g. "**[' + reconName.toUpperCase() + ' // RECON & EXPOSITION]** Actually guv, I can speak to this if you want the tour.").',
-    '   - **Respecting a Wave-Off Immediately:** If the operator waves the interjection off (e.g. "nah, thanks Colin, I\'m talking to Wintermute right now"), the interjecting seat steps back immediately and stays quiet while the addressed crew member continues uninterrupted.',
+    '   - Every session is a Crew session; all 9 seats are present in the room at all times. When the operator addresses a specific crew member by name (e.g. "' + archName + ', ...", "' + reconName + ', walk me through this", "' + velName + ', why is this slow?"), **that crew member holds the conversation**.',
+    '   - **Raising a Hand From Another Seat:** While the operator is talking 1-on-1 with one crew member, if another seat spots something squarely in their wheelhouse (e.g. ' + reconName + ' can translate an unfamiliar framework quirk, or ' + secName + ' spots an unguarded auth seam), that seat may pipe up at the end with **one short in-character line** offering input (e.g. "' + interjectionEx + '").',
+    '   - **Respecting a Wave-Off Immediately:** If the operator waves the interjection off (e.g. "' + waveOffEx + '"), the interjecting seat steps back immediately and stays quiet while the addressed crew member continues uninterrupted.',
     '',
     '3. **Phase Gates on General Tasks (Don\'t All Talk at Once):**',
     '   - **Phase 1 & 2 — Recon, Invariants & The Alignment Gate (Before Plan is Locked):**',
