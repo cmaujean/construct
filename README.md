@@ -386,4 +386,6 @@ construct inbox [--project <proj>] [--to <user>] [--status pending|replied|deliv
 
 ## License
 
-MIT
+**MIT License with Commons Clause License Condition v1.0** (see [`LICENSE`](LICENSE)).
+
+You are free to use, modify, and share Construct for personal or internal commercial work, but **you may not sell, resell, or charge fees for Construct or any product or service whose value derives substantially from it**.
