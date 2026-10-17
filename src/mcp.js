@@ -33,6 +33,21 @@ function validateShellCommand(command) {
       'Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first.'
     );
   }
+  if (
+    !/\bpipefail\b/.test(cmd) &&
+    /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object)\b/i.test(
+      cmd
+    )
+  ) {
+    throw new Error(
+      'Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo "exit=$?"`, or set `pipefail`.'
+    );
+  }
+  if (/\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
+    throw new Error(
+      'Construct Shell Guard (Gotcha #4): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`.'
+    );
+  }
   if (/core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd)) {
     throw new Error(
       'Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check.'

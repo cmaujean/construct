@@ -46,13 +46,30 @@ function runConstruct(args) {
 
 export function validateShellCommand(command) {
   const cmd = String(command || "")
-  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`), which fail unpredictably in non-interactive shells
+  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`)
   if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
     throw new Error(
       "Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first."
     )
   }
-  // 2. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`)
+  // 2. Block piping build/test commands into `tail`, `head`, `grep`, or `Select-Object` without `pipefail`
+  if (
+    !/\bpipefail\b/.test(cmd) &&
+    /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object)\b/i.test(
+      cmd
+    )
+  ) {
+    throw new Error(
+      "Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo \"exit=$?\"`, or set `pipefail`."
+    )
+  }
+  // 3. Block inline `gh api graphql -f query=` containing inner double quotes (PowerShell 5.1 strips them)
+  if (/\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
+    throw new Error(
+      "Construct Shell Guard (Gotcha #4): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`."
+    )
+  }
+  // 4. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`)
   if (/core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd)) {
     throw new Error(
       "Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check."

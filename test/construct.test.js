@@ -698,11 +698,22 @@ Found 2026-09-28.
     assert.equal(validateShellCommand('git status -sb'), true);
     assert.equal(validateShellCommand('git commit -F scratch/msg.txt'), true);
 
-    // Heredocs and disabling core.protectNTFS are blocked before spawning a shell
+    // Heredocs, piped build/test commands, inline gh graphql quotes, and disabling core.protectNTFS are blocked
     assert.throws(() => validateShellCommand("python - <<'EOF'\nprint(1)\nEOF"), /Gotcha #1/);
+    assert.throws(() => validateShellCommand('flutter build appbundle --release 2>&1 | tail -25'), /Gotcha #3/);
+    assert.throws(() => validateShellCommand('npm test | grep pass'), /Gotcha #3/);
+    assert.throws(
+      () => validateShellCommand('gh api graphql -f query=\'mutation { update(id: "PVT_123") }\''),
+      /Gotcha #4/
+    );
     assert.throws(() => validateShellCommand('git -c core.protectNTFS=false checkout main'), /Gotcha #6/);
 
-    // Compact gotcha projection when a project has >12 gotchas
+    // Compact gotcha projection and Sandwich Pattern ordering (PROJECT GOTCHAS placed after RECENT SEQUENTIAL TAPE)
+    store.recordFrame({
+      project: 'acme/large_project',
+      kind: 'finding',
+      summary: 'Recorded a frame on the tape',
+    });
     for (let i = 1; i <= 15; i++) {
       store.addGotcha({
         scope: 'acme/large_project',
@@ -717,6 +728,10 @@ Found 2026-09-28.
     });
     assert.match(out, /PROJECT GOTCHAS \(15 — compact index/);
     assert.doesNotMatch(out, /verbose multi-line fix paragraph/);
+    assert.ok(
+      out.indexOf('RECENT SEQUENTIAL TAPE') < out.indexOf('PROJECT GOTCHAS'),
+      'Sandwich Pattern: PROJECT GOTCHAS must appear after RECENT SEQUENTIAL TAPE at the bottom of boot output'
+    );
 
     // Shared repo shadowing & drift detection when non-Construct teammates keep AGENTS.md in git
     const sharedRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-shadow-repo-'));

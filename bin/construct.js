@@ -227,32 +227,6 @@ function printBoot(data) {
   console.log(`PROJECT: ${head.project}  (repo: ${head.repo || '(local path unset)'}, updated: ${shortTs(head.updated) || 'never'})`);
   console.log(`TAPE STATS: ${stats.totalFrames} frame(s), ${stats.openCount} open, ${projectGotchas.length} project gotcha(s)${stats.lastSeq ? `, head seq #${stats.lastSeq}` : ''}`);
 
-  if (driftedFiles.length) {
-    console.log(`\nDRIFTED REPO INSTRUCTION FILES (${driftedFiles.length} modified on disk since last assimilation):`);
-    for (const d of driftedFiles) {
-      console.log(`  [!] ${d.relPath} (${d.absPath}) -> Review changes with the operator and run "construct assimilate" to absorb & re-shadow.`);
-    }
-  }
-
-  if (inboxPending.length) {
-    console.log(`\nINCOMING CONSTRUCT COMMS FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxPending.length} awaiting reply):`);
-    for (const m of inboxPending) {
-      console.log(`  [M#${m.id}] From ${m.fromUser}'s ${m.fromRom} -> ${m.toUser} (${m.project}, ${shortTs(m.created)}):`);
-      console.log(`         "${m.body}"`);
-      console.log(`         -> Relay this to ${m.toUser} in your ROM voice; when answered, run: construct reply ${m.id} "<answer>"`);
-    }
-  }
-
-  if (inboxReplies.length) {
-    console.log(`\nCONSTRUCT COMMS REPLIES FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxReplies.length} unread):`);
-    for (const m of inboxReplies) {
-      console.log(`  [M#${m.id}] ${m.toUser}'s ${m.replyRom} replied to your ${m.fromRom} (${m.project}):`);
-      console.log(`         Asked: "${m.body}"`);
-      console.log(`         Reply: "${m.replyBody}"`);
-      console.log(`         -> Deliver this reply to ${m.fromUser} in your ROM voice and run: construct ack ${m.id}`);
-    }
-  }
-
   if (head.state) {
     console.log(`\nWHERE IT STANDS:\n${head.state}`);
   }
@@ -260,6 +234,17 @@ function printBoot(data) {
     console.log(`\nNEXT:\n${head.next}`);
   }
 
+  console.log(`\nRECENT SEQUENTIAL TAPE (${recentTape.length} of ${stats.totalFrames}, oldest -> newest):`);
+  if (!recentTape.length) {
+    console.log('  (empty tape)');
+  } else {
+    for (const f of recentTape) {
+      console.log(formatFrameLine(f));
+    }
+  }
+
+  // Sandwich Pattern: place active constraints (Project Gotchas, Open Threads, Drift Alerts, and Comms)
+  // at the very bottom of `<construct-live-memory>` so they sit closest to the user's prompt in attention.
   if (projectGotchas.length) {
     const compactMode = projectGotchas.length > 12;
     const modeNote = compactMode
@@ -290,12 +275,29 @@ function printBoot(data) {
     }
   }
 
-  console.log(`\nRECENT SEQUENTIAL TAPE (${recentTape.length} of ${stats.totalFrames}, oldest -> newest):`);
-  if (!recentTape.length) {
-    console.log('  (empty tape)');
-  } else {
-    for (const f of recentTape) {
-      console.log(formatFrameLine(f));
+  if (driftedFiles.length) {
+    console.log(`\nDRIFTED REPO INSTRUCTION FILES (${driftedFiles.length} modified on disk since last assimilation):`);
+    for (const d of driftedFiles) {
+      console.log(`  [!] ${d.relPath} (${d.absPath}) -> Review changes with the operator and run "construct assimilate" to absorb & re-shadow.`);
+    }
+  }
+
+  if (inboxPending.length) {
+    console.log(`\nINCOMING CONSTRUCT COMMS FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxPending.length} awaiting reply):`);
+    for (const m of inboxPending) {
+      console.log(`  [M#${m.id}] From ${m.fromUser}'s ${m.fromRom} -> ${m.toUser} (${m.project}, ${shortTs(m.created)}):`);
+      console.log(`         "${m.body}"`);
+      console.log(`         -> Relay this to ${m.toUser} in your ROM voice; when answered, run: construct reply ${m.id} "<answer>"`);
+    }
+  }
+
+  if (inboxReplies.length) {
+    console.log(`\nCONSTRUCT COMMS REPLIES FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxReplies.length} unread):`);
+    for (const m of inboxReplies) {
+      console.log(`  [M#${m.id}] ${m.toUser}'s ${m.replyRom} replied to your ${m.fromRom} (${m.project}):`);
+      console.log(`         Asked: "${m.body}"`);
+      console.log(`         Reply: "${m.replyBody}"`);
+      console.log(`         -> Deliver this reply to ${m.fromUser} in your ROM voice and run: construct ack ${m.id}`);
     }
   }
 }

@@ -644,8 +644,14 @@ function buildMemberCrewSummary(rom) {
   const seatMeta = SEAT_MAP[rom.seat] || { code: '?', label: rom.seat.toUpperCase(), desc: rom.handle };
   const tag = `[${rom.name.toUpperCase()} // ${seatMeta.label}]`;
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
-  const cadence = `${rom.tagline} ${(rom.voice.split('\n')[0] || '').replace(/^You are [^—-]+—/, '').trim()}`;
-  const checklist = (rom.directives || []).join(' ');
+
+  // Extract the character's distinct syntax/cadence bullet from Section 2 rather than repeating the 500-char intro
+  const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
+  const syntaxCue = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
+  const cadence = syntaxCue ? `${rom.tagline} ${syntaxCue}` : rom.tagline;
+
+  // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
+  const checklist = (rom.directives && (rom.directives[1] || rom.directives[0])) || seatMeta.desc;
   return { tag, role, cadence, checklist, seatMeta };
 }
 
@@ -668,22 +674,13 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const rosterBlocks = rosterRoms
     .map((r) => {
       const m = buildMemberCrewSummary(r);
-      return [
-        '- **' + m.tag + ' (' + r.handle + ' [`' + r.name + '`]):**',
-        '  - *Seat:* ' + m.role,
-        '  - *Voice:* ' + m.cadence,
-        '  - *Checklist:* ' + m.checklist,
-      ].join('\n');
+      return `- **${m.tag}** (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}`;
     })
     .join('\n');
 
   const backupBlock = backupRoms.length
-    ? [
-        '',
-        `## Bench / Seconds Available for Substitution (${backupRoms.length})`,
-        '> Sub a backup into their matched seat anytime with `construct rom sub <name>` (or `tools.construct.rom({ action: "sub", target: "<name>" })`).',
-        ...backupRoms.map((b) => `- **\`${b.name}\` (${b.handle})** -> Seat \`${b.seat}\`: ${b.tagline}`),
-      ].join('\n')
+    ? `\n- **Bench / Seconds (\`construct rom sub <name>\`):** ` +
+      backupRoms.map((b) => `\`${b.name}\` (${b.seat}: ${b.handle.split('//')[0].trim()})`).join(', ')
     : '';
 
   return [
