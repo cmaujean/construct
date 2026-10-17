@@ -554,6 +554,7 @@ function syncActiveRomInDb(db, targetFile = romMod.activeRomPath()) {
 
 function syncRom(file = dbPath()) {
   return withDb((db) => {
+    romMod.reseedBuiltInRoms(db);
     const outPath = syncActiveRomInDb(db);
     return {
       path: outPath,

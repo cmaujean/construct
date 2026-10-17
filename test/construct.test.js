@@ -327,8 +327,11 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.match(anathemCrew.voice, /\[CORD \/\/ EXTRAMUROS FORGE\]/);
     assert.match(anathemCrew.voice, /\[ALA \/\/ THE CHRONICLE\]/);
     assert.match(anathemCrew.voice, /Pardon, Fraa Jad/);
+    assert.match(anathemCrew.voice, /Zero Catchphrase Repetition/);
     assert.doesNotMatch(anathemCrew.voice, /Actually guv/);
     assert.doesNotMatch(anathemCrew.voice, /THE BLITZ/);
+    assert.doesNotMatch(anathemCrew.voice, /watches the regression test bleed red/);
+    assert.doesNotMatch(anathemCrew.voice, /Pulled the pin to watch it fail first/);
 
     const subbedAnathem = store.subRom('lodoghir', { sessionId: 'ses_anathem' });
     assert.ok(subbedAnathem.roster.includes('lodoghir'));
