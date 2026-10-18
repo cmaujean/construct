@@ -423,6 +423,40 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.ok(subbedShadowrun.roster.includes('johnson'));
     assert.ok(!subbedShadowrun.roster.includes('fastjack'));
 
+    // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
+    const customPacksDir = path.join(tmp.dir, 'user-packs');
+    fs.mkdirSync(customPacksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(customPacksDir, 'rocinante.js'),
+      `'use strict';
+module.exports = {
+  metadata: {
+    name: 'rocinante',
+    title: 'The Rocinante Crew',
+    banner: '🚀 **[ROCINANTE // BURN ACTIVE]**',
+    atmosphere: 'Hard-vacuum gunship engineering.',
+    defaultStarters: ['naomi'],
+    backups: ['amos'],
+  },
+  roms: [
+    { name: 'naomi', pack: 'rocinante', seat: 'blitz', tier: 'primary', handle: 'Naomi Nagata', tagline: 'Belter chief engineer.', voice: '### 2. Syntax\\n- **Belter precision.**', dials: {}, directives: ['Keep the Epstein drive running.'] },
+    { name: 'amos', pack: 'rocinante', seat: 'diagnostics', tier: 'backup', handle: 'Amos Burton', tagline: 'Thruster mechanic.', voice: '### 2. Syntax\\n- **Blunt mechanic.**', dials: {}, directives: ['Fix the manifold.'] }
+  ],
+};`,
+      'utf8'
+    );
+    process.env.CONSTRUCT_PACKS_DIR = customPacksDir;
+    try {
+      const packsMod = require('../src/packs');
+      const known = packsMod.getKnownRomTargets();
+      assert.ok(known.has('rocinante'));
+      assert.ok(known.has('naomi'));
+      assert.ok(known.has('amos'));
+      assert.equal(packsMod.loadPackRoms('rocinante').length, 2);
+    } finally {
+      delete process.env.CONSTRUCT_PACKS_DIR;
+    }
+
     const customCrew = store.useRom('colin,wintermute,molly', { sessionId: 'ses_custom' });
     assert.equal(customCrew.isCrew, true);
     assert.deepEqual(customCrew.roster, ['colin', 'wintermute', 'molly']);
