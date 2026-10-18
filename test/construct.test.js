@@ -1079,6 +1079,14 @@ Found 2026-09-28.
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_c' }).romName, 'shadowrun');
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_b' }).romName, 'anathem');
 
+      // Record an open thread on `acme/other_app` and verify `ses_tab_a` (`acme/shared_app`) HUD scopes open threads & tape strictly to `acme/shared_app`
+      store.recordFrame({
+        project: 'acme/other_app',
+        kind: 'thread',
+        open: true,
+        summary: 'Other project open thread that must not leak into shared_app HUD',
+      });
+
       const dashFile = path.join(bobHome, 'dashboard.html');
       const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
@@ -1086,6 +1094,7 @@ Found 2026-09-28.
       assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
       assert.match(dash.html, /acme\/shared_app/);
       assert.match(dash.html, /acme\/other_app/);
+      assert.doesNotMatch(dash.html, /Other project open thread that must not leak into shared_app HUD/);
       assert.match(dash.html, /data-pack="cryptonomicon"/);
       assert.match(dash.html, /applyHudToDom\(data\.hud\)/);
     } finally {

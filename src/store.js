@@ -2378,6 +2378,42 @@ const PACK_EMBLEM_MAP = Object.freeze({
   core: '🔪',
 });
 
+function detectFocusedDirFromOpenCodeLog() {
+  if (process.env.CONSTRUCT_DB) return '';
+  const logPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'log', 'opencode.log');
+  if (!fs.existsSync(logPath)) return '';
+  let fd = null;
+  try {
+    const stat = fs.statSync(logPath);
+    const readSize = Math.min(stat.size, 65536);
+    if (readSize <= 0) return '';
+    const buf = Buffer.alloc(readSize);
+    fd = fs.openSync(logPath, 'r');
+    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+    const lines = buf.toString('utf8').split(/\r?\n/);
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line) continue;
+      if (line.includes('snapshot\\\\') || line.includes('.local\\\\share\\\\opencode')) continue;
+      // Match UI tab-focus VCS/file-tree spawns (`git.EXE` or `rg.exe --files`) or prompt executions
+      if (line.includes('command=') && (line.includes('git.EXE') || line.includes('rg.exe') || line.includes('powershell.EXE'))) {
+        const cwdMatch = line.match(/\bcwd="([^"]+)"/);
+        if (cwdMatch && cwdMatch[1]) {
+          return cwdMatch[1].replace(/\\\\/g, '/').replace(/\\/g, '/').replace(/\/+$/, '');
+        }
+      }
+    }
+  } catch (_) {
+  } finally {
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch (_) {}
+    }
+  }
+  return '';
+}
+
 function listActiveTabsInDb(db, file = dbPath()) {
   const sessRows = db
     .prepare(
@@ -2423,7 +2459,7 @@ function listActiveTabsInDb(db, file = dbPath()) {
           if (row.directory) existing.directory = row.directory;
           if (row.title) {
             existing.title = String(row.title)
-              .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
+              .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
               .trim();
           }
           const ocTs = Math.max(Number(row.time_viewed || 0), Number(row.time_updated || 0));
@@ -2439,6 +2475,7 @@ function listActiveTabsInDb(db, file = dbPath()) {
     }
   }
 
+  const focusedDir = detectFocusedDirFromOpenCodeLog().toLowerCase();
   const out = [];
   for (const item of bySid.values()) {
     let proj = item.project;
@@ -2449,6 +2486,11 @@ function listActiveTabsInDb(db, file = dbPath()) {
     const pack = rom.pack || (rom.name === 'crew' ? 'sprawl' : rom.name);
     const emblem = PACK_EMBLEM_MAP[pack] || '🦾';
     const displayRom = rom.name === 'crew' ? 'sprawl' : rom.name;
+    const normItemDir = String(item.directory || '')
+      .replace(/\\/g, '/')
+      .replace(/\/+$/, '')
+      .toLowerCase();
+    const isFocusedDir = Boolean(focusedDir && normItemDir && normItemDir === focusedDir);
     out.push({
       sessionId: item.sessionId,
       shortId: item.sessionId.replace(/^ses_/, '').slice(0, 6),
@@ -2458,11 +2500,20 @@ function listActiveTabsInDb(db, file = dbPath()) {
       romName: displayRom,
       pack,
       emblem,
+      isFocusedDir,
       updatedMs: item.updatedMs,
     });
   }
 
+  // Sort by real-time `updatedMs` first, then boost the most recently active tab in `focusedDir` to index 0
   out.sort((a, b) => b.updatedMs - a.updatedMs);
+  if (focusedDir) {
+    const focusedIdx = out.findIndex((t) => t.isFocusedDir);
+    if (focusedIdx > 0) {
+      const [focusedTab] = out.splice(focusedIdx, 1);
+      out.unshift(focusedTab);
+    }
+  }
   return out.slice(0, 8);
 }
 
@@ -2527,9 +2578,19 @@ function getHudSnapshot(options = {}, file = dbPath()) {
 
     const openRows = project
       ? db
-          .prepare('SELECT seq, project, summary FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
+          .prepare('SELECT seq, ts, project, kind, summary, detail FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
           .all(project)
-      : db.prepare('SELECT seq, project, summary FROM frames WHERE open = 1 ORDER BY seq ASC').all();
+      : db.prepare('SELECT seq, ts, project, kind, summary, detail FROM frames WHERE open = 1 ORDER BY seq ASC').all();
+
+    const recentRows = project
+      ? db
+          .prepare('SELECT * FROM frames WHERE project = ? ORDER BY seq DESC LIMIT 15')
+          .all(project)
+          .map(hydrateFrame)
+      : db
+          .prepare('SELECT * FROM frames ORDER BY seq DESC LIMIT 15')
+          .all()
+          .map(hydrateFrame);
 
     const headRow = project ? db.prepare('SELECT * FROM heads WHERE project = ?').get(project) : null;
     const projectGotchas = project ? protocol.listGotchasInDb(db, project) : [];
@@ -2567,6 +2628,27 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const openCount = openRows.length;
     const openSeqs = openRows.map((r) => Number(r.seq));
     const openSummaries = openRows.slice(0, 5).map((r) => `#${r.seq}: ${r.summary}`);
+    const openThreads = openRows.map((r) => ({
+      seq: Number(r.seq),
+      ts: String(r.ts || '').slice(0, 10),
+      project: r.project,
+      summary: r.summary,
+      detail: String(r.detail || '').slice(0, 240),
+    }));
+    const recentTape = recentRows.map((f) => ({
+      seq: f.seq,
+      ts: String(f.ts || '').slice(0, 10),
+      project: f.project,
+      kind: f.kind,
+      summary: f.summary,
+      verified: f.verified || '',
+    }));
+    const gotchaItems = projectGotchas.slice(0, 20).map((g) => ({
+      id: g.id,
+      title: g.title,
+      status: g.status,
+      fix: g.fix || '',
+    }));
 
     const pillParts = [
       `${emblem} ${displayRom}`,
@@ -2615,6 +2697,9 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       openCount,
       openSeqs,
       openSummaries,
+      openThreads,
+      recentTape,
+      gotchas: gotchaItems,
       gotchaCount: projectGotchas.length,
       guardCount,
       inboxPendingCount,
@@ -2632,16 +2717,6 @@ function getHudSnapshot(options = {}, file = dbPath()) {
 function generateDashboardHtml(options = {}, file = dbPath()) {
   const hud = getHudSnapshot(options, file);
   const projects = listProjects(file);
-  const data = withDb((db) => {
-    const rom = getActiveRomInDb(db, options.sessionId);
-    const user = protocol.getCurrentUserInDb(db);
-    const globalGotchas = protocol.listGotchasInDb(db, 'global');
-    const openFrames = db.prepare('SELECT * FROM frames WHERE open = 1 ORDER BY seq DESC').all().map(hydrateFrame);
-    const recentFrames = db.prepare('SELECT * FROM frames ORDER BY seq DESC LIMIT 25').all().map(hydrateFrame);
-    const messages = db.prepare('SELECT * FROM messages ORDER BY hlc DESC LIMIT 20').all().map(crdt.hydrateMessage);
-    const mlsGroups = db.prepare('SELECT * FROM mls_groups ORDER BY project ASC').all().map(crdt.hydrateMlsGroup);
-    return { projects, rom, user, globalGotchas, openFrames, recentFrames, messages, mlsGroups };
-  }, file);
 
   const rosterPills = (hud.roster || [])
     .map((rName, idx) => {
@@ -2651,7 +2726,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     })
     .join(' ');
 
-    const initialTabs = Array.isArray(hud.tabs) ? hud.tabs : [];
+  const initialTabs = Array.isArray(hud.tabs) ? hud.tabs : [];
   const tabSelectorButtons = initialTabs
     .map((t) => {
       const isSelected = (hud.sessionId && t.sessionId === hud.sessionId) || (!hud.sessionId && t.project === hud.project);
@@ -2659,7 +2734,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     })
     .join('\n      ');
 
-  const projectSelectorButtons = data.projects
+  const projectSelectorButtons = projects
     .filter((p) => !initialTabs.some((t) => t.project === p.project))
     .map((p) => {
       const pRom = hud.projectRoms?.[p.project];
@@ -2670,42 +2745,43 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     })
     .join('\n      ');
 
-  const projectRows = data.projects
+  const openThreads = Array.isArray(hud.openThreads) ? hud.openThreads : [];
+  const openRows = openThreads
     .map(
-      (p) => `
-      <tr class="${p.project === hud.project ? 'active-row' : ''}">
-        <td><strong>${escapeHtml(p.project)}</strong><div class="sub">${escapeHtml(p.repo || '')}</div></td>
-        <td><span class="badge">#${p.lastSeq || 0} (${p.frameCount}f)</span> ${
-          p.openCount ? `<span class="badge warn">${p.openCount} open</span>` : '<span class="badge ok">0 open</span>'
-        }</td>
-        <td>${escapeHtml(p.state || '(unset)')}</td>
-        <td>${escapeHtml(p.next || '')}</td>
+      (f) => `
+      <tr>
+        <td><code>#${f.seq}</code><div class="sub">${escapeHtml(f.ts || '')}</div></td>
+        <td>${escapeHtml(f.summary)}${f.detail ? `<div class="sub">${escapeHtml(f.detail)}</div>` : ''}</td>
       </tr>`
     )
     .join('');
 
-  const openRows = data.openFrames
+  const recentTape = Array.isArray(hud.recentTape) ? hud.recentTape : [];
+  const tapeRows = recentTape
     .map(
       (f) => `
       <tr>
-        <td><code>#${f.seq}</code></td>
-        <td><strong>${escapeHtml(f.project)}</strong></td>
-        <td>${escapeHtml(f.summary)}<div class="sub">${escapeHtml(f.detail || '')}</div></td>
-      </tr>`
-    )
-    .join('');
-
-  const tapeRows = data.recentFrames
-    .map(
-      (f) => `
-      <tr>
-        <td><code>#${f.seq}</code></td>
-        <td>${escapeHtml(f.project)}</td>
+        <td><code>#${f.seq}</code><div class="sub">${escapeHtml(f.ts || '')}</div></td>
         <td><span class="badge">${escapeHtml(f.kind)}</span></td>
         <td>${escapeHtml(f.summary)} ${f.verified ? `<span class="sub">{verified: ${escapeHtml(f.verified)}}</span>` : ''}</td>
       </tr>`
     )
     .join('');
+
+  const projectGotchas = Array.isArray(hud.gotchas) ? hud.gotchas : [];
+  const gotchaRows = projectGotchas
+    .map(
+      (g) => `
+      <tr>
+        <td><code>G#${g.id}</code></td>
+        <td><strong>${escapeHtml(g.title)}</strong> <span class="sub">(${escapeHtml(g.status || '')})</span>${
+          g.fix ? `<div class="sub">-&gt; ${escapeHtml(g.fix)}</div>` : ''
+        }</td>
+      </tr>`
+    )
+    .join('');
+
+  const shortSidInit = hud.sessionId ? hud.sessionId.replace(/^ses_/, '').slice(0, 6) : '';
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -2743,7 +2819,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     background: #0f1520;
     border: 1px solid var(--accent);
     border-radius: 6px;
-    margin-bottom: 18px;
+    margin-bottom: 14px;
   }
   .hud-pill {
     font-size: 14px;
@@ -2752,7 +2828,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     letter-spacing: 0.03em;
   }
   h1 { margin: 0; font-size: 16px; color: var(--accent); letter-spacing: 0.05em; }
-  h2 { font-size: 13px; color: var(--accent); margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  h2 { font-size: 13px; color: var(--accent); margin: 18px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
   .roster-bar {
     background: var(--panel);
     border: 1px solid var(--border);
@@ -2764,12 +2840,19 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     gap: 6px;
     align-items: center;
   }
+  .state-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
   .control-deck {
     background: #0f1520;
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px 14px;
-    margin-bottom: 18px;
+    margin-bottom: 16px;
   }
   .btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   button.crew-btn {
@@ -2801,11 +2884,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   <div class="hud-bar">
     <div>
       <div class="hud-pill" id="hud-pill">${escapeHtml(hud.pill)}</div>
-      <div class="sub" id="hud-sub">CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ${escapeHtml(hud.operator)} | Crew: ${escapeHtml(hud.handle)}</div>
+      <div class="sub" id="hud-sub">CONSTRUCT // SEQUENTIAL MEMORY HUD — Tab: ${escapeHtml(shortSidInit || 'active')} (${escapeHtml(hud.project)}) | Operator: ${escapeHtml(hud.operator)} | Crew: ${escapeHtml(hud.handle)}</div>
     </div>
     <div>
-      <span class="badge">${data.projects.length} Projects</span>
-      <span class="badge ${data.openFrames.length ? 'warn' : 'ok'}" id="hud-open-badge">${data.openFrames.length} Open Threads</span>
+      <span class="badge" id="hud-frames-badge">📁 ${escapeHtml(hud.project)} · #${hud.headSeq || 0} (${hud.totalFrames || 0} frames)</span>
+      <span class="badge ${hud.openCount ? 'warn' : 'ok'}" id="hud-open-badge">${hud.openCount} Open Threads</span>
       <span class="badge ok" id="hud-guard-badge">🛡️ ${hud.guardCount} Active Shell Guards</span>
     </div>
   </div>
@@ -2818,16 +2901,16 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   <div class="control-deck">
     <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);">
       <strong>TARGET TAB &amp; PROJECT SCOPE</strong>
-      <span class="sub" style="margin-left:8px;">(Select which open tab or project the Control Deck inspects and switches; each tab &amp; project keeps its own Crew)</span>
+      <span class="sub" style="margin-left:8px;">(Automatically follows your focused OpenCode tab, or click any tab/project pill to pin it)</span>
       <div class="btn-row" id="target-tab-row">
-        <button class="crew-btn" id="btn-autofollow" onclick="enableAutoFollow()">🎯 Auto-Follow Active Tab</button>
+        <button class="crew-btn active" id="btn-autofollow" onclick="enableAutoFollow()">🎯 Auto-Follow Active Tab</button>
         ${tabSelectorButtons}
         ${projectSelectorButtons}
       </div>
     </div>
     <div>
       <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
-      <span class="sub" style="margin-left:8px;">(Switches Crew for target: <code id="target-scope-label">${escapeHtml(hud.project)}${hud.sessionId ? ` [tab:${hud.sessionId.replace(/^ses_/, '').slice(0, 6)}]` : ''}</code>)</span>
+      <span class="sub" style="margin-left:8px;">(Switches Crew for target: <code id="target-scope-label">${escapeHtml(hud.project)}${shortSidInit ? ` [tab:${shortSidInit}]` : ''} (auto-following)</code>)</span>
       <span id="hud-toast"></span>
     </div>
     <div class="btn-row">
@@ -2853,11 +2936,47 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn" data-sub="marly" onclick="switchCrew('sub','marly')">🎨 Marly</button>
     </div>
   </div>
+
+  <div class="state-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <strong>STATE HEAD — <span id="hud-head-project">${escapeHtml(hud.project)}</span></strong>
+      <span class="sub" id="hud-head-repo">${escapeHtml(hud.dir || '')}</span>
+    </div>
+    <div><strong>WHERE IT STANDS:</strong> <span id="hud-head-state">${escapeHtml(hud.state || '(unset)')}</span></div>
+    <div style="margin-top:4px;"><strong>NEXT:</strong> <span id="hud-head-next">${escapeHtml(hud.next || '(unset)')}</span></div>
+  </div>
+
+  <h2 id="hud-open-heading">Open Verification Threads — ${escapeHtml(hud.project)} (${openThreads.length})</h2>
+  <table>
+    <thead><tr><th style="width:90px;">Seq</th><th>Summary &amp; Detail</th></tr></thead>
+    <tbody id="hud-open-tbody">${openRows || '<tr><td colspan="2">(none)</td></tr>'}</tbody>
+  </table>
+
+  <h2 id="hud-tape-heading">Recent Sequential Tape — ${escapeHtml(hud.project)} (${recentTape.length} of ${hud.totalFrames || 0})</h2>
+  <table>
+    <thead><tr><th style="width:90px;">Seq</th><th style="width:95px;">Kind</th><th>Summary</th></tr></thead>
+    <tbody id="hud-tape-tbody">${tapeRows || '<tr><td colspan="3">(empty tape)</td></tr>'}</tbody>
+  </table>
+
+  <h2 id="hud-gotchas-heading">Project Gotchas — ${escapeHtml(hud.project)} (${hud.gotchaCount || 0})</h2>
+  <table>
+    <thead><tr><th style="width:80px;">ID</th><th>Gotcha &amp; Fix</th></tr></thead>
+    <tbody id="hud-gotchas-tbody">${gotchaRows || '<tr><td colspan="2">(no project-specific gotchas)</td></tr>'}</tbody>
+  </table>
+
   <script>
     let selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     let selectedProject = ${JSON.stringify(hud.project || '')};
     let autoFollow = true;
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
+
+    function esc(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
 
     function renderTargetButtons(h) {
       const rowEl = document.getElementById('target-tab-row');
@@ -2873,8 +2992,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
       tabs.forEach((t) => {
         const btn = document.createElement('button');
-        const isSel = !autoFollow && ((selectedSessionId && t.sessionId === selectedSessionId) || (!selectedSessionId && t.project === selectedProject));
-        btn.className = 'crew-btn' + (isSel ? ' active' : '');
+        const isCurrent = (selectedSessionId && t.sessionId === selectedSessionId) || (!selectedSessionId && t.project === selectedProject);
+        btn.className = 'crew-btn' + (isCurrent ? ' active' : '');
         btn.textContent = (t.emblem || '🦾') + ' ' + t.project + ' [tab:' + (t.shortId || '') + ' · ' + (t.romName || '') + ']';
         btn.onclick = () => selectTarget(t.sessionId, t.project);
         rowEl.appendChild(btn);
@@ -2885,7 +3004,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         if (tabs.some((t) => t.project === proj)) return;
         const pr = projectRoms[proj];
         const btn = document.createElement('button');
-        const isSel = !autoFollow && !selectedSessionId && selectedProject === proj;
+        const isSel = !selectedSessionId && selectedProject === proj;
         btn.className = 'crew-btn' + (isSel ? ' active' : '');
         btn.textContent = (pr.emblem || '📁') + ' ' + proj + ' [project · ' + (pr.romName || '') + ']';
         btn.onclick = () => selectTarget('', proj);
@@ -2899,15 +3018,30 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         selectedSessionId = h.sessionId || '';
         selectedProject = h.project || '';
       }
+      const shortSid = (h.sessionId || selectedSessionId || '').replace(/^ses_/, '').slice(0, 6);
       const scopeEl = document.getElementById('target-scope-label');
       if (scopeEl) {
-        const shortSid = selectedSessionId ? ' [tab:' + selectedSessionId.replace(/^ses_/, '').slice(0, 6) + ']' : ' [project]';
-        scopeEl.textContent = (selectedProject || h.project || 'workspace') + shortSid + (autoFollow ? ' (auto-following)' : ' (pinned)');
+        scopeEl.textContent = (h.project || selectedProject || 'workspace') + (shortSid ? ' [tab:' + shortSid + ']' : ' [project]') + (autoFollow ? ' (auto-following)' : ' (pinned)');
       }
       const pillEl = document.getElementById('hud-pill');
       if (pillEl && h.pill) pillEl.textContent = h.pill;
       const subEl = document.getElementById('hud-sub');
-      if (subEl) subEl.textContent = 'CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ' + (h.operator || '') + ' | Crew: ' + (h.handle || h.romName || '');
+      if (subEl) {
+        subEl.textContent = 'CONSTRUCT // SEQUENTIAL MEMORY HUD — Tab: ' + (shortSid || 'active') + ' (' + (h.project || '') + ') | Operator: ' + (h.operator || '') + ' | Crew: ' + (h.handle || h.romName || '');
+      }
+      const framesBadge = document.getElementById('hud-frames-badge');
+      if (framesBadge) {
+        framesBadge.textContent = '📁 ' + (h.project || 'workspace') + ' · #' + (h.headSeq || 0) + ' (' + (h.totalFrames || 0) + ' frames)';
+      }
+      const openBadge = document.getElementById('hud-open-badge');
+      if (openBadge) {
+        openBadge.textContent = (h.openCount || 0) + ' Open Threads';
+        openBadge.className = 'badge ' + (h.openCount ? 'warn' : 'ok');
+      }
+      const guardBadge = document.getElementById('hud-guard-badge');
+      if (guardBadge) {
+        guardBadge.textContent = '🛡️ ' + (h.guardCount || 4) + ' Active Shell Guards';
+      }
       const romNameEl = document.getElementById('active-rom-name');
       if (romNameEl && h.romName) romNameEl.textContent = String(h.romName).toUpperCase();
       const pillsEl = document.getElementById('roster-pills');
@@ -2930,6 +3064,63 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         if (Array.isArray(h.roster) && h.roster.includes(subName)) btn.classList.add('active');
         else btn.classList.remove('active');
       });
+
+      const headProjEl = document.getElementById('hud-head-project');
+      if (headProjEl) headProjEl.textContent = h.project || 'workspace';
+      const headRepoEl = document.getElementById('hud-head-repo');
+      if (headRepoEl) headRepoEl.textContent = h.dir || '';
+      const headStateEl = document.getElementById('hud-head-state');
+      if (headStateEl) headStateEl.textContent = h.state || '(unset)';
+      const headNextEl = document.getElementById('hud-head-next');
+      if (headNextEl) headNextEl.textContent = h.next || '(unset)';
+
+      const openHeading = document.getElementById('hud-open-heading');
+      const openTbody = document.getElementById('hud-open-tbody');
+      const openList = Array.isArray(h.openThreads) ? h.openThreads : [];
+      if (openHeading) openHeading.textContent = 'Open Verification Threads — ' + (h.project || 'workspace') + ' (' + openList.length + ')';
+      if (openTbody) {
+        if (!openList.length) {
+          openTbody.innerHTML = '<tr><td colspan="2">(none)</td></tr>';
+        } else {
+          openTbody.innerHTML = openList.map((f) =>
+            '<tr><td><code>#' + esc(f.seq) + '</code><div class="sub">' + esc(f.ts) + '</div></td>' +
+            '<td>' + esc(f.summary) + (f.detail ? '<div class="sub">' + esc(f.detail) + '</div>' : '') + '</td></tr>'
+          ).join('');
+        }
+      }
+
+      const tapeHeading = document.getElementById('hud-tape-heading');
+      const tapeTbody = document.getElementById('hud-tape-tbody');
+      const tapeList = Array.isArray(h.recentTape) ? h.recentTape : [];
+      if (tapeHeading) tapeHeading.textContent = 'Recent Sequential Tape — ' + (h.project || 'workspace') + ' (' + tapeList.length + ' of ' + (h.totalFrames || 0) + ')';
+      if (tapeTbody) {
+        if (!tapeList.length) {
+          tapeTbody.innerHTML = '<tr><td colspan="3">(empty tape)</td></tr>';
+        } else {
+          tapeTbody.innerHTML = tapeList.map((f) =>
+            '<tr><td><code>#' + esc(f.seq) + '</code><div class="sub">' + esc(f.ts) + '</div></td>' +
+            '<td><span class="badge">' + esc(f.kind) + '</span></td>' +
+            '<td>' + esc(f.summary) + (f.verified ? ' <span class="sub">{verified: ' + esc(f.verified) + '}</span>' : '') + '</td></tr>'
+          ).join('');
+        }
+      }
+
+      const gotchaHeading = document.getElementById('hud-gotchas-heading');
+      const gotchaTbody = document.getElementById('hud-gotchas-tbody');
+      const gotchaList = Array.isArray(h.gotchas) ? h.gotchas : [];
+      if (gotchaHeading) gotchaHeading.textContent = 'Project Gotchas — ' + (h.project || 'workspace') + ' (' + (h.gotchaCount || gotchaList.length) + ')';
+      if (gotchaTbody) {
+        if (!gotchaList.length) {
+          gotchaTbody.innerHTML = '<tr><td colspan="2">(no project-specific gotchas)</td></tr>';
+        } else {
+          gotchaTbody.innerHTML = gotchaList.map((g) =>
+            '<tr><td><code>G#' + esc(g.id) + '</code></td>' +
+            '<td><strong>' + esc(g.title) + '</strong> <span class="sub">(' + esc(g.status) + ')</span>' +
+            (g.fix ? '<div class="sub">-&gt; ' + esc(g.fix) + '</div>' : '') + '</td></tr>'
+          ).join('');
+        }
+      }
+
       renderTargetButtons(h);
     }
 
@@ -2981,26 +3172,13 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
-    setInterval(pollHud, 2500);
+    void pollHud();
+    window.addEventListener('focus', () => void pollHud());
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) void pollHud();
+    });
+    setInterval(pollHud, 1000);
   </script>
-
-  <h2>Open Verification Threads (${data.openFrames.length})</h2>
-  <table>
-    <thead><tr><th>Seq</th><th>Project</th><th>Summary</th></tr></thead>
-    <tbody>${openRows || '<tr><td colspan="3">(none)</td></tr>'}</tbody>
-  </table>
-
-  <h2>Projects &amp; State Heads (${data.projects.length})</h2>
-  <table>
-    <thead><tr><th>Project</th><th>Tape</th><th>Where It Stands</th><th>Next</th></tr></thead>
-    <tbody>${projectRows || '<tr><td colspan="4">(no projects)</td></tr>'}</tbody>
-  </table>
-
-  <h2>Recent Sequential Tape (${data.recentFrames.length})</h2>
-  <table>
-    <thead><tr><th>Seq</th><th>Project</th><th>Kind</th><th>Summary</th></tr></thead>
-    <tbody>${tapeRows || '<tr><td colspan="4">(empty tape)</td></tr>'}</tbody>
-  </table>
 </body>
 </html>`;
 
@@ -3009,7 +3187,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     path.join(os.homedir(), '.config', 'opencode', 'construct-hud.html');
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, html, 'utf8');
-  return { outFile, html, hud, projectCount: data.projects.length, openCount: data.openFrames.length };
+  return { outFile, html, hud, projectCount: projects.length, openCount: hud.openCount };
 }
 
 // --- GitHub Issues <-> Construct Open Threads Bridge (`construct issues [sync | publish]`) ---

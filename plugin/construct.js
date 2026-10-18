@@ -1087,6 +1087,7 @@ export default {
     // 4. Start local loopback HUD control server (`127.0.0.1:47420`) so clicking Crew/Bench buttons
     //    inside the Review Pane's `construct-hud.html` switches the session's Crew in <10ms!
     let hudServer = null
+    let lastDiskHudKey = ""
     try {
       hudServer = http.createServer((req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*")
@@ -1103,6 +1104,19 @@ export default {
           const qProj = parsedUrl.searchParams.get("project") || ""
           const qDir = parsedUrl.searchParams.get("dir") || ""
           const snap = fetchHudSnapshot(qDir, qSid, qProj)
+          if (snap && !qSid && !qProj) {
+            const diskKey = `${snap.sessionId || ""}:${snap.project || ""}:${snap.romName || ""}:${snap.headSeq || 0}`
+            if (diskKey !== lastDiskHudKey) {
+              lastDiskHudKey = diskKey
+              try {
+                const dashArgs = ["dashboard"]
+                if (snap.project) dashArgs.push("--project", String(snap.project))
+                if (snap.dir) dashArgs.push("--dir", String(snap.dir))
+                if (snap.sessionId) dashArgs.push("--session", String(snap.sessionId))
+                runConstruct(dashArgs)
+              } catch (_) {}
+            }
+          }
           res.writeHead(200, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ ok: true, hud: snap }))
           return
@@ -1120,7 +1134,7 @@ export default {
               const sid = String(payload.sessionID || "")
               const proj = String(payload.project || "")
               const dir = String(payload.dir || "")
-              if (target && isValidRomTarget(target)) {
+              if (target && /^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/i.test(target)) {
                 const args = ["rom", act, target]
                 if (sid) args.push("--session", sid)
                 if (proj && proj !== "workspace") args.push("--project", proj)
