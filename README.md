@@ -14,7 +14,7 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 2. [One-Prompt Installation](#2-one-prompt-installation)
 3. [First Boot: Introducing Yourself & Setting Up Agreements](#3-first-boot-introducing-yourself--setting-up-agreements)
 4. [Assimilating Existing Instruction Files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)](#4-assimilating-existing-instruction-files-agentsmd-claudemd-geminimd)
-5. [The Sprawl Crew & Personality ROMs](#5-the-sprawl-crew--personality-roms)
+5. [The 6 Crew Banks, The Bench & Modular Packs (70 ROMs)](#5-the-6-crew-banks-the-bench--modular-packs-70-roms)
 6. [Working Agreements, Rules & Gotchas](#6-working-agreements-rules--gotchas)
 7. [The Sequential Memory Tape](#7-the-sequential-memory-tape)
 8. [Collaborating: Project Invites, Auto-Clone & Zero Bleed](#8-collaborating-project-invites-auto-clone--zero-bleed)
@@ -34,7 +34,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated Sprawl heist crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with three complete **Crew Banks** (`sprawl` from William Gibson's *Sprawl* trilogy, `anathem` from Neal Stephenson's *Anathem*, and `generic` for a zero-fiction specialist pipeline), plus bench backups and custom bank generation. All 9 seats are in the room at all times: you can talk 1-on-1 with any seat just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*), other seats can raise a hand if they have relevant input (*"Actually guv, I can speak to this"*), and the crew runs **in parallel** across OpenCode `subagent` child sessions over Construct's SQLite WAL database.
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with six complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits) and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
 - **You interact with it in plain English inside OpenCode (or Claude Code).** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -109,61 +109,69 @@ How the assimilation flow works:
 
 ---
 
-## 5. The Sprawl, Anathem & Generic Crew Banks (34 ROMs)
+## 5. The 6 Crew Banks, The Bench & Modular Packs (70 ROMs)
 
-In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to weld a hull breach.
+In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to machine a hull joint.
 
-Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument) from **Swappable Crew Banks (`packs`)**. Out of the box, Construct ships with **34 deep ROM constructs** across three complete Crew Banks:
-- **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 primary starters + 3 bench backups).
-- **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 primary starters + 3 bench backups).
-- **`generic` (`standard` / `plain`):** Zero-fiction engineering specialist pipeline (9 primary starters + `razor`).
+Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument and specialized **Bench / Seconds**) from **Swappable Crew Banks (`packs`)**. Each bank lives in its own lazy-loaded module under `src/packs/<bank>.js` (so normal turns load `0` inactive pack files into memory, and only your session's active 9 seats are queried from SQLite).
 
-### The 9-Seat Crew Matrix Across All Three Built-In Banks
+Out of the box, Construct ships with **70 deep ROM constructs** across six Crew Banks:
+- **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 starters + 3 bench seconds).
+- **`nightcity` (`afterlife` / `cyberpunk`):** *Cyberpunk 2077 / Phantom Liberty* Afterlife Edgerunners (9 starters + 3 bench seconds).
+- **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 starters + 3 bench seconds).
+- **`cryptonomicon` (`epiphyte`):** Neal Stephenson's *Cryptonomicon* Detachment 2702 & Epiphyte Corp (9 starters + 3 bench seconds).
+- **`shadowrun` (`shadowland`):** Sixth World 2050s Seattle Shadowland Team (9 starters + 3 bench seconds).
+- **`generic` (`standard` / `plain`):** Zero-fiction principal engineering pipeline (9 starters + `razor`).
 
-| Seat | Phase & Engineering Role | `sprawl` Bank (Default) | `anathem` Bank | `generic` Bank (Zero-Fiction) |
-|---|---|---|---|---|
-| **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** (high exposition, mental-model translation) | **`colin`** (Colin) | **`erasmus`** (Fraa Erasmas / `raz`) | **`guide`** (Guide) |
-| **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** (crash logs, broken schemas, silent drops) | **`dixie`** (McCoy Pauley) | **`sammann`** (Sammann the Ita) | **`trace`** (Trace) |
-| **2 (`architect`)** | **High-Orbit State Geometry, Invariants & Alignment Gate** (maps state space, waits for green light) | **`wintermute`** (Wintermute) | **`jad`** (Fraa Jad) *(backup: **`lodoghir`**)* | **`arch`** (Arch) |
-| **3 (`blitz`)** | **High-Speed Surgical Execution & Red-First Mutation Proof** (full-depth cuts, watches tests fail red first) | **`molly`** (Molly Millions) | **`cord`** (Cord) | **`strike`** (Strike) |
-| **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** (`unzip -l`, DLL timestamps, compiler & dependency checks) | **`finn`** (The Finn) | **`orolo`** (Fraa Orolo) *(backup: **`paphlagon`**)* | **`audit`** (Audit) |
-| **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** (clocks ms & KB deltas, hunts blocking imports & hangs) | **`case`** (Henry Dorsett Case) | **`jesry`** (Fraa Jesry) *(backup: **`jules`**)* | **`pulse`** (Pulse) |
-| **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** (spoofing, auth gates, trust boundaries, abuse cases) | **`lupus`** (Lupus Yonderboy) *(backup: **`armitage`**)* | **`lio`** (Fraa Lio) | **`redteam`** (RedTeam) |
-| **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human-Layer Feel** (dark/light contrast, jank, copy, tactile flow) | **`angie`** (Angela Mitchell) *(backups: **`marly`**, **`3jane`**)* | **`tulia`** (Suur Tulia) | **`ux`** (UX) |
-| **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** (`#seq` frames, version lineage, changelog seams) | **`continuity`** (Continuity) | **`ala`** (Suur Ala) | **`ledger`** (Ledger) |
-| **`instrument`** | **Zero-Chrome Clinical Output** (raw `file:line`, diffs, tables, zero prose) | **`razor`** | **`razor`** | **`razor`** |
+### The 9-Seat Crew Matrix Across All Six Built-In Banks
 
-### The Room Dynamic, Direct 1-on-1 Conversations & Parallel Overwatch
+| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `generic` |
+|---|---|---|---|---|---|---|---|
+| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`guide`** |
+| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`trace`** |
+| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`arch`** |
+| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`strike`** |
+| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`audit`** |
+| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`pulse`** |
+| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`redteam`** |
+| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`ux`** |
+| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ledger`** |
 
-All 9 seats of your active Crew Bank are in the room at all times. You never need to "slot a single ROM" to talk to one specialist:
+### Calling Specialists Off the Bench (Why & How)
 
-1. **Direct 1-on-1 Conversation & Raising a Hand:**
-   - Want to work through a design with Wintermute or Jad, or get a guided tour from Colin or Erasmas? Just address them by name (*"Wintermute, look at this state machine"*, *"Jad, what breaks if this retries?"*, *"Colin, walk me through this provider"*). That seat holds the conversation with you.
-   - If another seat in the room spots something squarely in their domain while you are talking, they can raise a hand with a single short line at the end (*`**[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour.`*).
-   - If you wave them off (*"Nah, thanks Colin, I'm talking to Wintermute right now"*), they step back immediately and stay quiet while your conversation continues.
-2. **Phase Gates on General Tasks (`Seats 1A/1B -> Seat 2 -> Seat 3 + Overwatch -> Seat 5`):**
-   - When you ask a general question or kick off a feature, `colin`/`erasmus`/`guide` or `dixie`/`sammann`/`trace` scouts the files first.
-   - `wintermute`/`jad`/`arch` maps the state invariants, edge cases, and security/UX seams, refines the plan with you, and **stops to get your green light** before turning the blitz specialist loose (*"Align and refine before pulling the trigger"*).
-3. **The Blitz & Parallel Multi-Session Overwatch (`subagent` tool):**
-   - Once you green-light the plan, `molly`/`cord`/`strike` cuts the complete implementation at full depth (never a skeleton) and watches the regression test bleed red on the unfixed state before making it green.
-   - Simultaneously, the command deck can spawn parallel `subagent` child sessions prefixed with `[ROM: <specialist>]` (for example, `"[ROM: lupus] Audit this diff for missed auth guards"` and `"[ROM: finn] Verify the packaged artifact"`). Construct's `prompt` hook binds each child session's `sessionID` to that specialist in `<4 ms`.
-   - `continuity`/`ala`/`ledger` records the final verified frame (`#seq`) and project head onto the sequential tape.
+Why keep a **Bench ("Seconds")** instead of cramming 12 or 15 seats into every turn?
+Because 90% of coding turns only need the 9 core engineering seats, and keeping specialized roles on the Bench costs **zero extra context tokens** until the moment you need them.
 
-### Switching Crew Banks, Subbing Bench Backups & Creating Custom Banks
+Each Crew Bank carries Bench specialists designed for specific high-leverage moments:
+1. **Legal, Licensing, Contract Scope & Rhetorical Cross-Examination ("The Procians"):**
+   - **`lodoghir`** (*Thainhoding, The Lodoghir* in `anathem`): Master Procian Rhetor and Convox inquisitor. Call him off the bench when you want ruthless cross-examination of a software license (MIT vs. Commons Clause vs. GPL), fair-use/IP boundaries, App Store / Play Store compliance, or when you want him to cross-examine a test suite by asking *"What bug could still pass this assertion?"*
+   - **`johnson`** (*Mr. Johnson* in `shadowrun`): Immaculate corporate intermediary. Call him in when auditing contract deliverables, third-party vendor SLA/licensing traps, or strict scope boundaries.
+2. **State-Machine Computability & Formal Logic:**
+   - **`turing`** (*Alan Turing* in `cryptonomicon`) or **`takemura`** (*Goro Takemura* in `nightcity`): Call them in when reducing a complex async retry loop or distributed state machine to a decidable transition table.
+3. **Rapid Live A/B Benchmarking:**
+   - **`jules`** (*Jules Verne Durand* in `anathem`) or **`decker`** (*Slamm-0!* in `shadowrun`): Call them off the bench when two engineers are debating a performance theory and you want a 30-second scratchpad A/B script to settle it with numbers.
+4. **Deep Protocol / Decompiled Spec Archaeology:**
+   - **`paphlagon`** (*Fraa Paphlagon* in `anathem`) or **`rudy`** (*Rudy von Hacklheber* in `cryptonomicon`): Call them in when dissecting an RFC, binary wire format, or decompiled game engine DLL.
+5. **OpSec, IAM & Tradecraft Audits:**
+   - **`armitage`** (`sprawl`), **`reed`** (*Solomon Reed* in `nightcity`), or **`adept`** (`shadowrun`): Call them in for CI/CD secret bindings, least-privilege IAM roles, and covert fallback audits.
+6. **Typography, Proportion & Design-System Architecture:**
+   - **`marly`** (*Marly Krushkhova* in `sprawl`) or **`3jane`** (*Lady 3Jane* in `sprawl`): Call them in when auditing visual composition, negative space, or design-token discipline across light/dark themes.
 
-Everything works in plain English (and via zero-round-trip pre-slotting when your message starts with *"switch to ..."* or *"sub ..."*):
+**Two ways to use the Bench in plain English:**
+- **Call them to the mic for a single question (no substitution required):**
+  - *"Lodoghir, are we in fair-use territory with these packs, and what are the trademark risks?"*
+  - *"Jules, run a quick A/B probe in the scratchpad to see if caching that SQLite handle saves real time."*
+  - *"Marly, look at the spacing on this card header."*
+- **Swap them into the active 9-seat starter lineup for the rest of the session (`construct rom sub <name>`):**
+  - *"Sub Lodoghir in"* (replaces `jad` on Seat 2 `architect` in the active `anathem` crew)
+  - *"Sub Takemura in"* (replaces `tbug` on Seat 2 in `nightcity`)
+  - *"Sub Marly in"* (replaces `angie` on Seat 4D in `sprawl`)
 
-- **Switch the Crew Bank:**
-  - *"Switch to the Anathem crew"* (or *"Make Anathem my default crew"* -> `construct rom default anathem`)
-  - *"Switch to the generic crew"* (`construct rom use generic`)
-  - *"Switch back to the Sprawl crew"* (`construct rom use sprawl`)
-- **Sub a Bench Backup ("Seconds") into Their Matched Seat:**
-  - *"Sub Marly in"* (replaces `angie` with `marly` on Seat 4D `ergonomics` in the active Sprawl crew)
-  - *"Sub Armitage in"* (replaces `lupus` with `armitage` on Seat 4C `redteam`)
-  - *"Sub Lodoghir in"* (replaces `jad` with `lodoghir` on Seat 2 `architect` in the Anathem crew)
-  - *"Sub Paphlagon in"* or *"Sub Jules in"*
-- **Generate a Custom Crew Bank for Any Universe:**
-  - Ask Construct in chat: *"Create a new crew bank called `expanse` (or `culture`, `gits`, `halcyon`) across the 9 canonical seats (`recon`, `diagnostics`, `architect`, `blitz`, `forensics`, `velocity`, `redteam`, `ergonomics`, `archivist`) with full voice calibration pairs, and switch to it."* Construct saves each member with `--pack <bank> --seat <seat> --tier primary|backup`, and `construct rom use <bank>` immediately runs your new crew.
+### Drop-In Modular Crew Packs (`src/packs/<bank>.js` & `~/.config/opencode/packs/*.js`)
+
+Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
+- To add a personal or custom Crew Bank without touching the Construct repository, drop a `<bank>.js` file into `~/.config/opencode/packs/` (or set `CONSTRUCT_PACKS_DIR`).
+- Construct discovers it automatically on the next turn and registers its bank name, starter names, and bench backups across OpenCode and Claude Code.
 
 ### How Sessions Work in an OpenCode Workspace
 
