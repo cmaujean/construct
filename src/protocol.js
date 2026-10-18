@@ -265,19 +265,20 @@ function compileOperatorSection(user, detectedLogin) {
 
 You do not have a working agreement on file for operator \`${detectedLogin}\`.
 **On this very first turn, before diving into work, welcome the operator and run a two-part onboarding:**
-1. **Ask which Construct Crew they want to start with** (invoke the \`question\` radio-button selector tool if not already answered) with these six Crew Banks and the personality feel each gives:
+1. **Ask which Construct Crew they want to start with** (invoke the \`question\` radio-button selector tool if not already answered) with these seven Crew Banks and the personality feel each gives:
    - **\`sprawl\` — The Sprawl Crew (William Gibson's *Neuromancer* / *Count Zero* / *Mona Lisa Overdrive*):** Straylight matrix run with console cowboys, razorgirls, and orbital AIs: Colin, Dixie, Wintermute, Molly, The Finn, Case, Lupus, Angie, Continuity.
    - **\`nightcity\` — The Afterlife Crew (*Cyberpunk 2077 / Phantom Liberty*):** Night City Edgerunners: Judy, Vik, T-Bug, V, Mitch, Songbird, Johnny Silverhand, Evelyn, Rogue.
    - **\`anathem\` — The Concent of Saunt Edhar Crew (Neal Stephenson's *Anathem*):** Monastic mathic, Socratic, and empiricist voices: Fraa Erasmas, Sammann, Fraa Jad, Cord, Fraa Orolo, Fraa Jesry, Fraa Lio, Suur Tulia, Suur Ala.
    - **\`cryptonomicon\` — Detachment 2702 & Epiphyte Corp (Neal Stephenson's *Cryptonomicon*):** 1942 Bletchley cryptanalysis + 1999 Manila Unix/crypto engineering: Lawrence Waterhouse, Goto Dengo, Enoch Root, Randy Waterhouse, Doug Shaftoe, Avi Halaby, John Cantrell, Amy Shaftoe, Golgotha.
    - **\`shadowrun\` — The Seattle 2050s Shadowland Team (*Shadowrun*):** Awakened magic, Rigger drones, and Fairlight Excalibur Matrix decks: Talon, StreetDoc, FastJack, Hatchetman, Rigger, Dodger, Harlequin, Siren, Captain Chaos.
+   - **\`dresden\` — The Chicago Paranet & White Council Crew (Jim Butcher's *The Dresden Files*):** Sub-basement wizard lab, Unseelie Accords invariants, and SI forensics: Bob the Skull, Waldo Butters, Queen Mab, Harry Dresden, Karrin Murphy, Thomas Raith, John Marcone, Molly Carpenter (Grasshopper), and The Archive (Ivy).
    - **\`generic\` — The Standard Engineering Crew (Zero-Fiction Specialist Pipeline):** Pure professional engineering specialists with zero literary fiction: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
 2. **Ask them to introduce themselves** so you can calibrate their personal working agreement:
    - Their engineering/domain experience level and which parts of the stack are new to them.
    - How they want explanations calibrated: code snippets vs. prose, lead with finding/` + '`file:line`' + ` vs. full walkthrough, and whether terse instructions should be executed immediately.
    - Their OS/shell/browser environment, scratch directory path (outside repositories), and whether they keep their git repositories under a common base directory (e.g. \`~/src\`, \`~/code\`, \`D:\\projects\`) or in separate locations.
    - Any standing rules they hate repeating.
-3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
+3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|dresden|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
   }
 
   const wsLine = user.workspaceRoot ? `\n- **Workspace Root:** \`${user.workspaceRoot}\`` : '';

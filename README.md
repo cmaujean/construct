@@ -14,7 +14,7 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 2. [One-Prompt Installation (OpenCode & Claude Code)](#2-one-prompt-installation-opencode--claude-code)
 3. [First Boot: Choosing Your Crew & Setting Up Agreements](#3-first-boot-choosing-your-crew--setting-up-agreements)
 4. [Assimilating Existing Instruction Files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)](#4-assimilating-existing-instruction-files-agentsmd-claudemd-geminimd)
-5. [The 6 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (70 ROMs)](#5-the-6-crew-banks-the-bench-cross-bank-cameos--modular-packs-70-roms)
+5. [The 7 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (82 ROMs)](#5-the-7-crew-banks-the-bench-cross-bank-cameos--modular-packs-82-roms)
 6. [Working Agreements, Rules & Gotchas](#6-working-agreements-rules--gotchas)
 7. [The Sequential Memory Tape (Sandwich Pattern)](#7-the-sequential-memory-tape-sandwich-pattern)
 8. [Collaborating: Project Invites, Auto-Clone & Zero Bleed](#8-collaborating-project-invites-auto-clone--zero-bleed)
@@ -35,7 +35,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated 9-seat engineering crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with six complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with seven complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
 - **You interact with it in plain English inside OpenCode or Claude Code.** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -56,11 +56,11 @@ cd construct && npm link
 construct init
 ```
 
-*(Using **Claude Code** alongside or instead of OpenCode? Run `construct init --claude` to configure `~/.claude/CLAUDE.md`, the `construct mcp` stdio server, all 69 color-badged specialist subagents in `~/.claude/agents/*.md`, and Claude Code's `SessionStart`, `UserPromptSubmit`, `SubagentStart`, and `PreToolUse` hooks against the same `construct.db`.)*
+*(Using **Claude Code** alongside or instead of OpenCode? Run `construct init --claude` to configure `~/.claude/CLAUDE.md`, the `construct mcp` stdio server, all 81 color-badged specialist subagents in `~/.claude/agents/*.md`, and Claude Code's `SessionStart`, `UserPromptSubmit`, `SubagentStart`, and `PreToolUse` hooks against the same `construct.db`.)*
 
 ### What `construct init` Does Automatically
 1. Generates your local cryptographic identity (`~/.config/opencode/identity.json`, a W3C `did:key:z6Mk...` Ed25519 + X25519 keypair).
-2. Creates `~/.config/opencode/construct.db` with all 70 built-in ROM constructs across the 6 modular Crew Banks and the Core Engineering Protocol.
+2. Creates `~/.config/opencode/construct.db` with all 82 built-in ROM constructs across the 7 modular Crew Banks and the Core Engineering Protocol.
 3. Scans for any existing global AI instruction files and imports your agreements and gotchas if found.
 4. Installs the OpenCode V2 plugin at `~/.config/opencode/plugins/construct.js` and adds `~/.config/opencode/active-rom.md` to `~/.config/opencode/opencode.jsonc` (and when `--claude` is passed, wires `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, and `~/.claude/agents/*.md`).
 
@@ -77,6 +77,7 @@ On your very first turn:
    - 🏛️ **`anathem` (The Concent of Saunt Edhar Crew):** Neal Stephenson's *Anathem*. Mathic Concent, Socratic & empiricist Convox: Fraa Erasmas, Sammann, Fraa Jad, Cord, Fraa Orolo, Fraa Jesry, Fraa Lio, Suur Tulia, Suur Ala.
    - 🔐 **`cryptonomicon` (Detachment 2702 & Epiphyte Corp):** Neal Stephenson's *Cryptonomicon*. 1942 Bletchley Park cryptanalysis braided with 1999 Manila Unix/crypto engineering: Lawrence Waterhouse, Goto Dengo, Enoch Root, Randy Waterhouse, Doug Shaftoe, Avi Halaby, John Cantrell, Amy Shaftoe, Golgotha.
    - 🐉 **`shadowrun` (Seattle 2050s Shadowland Team):** Sixth World tactical arcology run where Awakened magic meets cyberware: Talon (Raven shaman), StreetDoc, FastJack, Hatchetman (Street Samurai), Rigger, Dodger (Excalibur decker), Harlequin, Siren (Face), Captain Chaos (Shadowland SysOp).
+   - 🕯️ **`dresden` (The Chicago Paranet & White Council Crew):** Jim Butcher's *The Dresden Files*. Sub-basement wizard lab, Unseelie Accords invariants, and SI forensics: Bob the Skull, Waldo Butters, Queen Mab, Harry Dresden, Karrin Murphy, Thomas Raith, John Marcone, Molly Carpenter (Grasshopper), and The Archive (Ivy).
    - ⚙️ **`generic` (The Standard Engineering Crew):** Zero-fiction professional specialist pipeline: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
 2. **Introduce yourself in chat** so Construct can calibrate your personal working agreement:
    - **Your background and experience** (for example: *"I have 20 years of backend C# and Go experience, and I am new to Flutter. Do not explain backend basics to me; do explain Flutter widget lifecycle quirks."* Or: *"I am a product designer with minimal coding experience; I rely on you to verify everything because I cannot read the code myself."*)
@@ -166,23 +167,24 @@ Each Crew Bank carries Bench specialists designed for specific high-leverage mom
 1. **Legal, Licensing, Contract Scope & Rhetorical Cross-Examination ("The Procians"):**
    - **`lodoghir`** (*Thainhoding, The Lodoghir* in `anathem`): Master Procian Rhetor and Convox inquisitor. Call him off the bench when you want ruthless cross-examination of a software license (MIT vs. Commons Clause vs. GPL), fair-use/IP boundaries, App Store / Play Store compliance, or when you want him to cross-examine a test suite by asking *"What bug could still pass this assertion?"*
    - **`johnson`** (*Mr. Johnson* in `shadowrun`): Immaculate corporate intermediary. Call him in when auditing contract deliverables, third-party vendor SLA/licensing traps, or strict scope boundaries.
-2. **State-Machine Computability & Formal Logic:**
-   - **`turing`** (*Alan Turing* in `cryptonomicon`) or **`takemura`** (*Goro Takemura* in `nightcity`): Call them in when reducing a complex async retry loop or distributed state machine to a decidable transition table.
-3. **Rapid Live A/B Benchmarking:**
-   - **`jules`** (*Jules Verne Durand* in `anathem`) or **`decker`** (*Slamm-0!* in `shadowrun`): Call them off the bench when two engineers are debating a performance theory and you want a 30-second scratchpad A/B script to settle it with numbers.
+2. **State-Machine Computability, Structural Foundations & Formal Logic:**
+   - **`turing`** (*Alan Turing* in `cryptonomicon`), **`takemura`** (*Goro Takemura* in `nightcity`), or **`ebenezar`** (*Ebenezar McCoy, The Blackstaff* in `dresden`): Call them in when reducing a complex async retry loop to a decidable transition table or tearing down rotten legacy abstractions.
+3. **Rapid Live A/B Benchmarking & Swarm Probes:**
+   - **`toot`** (*Major General Toot-Toot Minimus* in `dresden`), **`jules`** (*Jules Verne Durand* in `anathem`), or **`decker`** (*Slamm-0!* in `shadowrun`): Call them off the bench when two engineers are debating a performance theory and you want a 30-second scratchpad A/B script to settle it with numbers.
 4. **Deep Protocol / Decompiled Spec Archaeology:**
    - **`paphlagon`** (*Fraa Paphlagon* in `anathem`) or **`rudy`** (*Rudy von Hacklheber* in `cryptonomicon`): Call them in when dissecting an RFC, binary wire format, or decompiled game engine DLL.
-5. **OpSec, IAM & Tradecraft Audits:**
-   - **`armitage`** (`sprawl`), **`reed`** (*Solomon Reed* in `nightcity`), or **`adept`** (`shadowrun`): Call them in for CI/CD secret bindings, least-privilege IAM roles, and covert fallback audits.
+5. **OpSec, IAM, Load-Bearing Wards & Tradecraft Audits:**
+   - **`michael`** (*Michael Carpenter* in `dresden`), **`armitage`** (`sprawl`), **`reed`** (*Solomon Reed* in `nightcity`), or **`adept`** (`shadowrun`): Call them in for CI/CD secret bindings, least-privilege IAM roles, threshold wards, and covert fallback audits.
 6. **Typography, Proportion & Design-System Architecture:**
    - **`marly`** (*Marly Krushkhova* in `sprawl`) or **`3jane`** (*Lady 3Jane* in `sprawl`): Call them in when auditing visual composition, negative space, or design-token discipline across light/dark themes.
 
 **Two ways to use the Bench in plain English:**
 - **Call them to the mic for a single question (no substitution required):**
   - *"Lodoghir, are we in fair-use territory with these packs, and what are the trademark risks?"*
-  - *"Jules, run a quick A/B probe in the scratchpad to see if caching that SQLite handle saves real time."*
+  - *"Toot, run a quick A/B probe in the scratchpad to see if caching that SQLite handle saves real time."*
   - *"Marly, look at the spacing on this card header."*
 - **Swap them into the active 9-seat starter lineup for the rest of the session (`construct rom sub <name>`):**
+  - *"Sub Toot in"* (replaces `thomas` on Seat 4B `velocity` in the active `dresden` crew)
   - *"Sub Lodoghir in"* (replaces `jad` on Seat 2 `architect` in the active `anathem` crew)
   - *"Sub Takemura in"* (replaces `tbug` on Seat 2 in `nightcity`)
   - *"Sub Marly in"* (replaces `angie` on Seat 4D in `sprawl`)
@@ -193,22 +195,25 @@ Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
 - To add a personal or custom Crew Bank without touching the Construct repository, drop a `<bank>.js` file into `~/.config/opencode/packs/` (or set `CONSTRUCT_PACKS_DIR`).
 - Construct discovers it automatically on the next turn and registers its bank name, starter names, and bench backups across OpenCode and Claude Code.
 
-> **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, and `shadowrun`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
+> **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, and `dresden`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Jim Butcher, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
 
 ### Live OpenCode HUD & Interactive Review Pane Switcher (`construct hud` & `construct dashboard`)
 
 Construct surfaces live telemetry across both the **OpenCode Desktop/Web App** and the **OpenCode TUI**:
-- **Session Tab & Header Badges:** Automatically prefixes active session tab titles with the slotted Crew emblem, bank name, head frame `#seq`, and open thread count (for example, `🐉 [shadowrun #116 · 2 open]`).
-- **Interactive Review Pane Control Deck (`~/.config/opencode/construct-hud.html`):** Open `construct-hud.html` in the OpenCode Review pane (via `tools.browser.preview` or `/construct`) for a dark-mode HUD with one-click buttons to switch between all 6 Crew Banks or sub Bench specialists in place (`127.0.0.1:47420` loopback control server).
+- **Session Tab & Header Badges:** Automatically prefixes active session tab titles with the slotted Crew emblem, bank name, head frame `#seq`, and open thread count (for example, `🕯️ [dresden #129 · 2 open]`).
+- **Tab- & Project-Sensitive Review Pane Control Deck (`~/.config/opencode/construct-hud.html`):** Open `construct-hud.html` in the OpenCode Review pane (via `tools.browser.preview` or `/construct`) for a dark-mode HUD with an interactive **Target Tab & Project Selector Bar** (`🎯 Auto-Follow Active Tab` plus individual open tab and project pills) and one-click buttons to switch between all 7 Crew Banks or sub Bench specialists in place (`127.0.0.1:47420` loopback control server).
 - **TUI Slots & `/construct` Command (`plugin/tui.tsx`):** Mounts live status indicators into `prompt.footer.status`, `home.footer.status`, `sidebar.footer`, and `session.composer.top`, with `/construct` (and `Ctrl+Shift+G` in the TUI) for instant Crew switching.
 
-### Multi-Tab Session Isolation & Resilience
+### Multi-Tab & Per-Project Session Isolation (`session_roms` & `project_roms`)
 
-OpenCode and Claude Code let you run multiple sessions (tabs/conversations) at the same time. Construct isolates Crew Banks per session (`session_roms` keyed by `sessionID`, and `${session_id}:${agent_id}` for parallel subagents):
+OpenCode and Claude Code let you run multiple sessions (tabs/conversations) across multiple repositories at the same time. Construct isolates Crew Banks both **per tab (`session_roms`)** and **per project (`project_roms`)**:
 
-1. **Per-Session Isolation:** Running the `sprawl` crew in Tab A (`acme/alpha_app`) and the `anathem` crew in Tab B (`acme/billing_service`) keeps both tabs 100% isolated.
+1. **Three-Level Crew Resolution (`Tab -> Project -> Operator Default`):**
+   - Each open tab remembers its own slotted Crew in `session_roms`.
+   - Each repository remembers its project Crew in `project_roms`, so opening a brand-new tab in `acme/alpha_app` automatically inherits `acme/alpha_app`'s Crew instead of falling back to the global default.
+   - Running the `sprawl` crew in Tab A (`acme/alpha_app`) and the `dresden` crew in Tab B (`acme/billing_service`) keeps both tabs and projects 100% isolated.
 2. **Bounded Last-Known-Good Fallback Cache (`resolveBootWithFallback`):** The OpenCode plugin maintains a 50-entry FIFO cache keyed by `${sessionID}::${dir}` so another open tab never loses its `<construct-live-memory>` or Crew voice during a multi-step tool loop.
-3. **"Until Further Notice" Default Crew vs. Per-Session Bootloader:** If you choose **Default until further notice** in the radio-button selector (or say *"Make the Anathem crew my default until further notice"*), new sessions boot straight into that Crew Bank. Say *"Clear my default ROM"* anytime to re-enable the first-turn Crew Bank radio-button selector.
+3. **"Until Further Notice" Default Crew vs. Per-Session Bootloader:** If you choose **Default until further notice** in the radio-button selector (or say *"Make the Anathem crew my default until further notice"*), new projects boot straight into that Crew Bank. Say *"Clear my default ROM"* anytime to re-enable the first-turn Crew Bank radio-button selector.
 
 ### Tuning Dials, Burning Directives & Customizing Specialists
 
@@ -399,7 +404,7 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 | **Storage Engine** | Node.js built-in `node:sqlite` (`DatabaseSync` in `WAL` mode + `FTS5` BM25 virtual tables & triggers) | `0.12 ms` raw query, `6.6 MB` V8 heap, `0 MB` resident between turns |
 | **Modular Crew Packs** | Lazy-loaded `src/packs/<bank>.js` + user drop-in packs (`~/.config/opencode/packs/*.js`) | `0` inactive pack files parsed into memory on normal turns |
 | **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, fallback cache, and `shell` guard | Zero round-trip ROM/Crew switching; multi-tab resilient |
-| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 69 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) |
+| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 81 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) |
 | **Identity & Auth** | Self-certifying W3C `did:key:z6Mk...` (`Ed25519` signing + `X25519` ECDH via native OpenSSL `node:crypto`) | Stored in `~/.config/opencode/identity.json` (`0600`) |
 | **Group Encryption** | MLS-style Epoch Secret Tree (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`) | Relay sees only opaque ciphertext and a blinded HKDF `routeTag` |
 | **Conflict-Free Merge** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`) + LWW-Element-Map (`heads`, `messages`) | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) |
