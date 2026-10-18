@@ -1351,7 +1351,7 @@ function writeClaudeSubagentsInDb(db, claudeDir) {
   const written = [];
   for (const r of allRoms) {
     if (r.name === 'razor') continue;
-    const seatMeta = romMod.SEAT_MAP[r.seat] || { code: '?', label: r.seat.toUpperCase(), desc: r.handle };
+    const seatMeta = romMod.SEAT_MAP[r.seat] || { code: '?', claudeColor: 'blue', label: r.seat.toUpperCase(), desc: r.handle };
     const safeDesc = `${r.handle} (${r.pack} Seat ${seatMeta.code} - ${seatMeta.desc}): ${r.tagline}`.replace(
       /[\r\n"]+/g,
       ' '
@@ -1362,6 +1362,7 @@ function writeClaudeSubagentsInDb(db, claudeDir) {
       `name: ${r.name}`,
       `description: "${safeDesc}"`,
       'model: inherit',
+      `color: ${seatMeta.claudeColor || 'blue'}`,
       '---',
       '',
       body,

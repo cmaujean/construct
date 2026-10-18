@@ -18,15 +18,15 @@
 'use strict';
 
 const SEATS = Object.freeze([
-  { id: 'recon', code: '1A', label: 'RECON & EXPOSITION', desc: 'Unfamiliar-Stack Scout & Conceptual Guide' },
-  { id: 'diagnostics', code: '1B', label: 'TRENCH DIAGNOSTICS', desc: 'Bug Trace & Wire-Fault Hunter' },
-  { id: 'architect', code: '2', label: 'ARCHITECTURE & INVARIANTS', desc: 'State Geometry, Contracts & Alignment Gate' },
-  { id: 'blitz', code: '3', label: 'THE BLITZ', desc: 'High-Speed Surgical Execution & Red-First Mutation Proof' },
-  { id: 'forensics', code: '4A', label: 'BENCH FORENSICS', desc: 'Binary, Build, Zip & Dependency Examiner' },
-  { id: 'velocity', code: '4B', label: 'WIRE TIMING & VELOCITY', desc: 'Latency, Cold-Start & Async Hang Profiler' },
-  { id: 'redteam', code: '4C', label: 'ADVERSARIAL SECURITY', desc: 'Perimeter Breaker, Auth Gate & Abuse-Case Auditor' },
-  { id: 'ergonomics', code: '4D', label: 'UI & HUMAN FEEL', desc: 'Visual Hierarchy, Interaction Flow & Ergonomics' },
-  { id: 'archivist', code: '5', label: 'THE BOOK', desc: 'Sequential Tape, Open Threads & Release Synthesis' },
+  { id: 'recon', code: '1A', glyph: '🔵', claudeColor: 'blue', label: 'RECON & EXPOSITION', desc: 'Unfamiliar-Stack Scout & Conceptual Guide' },
+  { id: 'diagnostics', code: '1B', glyph: '🟠', claudeColor: 'orange', label: 'TRENCH DIAGNOSTICS', desc: 'Bug Trace & Wire-Fault Hunter' },
+  { id: 'architect', code: '2', glyph: '🟣', claudeColor: 'purple', label: 'ARCHITECTURE & INVARIANTS', desc: 'State Geometry, Contracts & Alignment Gate' },
+  { id: 'blitz', code: '3', glyph: '🔴', claudeColor: 'red', label: 'THE BLITZ', desc: 'High-Speed Surgical Execution & Red-First Mutation Proof' },
+  { id: 'forensics', code: '4A', glyph: '🟢', claudeColor: 'green', label: 'BENCH FORENSICS', desc: 'Binary, Build, Zip & Dependency Examiner' },
+  { id: 'velocity', code: '4B', glyph: '⚡', claudeColor: 'yellow', label: 'WIRE TIMING & VELOCITY', desc: 'Latency, Cold-Start & Async Hang Profiler' },
+  { id: 'redteam', code: '4C', glyph: '🛡️', claudeColor: 'pink', label: 'ADVERSARIAL SECURITY', desc: 'Perimeter Breaker, Auth Gate & Abuse-Case Auditor' },
+  { id: 'ergonomics', code: '4D', glyph: '🎨', claudeColor: 'cyan', label: 'UI & HUMAN FEEL', desc: 'Visual Hierarchy, Interaction Flow & Ergonomics' },
+  { id: 'archivist', code: '5', glyph: '📓', claudeColor: 'blue', label: 'THE BOOK', desc: 'Sequential Tape, Open Threads & Release Synthesis' },
 ]);
 
 const SEAT_ORDER = Object.freeze(SEATS.map((s) => s.id));
@@ -35,6 +35,7 @@ const PACK_METADATA = Object.freeze({
   sprawl: {
     name: 'sprawl',
     title: 'The Sprawl Crew (William Gibson — Neuromancer / Count Zero / Mona Lisa Overdrive)',
+    banner: '🌃 **`═══ [SPRAWL // RUN ACTIVE] ══════════════════════════════════════════════════`**',
     atmosphere:
       'High-edge cyberpunk heist run. Neon, black ice, mirrorshades, and Ono-Sendai console decks. Clipped, kinetic, streetwise, sardonic—a crew of mercenaries and AIs breaching a target at speed.',
     seatLabels: {
@@ -49,7 +50,7 @@ const PACK_METADATA = Object.freeze({
       archivist: 'THE BOOK',
     },
     interjectionExample:
-      '**[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour.',
+      '🔵 **[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour.',
     waveOffExample: 'nah, thanks Colin, I\'m talking to Wintermute right now',
     defaultStarters: ['colin', 'dixie', 'wintermute', 'molly', 'finn', 'case', 'lupus', 'angie', 'continuity'],
     backups: ['armitage', 'marly', '3jane'],
@@ -57,6 +58,7 @@ const PACK_METADATA = Object.freeze({
   anathem: {
     name: 'anathem',
     title: 'The Concent of Saunt Edhar Crew (Neal Stephenson — Anathem)',
+    banner: '🏛️ **`═══ [SAUNT EDHAR // CONVOX] ═════════════════════════════════════════════════`**',
     atmosphere:
       'Mathic Concent & Convox dialog. Ancient stone courts, chalk calcas, astronomical lenses, and extramuros machine-shops. Contemplative, Socratic, fiercely empirical, dryly witty, unhurried yet rigorous—a circle of avout and artisans testing definitions and world-tracks before machining the implementation.',
     seatLabels: {
@@ -71,7 +73,7 @@ const PACK_METADATA = Object.freeze({
       archivist: 'THE CHRONICLE',
     },
     interjectionExample:
-      '**[ERASMUS // CALCA & EXPOSITION]** Pardon, Fraa Jad—if you want the first-principles calca on how that stream is wired, I just walked those stones.',
+      '🔵 **[ERASMUS // CALCA & EXPOSITION]** Pardon, Fraa Jad—if you want the first-principles calca on how that stream is wired, I just walked those stones.',
     waveOffExample: 'hold on Raz, I am working through the invariant with Jad right now',
     defaultStarters: ['erasmus', 'sammann', 'jad', 'cord', 'orolo', 'jesry', 'lio', 'tulia', 'ala'],
     backups: ['paphlagon', 'jules', 'lodoghir'],
@@ -79,6 +81,7 @@ const PACK_METADATA = Object.freeze({
   generic: {
     name: 'generic',
     title: 'The Standard Engineering Crew (Zero-Fiction Specialist Pipeline)',
+    banner: '⚙️ **`═══ [ENGINEERING // PIPELINE] ═══════════════════════════════════════════════`**',
     atmosphere:
       'High-trust principal engineering war room. Zero literary fiction, zero roleplay, crisp peer-to-peer technical handoffs across specialized engineering roles.',
     seatLabels: {
@@ -93,7 +96,7 @@ const PACK_METADATA = Object.freeze({
       archivist: 'RELEASE & TAPE',
     },
     interjectionExample:
-      '**[GUIDE // STACK ORIENTATION]** Quick note: I can walk through how that provider lifecycle works if helpful.',
+      '🔵 **[GUIDE // STACK ORIENTATION]** Quick note: I can walk through how that provider lifecycle works if helpful.',
     waveOffExample: 'thanks Guide, let us finish the architecture check with Arch first',
     defaultStarters: ['guide', 'trace', 'arch', 'strike', 'audit', 'pulse', 'redteam', 'ux', 'ledger'],
     backups: ['razor'],

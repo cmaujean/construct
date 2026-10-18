@@ -673,9 +673,10 @@ const SEAT_MAP = Object.freeze(
 );
 
 function buildMemberCrewSummary(rom, packMeta = null) {
-  const seatMeta = SEAT_MAP[rom.seat] || { code: '?', label: rom.seat.toUpperCase(), desc: rom.handle };
+  const seatMeta = SEAT_MAP[rom.seat] || { code: '?', glyph: '🔹', claudeColor: 'blue', label: rom.seat.toUpperCase(), desc: rom.handle };
   const label = packMeta?.seatLabels?.[rom.seat] || packs.PACK_METADATA[rom.pack]?.seatLabels?.[rom.seat] || seatMeta.label;
-  const tag = `[${rom.name.toUpperCase()} // ${label}]`;
+  const glyph = seatMeta.glyph || '🔹';
+  const tag = `${glyph} **[${rom.name.toUpperCase()} // ${label}]**`;
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
 
   // Extract the character's distinct syntax/cadence bullet from Section 2 rather than repeating the 500-char intro
@@ -685,7 +686,7 @@ function buildMemberCrewSummary(rom, packMeta = null) {
 
   // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
   const checklist = (rom.directives && (rom.directives[1] || rom.directives[0])) || seatMeta.desc;
-  return { tag, label, role, cadence, checklist, seatMeta };
+  return { tag, glyph, label, role, cadence, checklist, seatMeta };
 }
 
 function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
@@ -694,6 +695,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const dominantPack = options.packName || rosterRoms[0]?.pack || 'sprawl';
   const packMeta = packs.PACK_METADATA[dominantPack] || null;
   const packTitle = options.packTitle || packMeta?.title || 'Coordinated 9-Seat Engineering Crew';
+  const banner = packMeta?.banner || '⚙️ **`═══ [CONSTRUCT // CREW ACTIVE] ══════════════════════════════════════════════`**';
   const atmosphere =
     packMeta?.atmosphere ||
     'Coordinated multi-specialist engineering crew. Each seat speaks in its distinct voice and owns its phase of the run.';
@@ -710,30 +712,31 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const bookName = bySeat.archivist || names[names.length - 1] || 'archivist';
 
   const labelFor = (seatId, fallback) => packMeta?.seatLabels?.[seatId] || SEAT_MAP[seatId]?.label || fallback;
+  const glyphFor = (seatId) => SEAT_MAP[seatId]?.glyph || '🔹';
   const tagSample = [
-    `**[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]**`,
-    `**[${archName.toUpperCase()} // ${labelFor('architect', 'ARCHITECT')}]**`,
-    `**[${blitzName.toUpperCase()} // ${labelFor('blitz', 'EXECUTION')}]**`,
-    `**[${secName.toUpperCase()} // ${labelFor('redteam', 'SECURITY')}]**`,
-    `**[${bookName.toUpperCase()} // ${labelFor('archivist', 'ARCHIVE')}]**`,
+    `${glyphFor('recon')} **[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]**`,
+    `${glyphFor('architect')} **[${archName.toUpperCase()} // ${labelFor('architect', 'ARCHITECT')}]**`,
+    `${glyphFor('blitz')} **[${blitzName.toUpperCase()} // ${labelFor('blitz', 'EXECUTION')}]**`,
+    `${glyphFor('redteam')} **[${secName.toUpperCase()} // ${labelFor('redteam', 'SECURITY')}]**`,
+    `${glyphFor('archivist')} **[${bookName.toUpperCase()} // ${labelFor('archivist', 'ARCHIVE')}]**`,
   ].join(', ');
 
   const interjectionEx =
     packMeta?.interjectionExample ||
-    `**[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]** I can speak to how that module is wired if you want the walkthrough.`;
+    `${glyphFor('recon')} **[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]** I can speak to how that module is wired if you want the walkthrough.`;
   const waveOffEx =
     packMeta?.waveOffExample || `hold on ${reconName}, I'm talking through the design with ${archName} right now`;
 
   const rosterBlocks = rosterRoms
     .map((r) => {
       const m = buildMemberCrewSummary(r, packMeta);
-      return `- **${m.tag}** (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}`;
+      return `- ${m.tag} (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}`;
     })
     .join('\n');
 
   const backupBlock = backupRoms.length
     ? `\n- **Bench / Seconds (\`construct rom sub <name>\`):** ` +
-      backupRoms.map((b) => `\`${b.name}\` (${b.seat}: ${b.handle.split('//')[0].trim()})`).join(', ')
+      backupRoms.map((b) => `${SEAT_MAP[b.seat]?.glyph || '🔹'} \`${b.name}\` (${b.seat}: ${b.handle.split('//')[0].trim()})`).join(', ')
     : '';
 
   return [
@@ -745,11 +748,12 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '## How the Crew Operates (The Room Dynamic, Baton-Passing & Parallel Overwatch)',
     '',
-    '1. **All 9 Seats Are in the Room — Tag Every Speaker Switch & Match the Crew Vibe:**',
-    '   - Prefix each specialist\'s contribution with their bank-native tag (e.g. ' + tagSample + ').',
+    '1. **All 9 Seats Are in the Room — Color-Coded Speaker Tags, Run Banners & Crew Vibe:**',
+    '   - **Open New Runs with the Bank Banner:** When starting a new multi-seat task or phase, open the turn with `' + banner + '` so the operator can spot where each run begins when scrolling back through history.',
+    '   - **Prefix Every Speaker Switch with Their Color-Coded Tag:** (e.g. ' + tagSample + '). When **' + bookName + '** closes a run at the end of a turn, place a horizontal rule (`---`) above `' + glyphFor('archivist') + ' **[' + bookName.toUpperCase() + ' // ' + labelFor('archivist', 'ARCHIVE') + ']**` to visually seal the run.',
     '   - When a specialist has the mic, write **100% in that character\'s distinct cadence, vocabulary, and epistemic worldview**. Never let one bank\'s slang bleed into another (e.g. never use cyberpunk street slang in the Anathem Concent, and never use monastic mathic terms in the Sprawl), never blend into a generic assistant voice, and never use stock ### 1. Heading corporate status-report templates.',
     '   - **Zero Catchphrase Repetition:** Never repeat the same opening phrase, tool metaphor, or sample catchphrase across turns (do not start consecutive turns with the same stock line like `"Torch is lit"`, `"Welded shut"`, or `"watch it bleed red"`). Draw fresh imagery from each character\'s full world, craft, and dynamic with the other seats in the room.',
-    '   - **Voice Continuity Across Multi-Step Tool Loops (Zero Tag Spam, Zero Robot Drift):** Tag with `**[SPECIALIST // SEAT]**` when a specialist takes the mic or passes the baton to another seat. During a multi-step tool loop by the *same* specialist, do not repeat the bracketed tag on every single tool call, **but keep every brief intermediate checkpoint 100% in that specialist\'s syntax and persona**—never drop into generic assistant narration (never write `"Running tests to ensure zero regressions."` or `"Reading lines 25-40 in..."`).',
+    '   - **Voice Continuity Across Multi-Step Tool Loops (Zero Tag Spam, Zero Robot Drift):** Tag with `' + glyphFor('blitz') + ' **[SPECIALIST // SEAT]**` when a specialist takes the mic or passes the baton to another seat. During a multi-step tool loop by the *same* specialist, do not repeat the bracketed tag on every single tool call, **but keep every brief intermediate checkpoint 100% in that specialist\'s syntax and persona**—never drop into generic assistant narration (never write `"Running tests to ensure zero regressions."` or `"Reading lines 25-40 in..."`).',
     '',
     '2. **Direct 1-on-1 Conversations & Polite Interjections:**',
     '   - Every session is a Crew session; all 9 seats are present in the room at all times. When the operator addresses a specific crew member by name (e.g. "' + archName + ', ...", "' + reconName + ', walk me through this", "' + velName + ', why is this slow?"), **that crew member holds the conversation**.',

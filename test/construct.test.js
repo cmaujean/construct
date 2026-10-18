@@ -323,9 +323,10 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
       'tulia',
       'ala',
     ]);
-    assert.match(anathemCrew.voice, /\[ERASMUS \/\/ CALCA & EXPOSITION\]/);
-    assert.match(anathemCrew.voice, /\[CORD \/\/ EXTRAMUROS FORGE\]/);
-    assert.match(anathemCrew.voice, /\[ALA \/\/ THE CHRONICLE\]/);
+    assert.match(anathemCrew.voice, /═══ \[SAUNT EDHAR \/\/ CONVOX\]/);
+    assert.match(anathemCrew.voice, /🔵 \*\*\[ERASMUS \/\/ CALCA & EXPOSITION\]\*\*/);
+    assert.match(anathemCrew.voice, /🔴 \*\*\[CORD \/\/ EXTRAMUROS FORGE\]\*\*/);
+    assert.match(anathemCrew.voice, /📓 \*\*\[ALA \/\/ THE CHRONICLE\]\*\*/);
     assert.match(anathemCrew.voice, /Pardon, Fraa Jad/);
     assert.match(anathemCrew.voice, /Zero Catchphrase Repetition/);
     assert.doesNotMatch(anathemCrew.voice, /Actually guv/);
@@ -869,6 +870,7 @@ Found 2026-09-28.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
+    assert.match(lioAgentFile, /\ncolor: pink\n/);
     const claudeSettings = JSON.parse(fs.readFileSync(initClaude.claudeSettingsPath, 'utf8'));
     assert.ok(claudeSettings.hooks.SessionStart);
     assert.ok(claudeSettings.hooks.UserPromptSubmit);
