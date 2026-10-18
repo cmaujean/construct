@@ -10,6 +10,7 @@
 //    `sync`) for zero-shell access.
 
 import fs from "node:fs"
+import http from "node:http"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { execFileSync } from "node:child_process"
@@ -348,11 +349,14 @@ export default {
     const promptedSessions = new Set()
     const lastGoodBootBySession = new Map()
     const lastBadgeBySession = new Map()
+    let lastActiveSessionId = ""
+    let lastActiveDir = ctx.location?.directory || ""
     let rpcRegistration = null
 
     const syncSessionHud = async (sessionID, dirOverride = "") => {
-      const sid = String(sessionID || "")
-      let dir = dirOverride || ctx.location?.directory || ""
+      const sid = String(sessionID || lastActiveSessionId || "")
+      if (sid) lastActiveSessionId = sid
+      let dir = dirOverride || lastActiveDir || ctx.location?.directory || ""
       let sess = null
       if (sid && ctx.session?.get) {
         try {
@@ -360,8 +364,17 @@ export default {
           if (!dir && sess?.directory) dir = sess.directory
         } catch (_) {}
       }
+      if (dir) lastActiveDir = dir
       const snap = fetchHudSnapshot(dir, sid)
       if (!snap) return null
+
+      // Refresh `~/.config/opencode/construct-hud.html` on disk so the Review Pane HUD stays live
+      try {
+        const dashArgs = ["dashboard"]
+        if (dir) dashArgs.push("--dir", String(dir))
+        if (sid) dashArgs.push("--session", String(sid))
+        runConstruct(dashArgs)
+      } catch (_) {}
 
       if (rpcRegistration?.events?.emit) {
         try {
@@ -906,6 +919,112 @@ export default {
       })
     })
 
-    return () => eventAbort.abort()
+    // 3. Register `/construct` and `/hud` slash commands (`ctx.command.transform`) for Desktop, Web, and TUI
+    if (ctx.command?.transform) {
+      try {
+        await ctx.command.transform((editor) => {
+          editor.add({
+            name: "construct",
+            description: "Switch Construct Crew Bank, sub a Bench specialist, or open the interactive Construct HUD (e.g. /construct, /construct anathem, /construct sub lodoghir)",
+            execute: async ({ sessionID, prompt, delivery }) => {
+              const rawArg = String(prompt?.text || "").trim()
+              const subMatch = rawArg.match(/^sub\s+([a-z0-9_]+)$/i)
+              const directBank = isValidRomTarget(rawArg) ? rawArg.toLowerCase() : ""
+              if (subMatch && isValidRomTarget(subMatch[1])) {
+                runConstruct(["rom", "sub", subMatch[1].toLowerCase(), "--session", String(sessionID)])
+                const snap = await syncSessionHud(sessionID)
+                await ctx.session.prompt({
+                  ...prompt,
+                  sessionID,
+                  text: `Subbed \`${subMatch[1].toLowerCase()}\` into the active crew (${snap?.pill || ""}). Confirm in voice.`,
+                  delivery,
+                })
+                return
+              }
+              if (directBank) {
+                runConstruct(["rom", "use", directBank, "--session", String(sessionID)])
+                const snap = await syncSessionHud(sessionID)
+                await ctx.session.prompt({
+                  ...prompt,
+                  sessionID,
+                  text: `Switched this session to \`${directBank}\` (${snap?.pill || ""}). Confirm in the new Crew's voice and open \`~/.config/opencode/construct-hud.html\` with \`tools.browser.preview\`.`,
+                  delivery,
+                })
+                return
+              }
+              await syncSessionHud(sessionID)
+              await ctx.session.prompt({
+                ...prompt,
+                sessionID,
+                text: "Open `C:/Users/chris/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.",
+                delivery,
+              })
+            },
+          })
+        })
+      } catch (_) {}
+    }
+
+    // 4. Start local loopback HUD control server (`127.0.0.1:47420`) so clicking Crew/Bench buttons
+    //    inside the Review Pane's `construct-hud.html` switches the session's Crew in <10ms!
+    let hudServer = null
+    try {
+      hudServer = http.createServer((req, res) => {
+        res.setHeader("Access-Control-Allow-Origin", "*")
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+        if (req.method === "OPTIONS") {
+          res.writeHead(204)
+          res.end()
+          return
+        }
+        if (req.method === "GET" && req.url?.startsWith("/hud")) {
+          const snap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
+          res.writeHead(200, { "Content-Type": "application/json" })
+          res.end(JSON.stringify({ ok: true, hud: snap }))
+          return
+        }
+        if (req.method === "POST" && req.url?.startsWith("/action")) {
+          let body = ""
+          req.on("data", (chunk) => {
+            if (body.length < 16384) body += chunk
+          })
+          req.on("end", async () => {
+            try {
+              const payload = JSON.parse(body || "{}")
+              const act = payload.action === "sub" ? "sub" : "use"
+              const target = String(payload.target || "").trim().toLowerCase()
+              const sid = String(payload.sessionID || lastActiveSessionId || "")
+              if (target && isValidRomTarget(target)) {
+                const args = ["rom", act, target]
+                if (sid) args.push("--session", sid)
+                runConstruct(args)
+                const snap = await syncSessionHud(sid, lastActiveDir)
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+              res.writeHead(400, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: "invalid target" }))
+            } catch (err) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: err.message }))
+            }
+          })
+          return
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      hudServer.on("error", () => {})
+      hudServer.listen(47420, "127.0.0.1")
+    } catch (_) {}
+
+    return () => {
+      eventAbort.abort()
+      try {
+        hudServer?.close()
+      } catch (_) {}
+    }
   },
 }

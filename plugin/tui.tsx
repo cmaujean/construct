@@ -151,7 +151,7 @@ export default Plugin.define({
           id: "construct.hud",
           title: "Construct HUD: Switch Crew Bank or Bench Specialist",
           group: "Construct",
-          bind: "ctrl+g",
+          bind: "ctrl+shift+g",
           palette: true,
           slash: { name: "construct", aliases: ["crew", "hud"], arguments: false },
           enabled: () => true,

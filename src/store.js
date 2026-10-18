@@ -2525,12 +2525,34 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 10px 14px;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     align-items: center;
   }
+  .control-deck {
+    background: #0f1520;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+  }
+  .btn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  button.crew-btn {
+    background: #1a2333;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-family: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+  }
+  button.crew-btn:hover { border-color: var(--accent); color: #fff; background: #223049; }
+  button.crew-btn.active { border-color: var(--accent); background: rgba(88, 166, 255, 0.22); color: #fff; font-weight: 700; }
+  #hud-toast { color: var(--ok); font-weight: 600; font-size: 11.5px; margin-left: 10px; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; background: #0f131b; }
@@ -2556,9 +2578,59 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </div>
 
   <div class="roster-bar">
-    <strong style="margin-right:6px;">ACTIVE 9-SEAT CREW (${escapeHtml(hud.romName.toUpperCase())}):</strong>
-    ${rosterPills}
+    <strong style="margin-right:6px;">ACTIVE 9-SEAT CREW (<span id="active-rom-name">${escapeHtml(hud.romName.toUpperCase())}</span>):</strong>
+    <span id="roster-pills">${rosterPills}</span>
   </div>
+
+  <div class="control-deck">
+    <div>
+      <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
+      <span class="sub" style="margin-left:8px;">(Click to switch active session Crew Bank or sub a Bench specialist in &lt;10ms; or type <code>/construct &lt;bank&gt;</code> in chat)</span>
+      <span id="hud-toast"></span>
+    </div>
+    <div class="btn-row">
+      <button class="crew-btn ${hud.pack === 'sprawl' ? 'active' : ''}" onclick="switchCrew('use','sprawl')">🌃 Sprawl</button>
+      <button class="crew-btn ${hud.pack === 'nightcity' ? 'active' : ''}" onclick="switchCrew('use','nightcity')">🦾 Night City</button>
+      <button class="crew-btn ${hud.pack === 'anathem' ? 'active' : ''}" onclick="switchCrew('use','anathem')">🏛️ Anathem</button>
+      <button class="crew-btn ${hud.pack === 'cryptonomicon' ? 'active' : ''}" onclick="switchCrew('use','cryptonomicon')">🔐 Cryptonomicon</button>
+      <button class="crew-btn ${hud.pack === 'shadowrun' ? 'active' : ''}" onclick="switchCrew('use','shadowrun')">🐉 Shadowrun</button>
+      <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" onclick="switchCrew('use','generic')">⚙️ Generic</button>
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
+      <span class="sub" style="align-self:center;margin-right:4px;">Bench Sub:</span>
+      <button class="crew-btn" onclick="switchCrew('sub','lodoghir')">🟣 Lodoghir (Procian)</button>
+      <button class="crew-btn" onclick="switchCrew('sub','takemura')">🟣 Takemura</button>
+      <button class="crew-btn" onclick="switchCrew('sub','turing')">🟣 Turing</button>
+      <button class="crew-btn" onclick="switchCrew('sub','johnson')">🟣 Mr. Johnson</button>
+      <button class="crew-btn" onclick="switchCrew('sub','jules')">⚡ Jules (A/B Probe)</button>
+      <button class="crew-btn" onclick="switchCrew('sub','reed')">🛡️ Reed (FIA)</button>
+      <button class="crew-btn" onclick="switchCrew('sub','marly')">🎨 Marly</button>
+    </div>
+  </div>
+  <script>
+    const CURRENT_SESSION_ID = ${JSON.stringify(options.sessionId || '')};
+    const CURRENT_PROJECT = ${JSON.stringify(hud.project || '')};
+    async function switchCrew(action, target) {
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Switching -> ' + target + '...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, target, sessionID: CURRENT_SESSION_ID, project: CURRENT_PROJECT })
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          window.location.reload();
+        } else if (toast) {
+          toast.textContent = 'Updated: ' + target;
+          setTimeout(() => window.location.reload(), 300);
+        }
+      } catch (e) {
+        if (toast) toast.textContent = 'Run "/construct ' + target + '" in prompt';
+      }
+    }
+  </script>
 
   <h2>Open Verification Threads (${data.openFrames.length})</h2>
   <table>
