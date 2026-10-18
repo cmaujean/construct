@@ -258,6 +258,8 @@ Whenever you open OpenCode (or Claude Code) inside a project, Construct automati
 ### Working with the Tape in Plain English
 As you and the crew work, Construct records inflection points onto the tape in real time (so even if you close the window without saving, the sequence of what was tried and what failed is already on the tape). You can ask at any time:
 - *"Where do we stand on this project, and what threads are still open?"*
+- *"Why is `src/crdt.js` shaped like that?"* (`construct why <file_or_symbol>` searches synced CRDT frames with operator attribution, project/global gotchas, and local `git log -S`, and can automatically query a teammate's Construct over MLS comms if a symbol has no local provenance.)
+- *"Sync our GitHub issues into Construct threads."* (`construct issues sync <project>` imports open GitHub issues as `[GH #N]` open threads, automatically resolves any thread whose GitHub issue was closed, and keeps private Construct threads private until you explicitly run `construct issues publish <seq>`. Resolving a thread in Construct only closes the GitHub issue when you explicitly pass `--close-gh`.)
 - *"Switch to `acme/billing_service`."* (Updates the current project head, moves the OpenCode session directory to `acme/billing_service`'s local checkout, and loads that project's tape and gotchas automatically.)
 - *"Zoom into frame `#13` on the tape and show me why we reverted the circular saw."*
 - *"Search the tape across all projects for `exit code 134`."*
@@ -411,11 +413,14 @@ construct projects
 construct boot <project> [-n 25] [--session <session_id>]
 construct rec <project> <kind> "<summary>" [--detail ".."] [--verified ".."] [--parent <seq>] [--resolves <seq>] [--open] [--refs a,b]
 construct head <project> --state "<where_it_stands>" [--next "<next_step>"]
-construct resolve <seq[,seq]> [--by <seq>] [--reason "<summary>"] [--verified "<layer>"]
+construct resolve <seq[,seq]> [--by <seq>] [--reason "<summary>"] [--verified "<layer>"] [--close-gh]
 construct reopen <seq>
 construct tape [<project>] [-n 30] [--kind <kind>] [--open]
 construct zoom <seq> [-w 3]
 construct search "<fts5_query>" [--project <project>] [--open]
+construct why "<file_or_symbol>" [--project <project>] [--ask <user>]
+construct issues [sync <project> | publish <seq>] [--dir <repo_dir>]
+construct dashboard [--out <html_path>]
 construct edit <seq> [--summary ".."] [--detail ".."] [--verified ".."]
 
 # Crew Banks, Bench substitutions, session slotting, dial tuning & directives
@@ -431,20 +436,22 @@ construct rom unburn <number> [--rom <name>]
 construct rom clone <src> <dest> [--handle ".."] [--use]
 construct rom sync
 
-# Operator agreements & gotchas
+# Operator agreements & gotchas (with optional CRDT-synced 0-token shell guards)
 construct user [show | list | use <id> | set <id> --name ".." --experience ".." --platform ".." --calibration ".."]
 construct gotcha list [--project <proj> | --all]
-construct gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--tags a,b]
+construct gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--guard "<regex>"] [--guard-os all|win32|linux|darwin] [--tags a,b]
 construct gotcha search "<query>" [--project <proj> | --all]
 construct gotcha rm <id>
 
-# DIDComm v2 + MLS + CRDT sync & Construct-to-Construct Comms
+# DIDComm v2 + MLS + CRDT sync, Encrypted Patch Drops & Construct-to-Construct Comms
 construct did
 construct invite <project> [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
 construct join "<construct://invite/...#...>" [--dir <target_dir>]
 construct sync <project> [--relays wss://...]
 construct relay [--port 8787]
 construct msg <project> --to <user> "<message>"
+construct drop <project> --to <user> [--file <path> | --git-diff | --content ".."] [--note ".."]
+construct apply-drop <msg_id> [--out <file> | --apply]
 construct reply <msg_id> "<answer>"
 construct ack <msg_id>
 construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered]
