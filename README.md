@@ -173,6 +173,8 @@ Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
 - To add a personal or custom Crew Bank without touching the Construct repository, drop a `<bank>.js` file into `~/.config/opencode/packs/` (or set `CONSTRUCT_PACKS_DIR`).
 - Construct discovers it automatically on the next turn and registers its bank name, starter names, and bench backups across OpenCode and Claude Code.
 
+> **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, and `shadowrun`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
+
 ### How Sessions Work in an OpenCode Workspace
 
 OpenCode lets you run multiple sessions (tabs/conversations) at the same time. Construct isolates ROMs per session (`session_roms` keyed by OpenCode `sessionID`):
