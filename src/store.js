@@ -466,6 +466,8 @@ function resolveSingleRomRowInDb(db, name) {
     samurai: 'hatchetman',
     face: 'siren',
     sysop: 'captainchaos',
+    toottoot: 'toot',
+    archive: 'ivy',
   };
   const target = aliasMap[key] || key;
   return (
@@ -493,6 +495,8 @@ function getRomInDb(db, name) {
     epiphyte: 'cryptonomicon',
     shadowrun: 'shadowrun',
     shadowland: 'shadowrun',
+    dresden: 'dresden',
+    paranet: 'dresden',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
@@ -2369,6 +2373,7 @@ const PACK_EMBLEM_MAP = Object.freeze({
   anathem: '🏛️',
   cryptonomicon: '🔐',
   shadowrun: '🐉',
+  dresden: '🕯️',
   generic: '⚙️',
   core: '🔪',
 });
@@ -2831,10 +2836,14 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'anathem' ? 'active' : ''}" data-pack="anathem" onclick="switchCrew('use','anathem')">🏛️ Anathem</button>
       <button class="crew-btn ${hud.pack === 'cryptonomicon' ? 'active' : ''}" data-pack="cryptonomicon" onclick="switchCrew('use','cryptonomicon')">🔐 Cryptonomicon</button>
       <button class="crew-btn ${hud.pack === 'shadowrun' ? 'active' : ''}" data-pack="shadowrun" onclick="switchCrew('use','shadowrun')">🐉 Shadowrun</button>
+      <button class="crew-btn ${hud.pack === 'dresden' ? 'active' : ''}" data-pack="dresden" onclick="switchCrew('use','dresden')">🕯️ Dresden</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
       <span class="sub" style="align-self:center;margin-right:4px;">Bench Sub:</span>
+      <button class="crew-btn" data-sub="toot" onclick="switchCrew('sub','toot')">⚡ Toot-Toot (Za-Lord)</button>
+      <button class="crew-btn" data-sub="ebenezar" onclick="switchCrew('sub','ebenezar')">🟣 Ebenezar</button>
+      <button class="crew-btn" data-sub="michael" onclick="switchCrew('sub','michael')">🛡️ Michael</button>
       <button class="crew-btn" data-sub="lodoghir" onclick="switchCrew('sub','lodoghir')">🟣 Lodoghir (Procian)</button>
       <button class="crew-btn" data-sub="takemura" onclick="switchCrew('sub','takemura')">🟣 Takemura</button>
       <button class="crew-btn" data-sub="turing" onclick="switchCrew('sub','turing')">🟣 Turing</button>

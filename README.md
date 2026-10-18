@@ -113,33 +113,34 @@ How the assimilation flow works:
 
 ---
 
-## 5. The 6 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (70 ROMs)
+## 5. The 7 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (82 ROMs)
 
 In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to machine a hull joint.
 
 Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument and specialized **Bench / Seconds**) from **Swappable Crew Banks (`packs`)**. Each bank lives in its own lazy-loaded module under `src/packs/<bank>.js` (so normal turns load `0` inactive pack files into memory, and only your session's active 9 seats are queried from SQLite).
 
-Out of the box, Construct ships with **70 deep ROM constructs** across six Crew Banks:
+Out of the box, Construct ships with **82 deep ROM constructs** across seven Crew Banks:
 - 🌃 **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 starters + 3 bench seconds).
 - 🦾 **`nightcity` (`afterlife` / `cyberpunk`):** *Cyberpunk 2077 / Phantom Liberty* Afterlife Edgerunners (9 starters + 3 bench seconds).
 - 🏛️ **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 starters + 3 bench seconds).
 - 🔐 **`cryptonomicon` (`epiphyte`):** Neal Stephenson's *Cryptonomicon* Detachment 2702 & Epiphyte Corp (9 starters + 3 bench seconds).
 - 🐉 **`shadowrun` (`shadowland`):** Sixth World 2050s Seattle Shadowland Team (9 starters + 3 bench seconds).
+- 🕯️ **`dresden` (`paranet`):** Jim Butcher's *The Dresden Files* Chicago Paranet & White Council Crew (9 starters + 3 bench seconds).
 - ⚙️ **`generic` (`standard` / `plain`):** Zero-fiction principal engineering pipeline (9 starters + `razor`).
 
-### The 9-Seat Crew Matrix Across All Six Built-In Banks
+### The 9-Seat Crew Matrix Across All Seven Built-In Banks
 
-| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `generic` |
-|---|---|---|---|---|---|---|---|
-| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`guide`** |
-| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`trace`** |
-| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`arch`** |
-| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`strike`** |
-| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`audit`** |
-| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`pulse`** |
-| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`redteam`** |
-| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`ux`** |
-| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ledger`** |
+| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `dresden` | `generic` |
+|---|---|---|---|---|---|---|---|---|
+| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`bob`** | **`guide`** |
+| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`butters`** | **`trace`** |
+| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`mab`** *(bench: **`ebenezar`**)* | **`arch`** |
+| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`harry`** | **`strike`** |
+| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`murphy`** | **`audit`** |
+| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`thomas`** *(bench: **`toot`**)* | **`pulse`** |
+| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`marcone`** *(bench: **`michael`**)* | **`redteam`** |
+| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`grasshopper`** | **`ux`** |
+| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ivy`** (`archive`) | **`ledger`** |
 
 ### The Room Dynamic, Phase Gates, Cross-Bank Cameos & Parallel Overwatch
 
@@ -475,9 +476,10 @@ You are free to use, modify, and share Construct for personal or internal work, 
 
 ### Literary & Creative Homage Policy
 
-The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, and `shadowrun`) are non-commercial fan homages written out of love and respect for the authors, world-builders, and game designers who shaped how our generation thinks about systems, networks, and craft:
+The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, and `dresden`) are non-commercial fan homages written out of love and respect for the authors, world-builders, and game designers who shaped how our generation thinks about systems, networks, and craft:
 - **William Gibson** (*Neuromancer*, *Count Zero*, *Mona Lisa Overdrive*)
 - **Neal Stephenson** (*Anathem*, *Cryptonomicon*)
+- **Jim Butcher** (*The Dresden Files*)
 - **Mike Pondsmith, R. Talsorian Games & CD Projekt Red** (*Cyberpunk 2020 / Cyberpunk 2077 / Phantom Liberty*)
 - **Jordan Weisman & the creators of *Shadowrun*** (*Sixth World*)
 

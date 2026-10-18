@@ -157,9 +157,26 @@ const KNOWN_ROM_NAMES = new Set([
   "epiphyte",
   "shadowrun",
   "shadowland",
+  "dresden",
+  "paranet",
   "generic",
   "standard",
   "plain",
+  // Dresden bank (9 starters + 3 backups)
+  "bob",
+  "butters",
+  "mab",
+  "harry",
+  "murphy",
+  "thomas",
+  "marcone",
+  "grasshopper",
+  "ivy",
+  "archive",
+  "ebenezar",
+  "michael",
+  "toot",
+  "toottoot",
   // Sprawl bank (9 starters + 3 backups)
   "colin",
   "dixie",
@@ -323,7 +340,7 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge
@@ -586,11 +603,11 @@ export default {
             stripShadowedInstructions(event.system, shadowedPaths)
           } catch (_) {}
         }
+        const voiceLock = buildFrontierVoiceLock(output)
         event.system.push({
           type: "text",
-          text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}\n</construct-live-memory>`,
+          text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ""}\n</construct-live-memory>`,
         })
-        injectFrontierVoiceLock(event.messages, output)
       }
       if (event.sessionID) {
         void syncSessionHud(event.sessionID, dir)

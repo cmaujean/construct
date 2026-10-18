@@ -18,6 +18,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   anathem: path.join(__dirname, 'anathem.js'),
   cryptonomicon: path.join(__dirname, 'cryptonomicon.js'),
   shadowrun: path.join(__dirname, 'shadowrun.js'),
+  dresden: path.join(__dirname, 'dresden.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -229,6 +230,41 @@ const PACK_METADATA = Object.freeze({
       "adept",
       "johnson"
     ]
+  },
+  "dresden": {
+    "name": "dresden",
+    "title": "The Chicago Paranet & White Council Crew (Jim Butcher — The Dresden Files)",
+    "banner": "🕯️ **`═══ [CHICAGO // PARANET CASEFILE] ══════════════════════════════════════════`**",
+    "atmosphere": "Sub-basement wizard's lab under a Chicago walk-up. Little Chicago pewter scale model on the workbench, Bob the Skull glowing orange on the shelf, Waldo Butters running a polka-powered autopsy at the Cook County Morgue, Karrin Murphy's Special Investigations discipline, Unseelie Accords invariants, and The Archive holding every word ever written. Sardonic, loyal, battle-tested, and fiercely protective of the craft.",
+    "seatLabels": {
+      "recon": "ARCANE LORE & SCHEMATICS",
+      "diagnostics": "MORGUE AUTOPSY & TRACE",
+      "architect": "WINTER ACCORDS & INVARIANTS",
+      "blitz": "THAUMATURGY & FUEGO",
+      "forensics": "SI EVIDENCE & BALLISTICS",
+      "velocity": "NEVERNEVER VELOCITY",
+      "redteam": "ACCORDS THREAT AUDIT",
+      "ergonomics": "VEILS & SENSORY UX",
+      "archivist": "THE ARCHIVE & LINEAGE"
+    },
+    "interjectionExample": "🔵 **[BOB // ARCANE LORE & SCHEMATICS]** Hold on, Boss—before you scorch the workbench, I can project the ley lines on how that stream lifecycle is actually bound.",
+    "waveOffExample": "hang on Bob, let me finish locking the Accords contract with Mab first",
+    "defaultStarters": [
+      "bob",
+      "butters",
+      "mab",
+      "harry",
+      "murphy",
+      "thomas",
+      "marcone",
+      "grasshopper",
+      "ivy"
+    ],
+    "backups": [
+      "ebenezar",
+      "michael",
+      "toot"
+    ]
   }
 });
 
@@ -307,6 +343,8 @@ function getKnownRomTargets() {
     'epiphyte',
     'shadowrun',
     'shadowland',
+    'dresden',
+    'paranet',
     'generic',
     'standard',
     'plain',
@@ -318,6 +356,8 @@ function getKnownRomTargets() {
     'samurai',
     'face',
     'sysop',
+    'toottoot',
+    'archive',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

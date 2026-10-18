@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 70 ROMs across 6 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 82 ROMs across 7 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 70);
+    assert.equal(roms.length, 82);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['anathem', 'cryptonomicon', 'generic', 'nightcity', 'shadowrun', 'sprawl']
+      ['anathem', 'cryptonomicon', 'dresden', 'generic', 'nightcity', 'shadowrun', 'sprawl']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -424,6 +424,27 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const subbedShadowrun = store.subRom('johnson', { sessionId: 'ses_shadowrun' });
     assert.ok(subbedShadowrun.roster.includes('johnson'));
     assert.ok(!subbedShadowrun.roster.includes('fastjack'));
+
+    const dresdenCrew = store.useRom('dresden', { sessionId: 'ses_dresden' });
+    assert.equal(dresdenCrew.isCrew, true);
+    assert.deepEqual(dresdenCrew.roster, [
+      'bob',
+      'butters',
+      'mab',
+      'harry',
+      'murphy',
+      'thomas',
+      'marcone',
+      'grasshopper',
+      'ivy',
+    ]);
+    assert.match(dresdenCrew.voice, /═══ \[CHICAGO \/\/ PARANET CASEFILE\]/);
+    assert.match(dresdenCrew.voice, /🔵 \*\*\[BOB \/\/ ARCANE LORE & SCHEMATICS\]\*\*/);
+    assert.match(dresdenCrew.voice, /🔴 \*\*\[HARRY \/\/ THAUMATURGY & FUEGO\]\*\*/);
+    assert.match(dresdenCrew.voice, /📓 \*\*\[IVY \/\/ THE ARCHIVE & LINEAGE\]\*\*/);
+    const subbedDresden = store.subRom('toot', { sessionId: 'ses_dresden' });
+    assert.ok(subbedDresden.roster.includes('toot'));
+    assert.ok(!subbedDresden.roster.includes('thomas'));
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1330,7 +1351,7 @@ Found 2026-09-28.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 69);
+    assert.equal(initClaude.claudeAgentsCount, 81);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
