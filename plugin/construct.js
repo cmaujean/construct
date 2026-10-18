@@ -473,7 +473,7 @@ export default {
       }
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
       const rawOutput = dir
-        ? runConstruct(["boot", "--dir", String(dir), "-n", "15", ...sessionArgs])
+        ? runConstruct(["boot", "--dir", String(dir), "-n", "8", ...sessionArgs])
         : runConstruct(["projects", ...sessionArgs])
       let output = resolveBootWithFallback(rawOutput, lastGoodBootBySession, event.sessionID, dir)
 

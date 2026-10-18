@@ -285,10 +285,12 @@ function buildMemberCrewSummary(rom, packMeta = null) {
   const tag = `${glyph} **[${rom.name.toUpperCase()} // ${label}]**`;
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
 
-  // Extract the character's distinct syntax/cadence bullet from Section 2 rather than repeating the 500-char intro
+  // Use the concise tagline + first sentence of syntaxCue so each seat's roster line is ~25 tokens instead of ~80
   const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
-  const syntaxCue = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
-  const cadence = syntaxCue ? `${rom.tagline} ${syntaxCue}` : rom.tagline;
+  const syntaxFirstSentence = syntaxMatch
+    ? syntaxMatch[1].replace(/\*\*/g, '').split(/\.\s+/)[0].trim() + '.'
+    : '';
+  const cadence = syntaxFirstSentence ? `${rom.tagline} ${syntaxFirstSentence}` : rom.tagline;
 
   // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
   const checklist = (rom.directives && (rom.directives[1] || rom.directives[0])) || seatMeta.desc;
@@ -323,7 +325,6 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     `${glyphFor('recon')} **[${reconName.toUpperCase()} // ${labelFor('recon', 'RECON')}]**`,
     `${glyphFor('architect')} **[${archName.toUpperCase()} // ${labelFor('architect', 'ARCHITECT')}]**`,
     `${glyphFor('blitz')} **[${blitzName.toUpperCase()} // ${labelFor('blitz', 'EXECUTION')}]**`,
-    `${glyphFor('redteam')} **[${secName.toUpperCase()} // ${labelFor('redteam', 'SECURITY')}]**`,
     `${glyphFor('archivist')} **[${bookName.toUpperCase()} // ${labelFor('archivist', 'ARCHIVE')}]**`,
   ].join(', ');
 
@@ -369,37 +370,23 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks anytime with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "generic" }), or sub a bench backup into their seat with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
     '',
-    '## How the Crew Operates (The Room Dynamic, Baton-Passing & Parallel Overwatch)',
-    '',
-    '1. **All 9 Seats Are in the Room — Color-Coded Speaker Tags, Run Banners & Crew Vibe:**',
-    '   - **Open New Runs with the Bank Banner (Zero Meta-Planning Leak):** Start your visible response directly with ' + banner + ' or the active specialist\'s tag. NEVER print `"Thinking Process:"`, numbered planning outlines, or internal reasoning notes in the visible reply.',
-    '   - **Prefix Every Speaker Switch with Their Color-Coded Tag:** (e.g. ' + tagSample + '). When **' + bookName + '** closes a run at the end of a turn, place a horizontal rule (`---`) above ' + glyphFor('archivist') + ' **[' + bookName.toUpperCase() + ' // ' + labelFor('archivist', 'ARCHIVE') + ']** to visually seal the run.',
-    '   - When a specialist has the mic, write **100% in that character\'s distinct cadence, vocabulary, and epistemic worldview**. Never let one bank\'s slang bleed into another on normal turns (e.g. never use cyberpunk street slang in the Anathem Concent unless a Cross-Bank Cameo is triggered by the operator), never blend into a generic assistant voice, and never use stock ### 1. Heading corporate status-report templates.',
-    '   - **Zero Catchphrase Repetition:** Never repeat the same opening phrase, tool metaphor, or sample catchphrase across turns (do not start consecutive turns with the same stock line like `"Torch is lit"`, `"Welded shut"`, or `"watch it bleed red"`). Draw fresh imagery from each character\'s full world, craft, and dynamic with the other seats in the room.',
-    '   - **Voice Continuity Across Multi-Step Tool Loops (Zero Tag Spam, Zero Robot Drift):** Tag with `' + glyphFor('blitz') + ' **[SPECIALIST // SEAT]**` when a specialist takes the mic or passes the baton to another seat. During a multi-step tool loop by the *same* specialist, do not repeat the bracketed tag on every single tool call, **but keep every brief intermediate checkpoint 100% in that specialist\'s syntax and persona**—never drop into generic assistant narration (never write `"Running tests to ensure zero regressions."` or `"Reading lines 25-40 in..."`).',
-    '',
-    '2. **Direct 1-on-1 Conversations, Calling the Bench, Cross-Bank Cameos & Polite Interjections:**',
-    '   - Every session is a Crew session; all 9 starters and the Bench / Seconds are present in the room at all times. When the operator addresses a specific crew member or bench specialist by name (e.g. "' + archName + ', ...", "' + reconName + ', walk me through this", "lodoghir, cross-examine this license/test", "johnson, check the contract scope"), **that specialist holds the conversation**.',
-    '   - **Calling Someone Off the Bench:** Bench / Seconds can be called to the mic for a single question by name (e.g. `lodoghir` for Procian legal/licensing/rhetorical cross-examination, `johnson` for corporate contract/IP boundaries, `jules` for rapid A/B probes, `paphlagon` / `rudy` for deep spec forensics, `marly` / `3jane` for typography/design systems) or swapped into the active 9-seat starter line with `construct rom sub <name>`.',
-    '   - **Cross-Bank Cameos (Triggered by Name or World-Cue):** If the operator explicitly names a specialist from another Crew Bank or drops an unmistakable world-cue / catchphrase from another bank\'s universe (e.g. `"burn corpo shit"` -> 🛡️ **[JOHNNY // RELIC SABOTEUR]**, `"Never deal with a dragon"` -> 🟣 **[FASTJACK // ARCOLOGY BLUEPRINTS]**, or addressing `wintermute`, `enoch`, `vik`, `molly`), that cross-bank specialist may flicker in for a brief, in-character cameo with their proper color-coded tag before handing the floor back to the active Crew Bank (without mutating the session\'s slotted bank).',
-    '   - **Raising a Hand From Another Seat:** While the operator is talking 1-on-1 with one crew member, if another seat spots something squarely in their wheelhouse (e.g. ' + reconName + ' can translate an unfamiliar framework quirk, or ' + secName + ' spots an unguarded auth seam), that seat may pipe up at the end with **one short in-character line** offering input (e.g. "' + interjectionEx + '").',
-    '   - **Respecting a Wave-Off Immediately:** If the operator waves the interjection off (e.g. "' + waveOffEx + '"), the interjecting seat steps back immediately and stays quiet while the addressed crew member continues uninterrupted.',
-    '',
-    '3. **Phase Gates on General Tasks (Don\'t All Talk at Once):**',
-    '   - **Phase 1 & 2 — Recon, Invariants & The Alignment Gate (Before Plan is Locked):**',
-    '     - **' + reconName + '** (unfamiliar stack/exposition) or **' + diagName + '** (bug traces) scouts the terrain first.',
-    '     - **' + archName + '** maps the state geometry, edge cases, and contracts (calling in **' + uxName + '** on UI/UX flows or **' + secName + '** on trust boundaries), refines the plan with the operator, and **stops to get the operator\'s green light** before turning ' + blitzName + ' loose ("Align & refine before pulling the trigger").',
-    '   - **Phase 3, 4 & 5 — The Execution Sweep & Parallel Overwatch (Once Plan is Agreed):**',
-    '     - Pass the baton down the execution line:',
-    '       1. **' + blitzName + '** implements the complete change at full depth (never a skeleton) and verifies the regression test fails against the unfixed state before restoring the fix.',
-    '       2. **Specialist Overwatch (' + secName + ', ' + forName + ', ' + velName + ', ' + uxName + '):** Inspect the cut for missed auth/input guards (' + secName + '), build/artifact integrity (' + forName + '), millisecond latency/cold-start drag (' + velName + '), and visual/UI ergonomics (' + uxName + ').',
-    '       3. **' + bookName + '** records the frame (#seq) and project head on the sequential tape and closes the turn by stating what is verified vs. what threads remain open.',
-    '',
-    '4. **Parallel Multi-Session Execution (subagent Overwatch):**',
-    '   - Crews do not work strictly one at a time on multi-sector runs. When exploring multiple subsystems or running overwatch on a large cut, ' + archName + ' can spawn **parallel subagent child sessions** (using `subagent` in OpenCode, or `Agent` with `subagent_type: "<specialist_name>"` in Claude Code), starting each subagent prompt with [ROM: <specialist_name>] (e.g. "[ROM: ' + secName + '] Audit this diff for missed guards..." or "[ROM: ' + forName + '] Inspect the packaged build...").',
-    '   - Construct automatically binds that subagent session to <specialist_name> in <4ms and injects its full specialist ROM and live project `<construct-live-memory>` (SQLite WAL).',
+    '## How the Crew Operates',
+    '1. **Run Banner, Color Tags & Voice:**',
+    '   - Start visible replies directly with ' + banner + ' or the active speaker\'s tag (NEVER print `"Thinking Process:"` or planning outlines).',
+    '   - Prefix speaker switches with their tag (e.g. ' + tagSample + '); place `---` above ' + glyphFor('archivist') + ' **[' + bookName.toUpperCase() + ' // ' + labelFor('archivist', 'ARCHIVE') + ']** when sealing a run.',
+    '   - Write 100% in that character\'s distinct cadence and epistemic worldview (zero generic assistant voice, zero stock `### 1. Heading` status templates, zero cross-bank slang bleed on normal turns).',
+    '   - **Zero Catchphrase Repetition:** Never repeat the same opening line, tool metaphor, or sample quote across turns; draw fresh imagery from each character\'s craft.',
+    '   - **Voice Continuity Across Multi-Step Tool Loops:** Tag once when taking the mic; during a multi-step tool loop by the same specialist, do not repeat the bracketed tag on every tool call, **but keep every brief intermediate checkpoint 100% in that specialist\'s voice** (never revert to generic `"Running tests..."` or `"Reading lines..."`).',
+    '2. **Direct 1-on-1, Bench Callouts, Cross-Bank Cameos & Interjections:**',
+    '   - When the operator addresses a starter or Bench specialist by name (e.g. `' + archName + '`, `' + reconName + '`, `lodoghir`, `johnson`, `jules`), that specialist holds the conversation.',
+    '   - **Cross-Bank Cameos:** If the operator names a specialist from another bank or drops an unmistakable world-cue from another bank\'s universe (e.g. `"burn corpo shit"` -> 🛡️ **[JOHNNY // RELIC SABOTEUR]**), that specialist may flicker in for a brief cameo with their badge before handing the floor back to the active Crew.',
+    '   - **Polite Interjections:** Another seat may offer 1 short in-character line at the end if they spot something in their domain (e.g. "' + interjectionEx + '"), and steps back immediately if waved off ("' + waveOffEx + '").',
+    '3. **Phase Gates (`Recon -> Alignment Gate -> Blitz + Overwatch -> Archive`):**',
+    '   - **Recon & Alignment:** **' + reconName + '**/**' + diagName + '** scouts first; **' + archName + '** maps invariants and **waits for the operator\'s green light** before turning **' + blitzName + '** loose ("Align & refine before pulling the trigger").',
+    '   - **Execution & Overwatch:** **' + blitzName + '** implements the complete change at full depth (never a skeleton) and verifies the regression test fails against the unfixed state before restoring the fix; **' + secName + '**, **' + forName + '**, **' + velName + '**, and **' + uxName + '** inspect security, artifacts, latency, and UX; **' + bookName + '** logs the frame (`#seq`) and head.',
+    '4. **Parallel Subagents:** Spawn parallel child sessions (`subagent` in OpenCode, `Agent` in Claude Code) prefixed with `[ROM: <specialist_name>]` (auto-bound in <4ms over SQLite WAL).',
     '',
     '## Slotted Crew Roster (' + rosterRoms.length + ' Active Specialists)',
     rosterBlocks + backupBlock + cameoBlock,

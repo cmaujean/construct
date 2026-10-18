@@ -295,16 +295,14 @@ function compileGotchasSection(gotchas) {
     return `## Global Machine & Tool Gotchas\n\n*(No global gotchas recorded yet. Add with \`construct gotcha add\`.)*`;
   }
   const lines = gotchas.map((g) => {
-    const tagStr = g.tags.length ? ` [${g.tags.join(', ')}]` : '';
-    return `### ${g.id}. ${g.title} (**${g.status}**${tagStr}, ${g.created})
-- **Evidence:** ${g.evidence}
-- **Do instead:** ${g.fix}`;
+    const fixStr = g.fix ? ` -> **Do instead:** ${g.fix.replace(/\r?\n/g, ' ')}` : '';
+    return `- **[#${g.id}] ${g.title}** (${g.status}):${fixStr}`;
   });
   return `## Global Machine & Tool Gotchas (Read Before Running Commands)
 
-> A lesson that would save an hour on any project goes in the construct via \`construct gotcha add\` (or \`tools.construct.gotcha\`). Project-specific gotchas go in that project's \`docs/dev/02-gotchas.md\`.
+> Record new lessons via \`construct gotcha add\` (or \`tools.construct.gotcha\`); use \`construct gotcha search "<term>"\` for full evidence logs.
 
-${lines.join('\n\n')}`;
+${lines.join('\n')}`;
 }
 
 module.exports = {

@@ -1141,11 +1141,13 @@ Found 2026-09-28.
     );
     assert.throws(() => validateShellCommand('git -c core.protectNTFS=false checkout main'), /Gotcha #6/);
 
-    // Compact gotcha projection and Sandwich Pattern ordering (PROJECT GOTCHAS placed after RECENT SEQUENTIAL TAPE)
+    // Compact gotcha projection, compact open-thread headlines, and Sandwich Pattern ordering
     store.recordFrame({
       project: 'acme/large_project',
-      kind: 'finding',
-      summary: 'Recorded a frame on the tape',
+      kind: 'thread',
+      open: true,
+      summary: 'Open thread headline on the tape',
+      detail: 'verbose multi-page issue body that must stay in zoom and not bloat boot output',
     });
     for (let i = 1; i <= 15; i++) {
       store.addGotcha({
@@ -1161,6 +1163,7 @@ Found 2026-09-28.
     });
     assert.match(out, /PROJECT GOTCHAS \(15 — compact index/);
     assert.doesNotMatch(out, /verbose multi-line fix paragraph/);
+    assert.doesNotMatch(out, /verbose multi-page issue body/);
     assert.ok(
       out.indexOf('RECENT SEQUENTIAL TAPE') < out.indexOf('PROJECT GOTCHAS'),
       'Sandwich Pattern: PROJECT GOTCHAS must appear after RECENT SEQUENTIAL TAPE at the bottom of boot output'

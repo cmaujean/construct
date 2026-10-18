@@ -672,7 +672,7 @@ function runClaudeHook(mode, stdinText = '') {
       store.useRom(resolvedRom, { sessionId: subagentSessionId });
     }
 
-    const args = ['boot', '--dir', String(cwd), '-n', '15', '--session', String(subagentSessionId)];
+    const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(subagentSessionId)];
     let output = runConstructCli(args);
     output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
     const xml = `<construct-live-memory directory="${cwd}" session="${subagentSessionId}">\n${output}\n</construct-live-memory>`;
@@ -701,7 +701,7 @@ function runClaudeHook(mode, stdinText = '') {
     }
   }
 
-  const args = ['boot', '--dir', String(cwd), '-n', '15'];
+  const args = ['boot', '--dir', String(cwd), '-n', '8'];
   if (effectiveSessionId) args.push('--session', String(effectiveSessionId));
 
   let output = runConstructCli(args);

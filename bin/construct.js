@@ -177,7 +177,7 @@ function shortTs(ts) {
   return String(ts).slice(0, 10);
 }
 
-function formatFrameLine(f, { includeProject = false, highlightSeq = null } = {}) {
+function formatFrameLine(f, { includeProject = false, highlightSeq = null, compact = false } = {}) {
   const marker = f.seq === highlightSeq ? '>>' : '  ';
   const seqStr = `#${String(f.seq).padEnd(4)}`;
   const dateStr = shortTs(f.ts).padEnd(10);
@@ -189,6 +189,9 @@ function formatFrameLine(f, { includeProject = false, highlightSeq = null } = {}
     : f.resolvedBy
       ? ` [resolved -> #${f.resolvedBy}]`
       : '';
+  if (compact && !f.open) {
+    return `${marker}${seqStr} ${dateStr} ${projStr}${kindStr} ${f.summary}${parentStr}${statusStr}`;
+  }
   const verStr = f.verified ? `  {verified: ${f.verified}}` : '';
   const refsStr = f.refs && f.refs.length ? `  (${f.refs.join(', ')})` : '';
   return `${marker}${seqStr} ${dateStr} ${projStr}${kindStr} ${f.summary}${parentStr}${statusStr}${verStr}${refsStr}`;
@@ -245,12 +248,12 @@ function printBoot(data) {
     console.log(`\nNEXT:\n${head.next}`);
   }
 
-  console.log(`\nRECENT SEQUENTIAL TAPE (${recentTape.length} of ${stats.totalFrames}, oldest -> newest):`);
+  console.log(`\nRECENT SEQUENTIAL TAPE (${recentTape.length} of ${stats.totalFrames}, oldest -> newest; zoom <seq> for full detail):`);
   if (!recentTape.length) {
     console.log('  (empty tape)');
   } else {
     for (const f of recentTape) {
-      console.log(formatFrameLine(f));
+      console.log(formatFrameLine(f, { compact: true }));
     }
   }
 
@@ -272,17 +275,12 @@ function printBoot(data) {
     }
   }
 
-  console.log(`\nOPEN THREADS & UNVERIFIED (${openFrames.length}):`);
+  console.log(`\nOPEN THREADS & UNVERIFIED (${openFrames.length}; zoom <seq> for full detail):`);
   if (!openFrames.length) {
     console.log('  (none)');
   } else {
     for (const f of openFrames) {
-      console.log(formatFrameLine(f));
-      if (f.detail) {
-        for (const line of f.detail.split(/\r?\n/)) {
-          console.log(`         ${line}`);
-        }
-      }
+      console.log(formatFrameLine(f, { compact: true }));
     }
   }
 
