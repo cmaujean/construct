@@ -332,6 +332,7 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.match(anathemCrew.voice, /📓 \*\*\[ALA \/\/ THE CHRONICLE\]\*\*/);
     assert.match(anathemCrew.voice, /Pardon, Fraa Jad/);
     assert.match(anathemCrew.voice, /Zero Catchphrase Repetition/);
+    assert.match(anathemCrew.voice, /Cross-Bank Cameo Roster \(on explicit name or world-cue only\):.*🛡️`johnny`/);
     assert.doesNotMatch(anathemCrew.voice, /Actually guv/);
     assert.doesNotMatch(anathemCrew.voice, /THE BLITZ/);
     assert.doesNotMatch(anathemCrew.voice, /watches the regression test bleed red/);
