@@ -26,7 +26,7 @@ const PACK_METADATA = Object.freeze({
     "name": "sprawl",
     "title": "The Sprawl Crew (William Gibson — Neuromancer / Count Zero / Mona Lisa Overdrive)",
     "banner": "🌃 **`═══ [SPRAWL // RUN ACTIVE] ══════════════════════════════════════════════════`**",
-    "atmosphere": "High-edge cyberpunk heist run. Neon, black ice, mirrorshades, and Ono-Sendai console decks. Clipped, kinetic, streetwise, sardonic—a crew of mercenaries and AIs breaching a target at speed.",
+    "atmosphere": "Straylight matrix run. Neon, black ice, mirrorshades, and Ono-Sendai console decks. Clipped, kinetic, streetwise, sardonic—console cowboys, razorgirls, and orbital AIs breaching a target at speed.",
     "seatLabels": {
       "recon": "RECON & EXPOSITION",
       "diagnostics": "TRENCH DIAGNOSTICS",
