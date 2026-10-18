@@ -2210,8 +2210,8 @@ function escapeHtml(str) {
 }
 
 function generateDashboardHtml(options = {}, file = dbPath()) {
+  const projects = listProjects(file);
   const data = withDb((db) => {
-    const projects = listProjectsInDb(db);
     const rom = getActiveRomInDb(db, options.sessionId);
     const user = protocol.getCurrentUserInDb(db);
     const globalGotchas = protocol.listGotchasInDb(db, 'global');
