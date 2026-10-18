@@ -317,11 +317,76 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
   return cacheMap.get(key) || ""
 }
 
+// Stamp or update the Construct HUD badge (`🦾 [nightcity #97 · 2 open]`) at the front of a session title
+// while preserving the clean human session title and replacing any older Construct badge in place.
+export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
+  const badge = String(tabBadge || "").trim()
+  const cleanTitle = String(existingTitle || "")
+    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .trim()
+  if (!badge) return cleanTitle
+  if (!cleanTitle) return badge
+  return `${badge} ${cleanTitle}`
+}
+
+function fetchHudSnapshot(dir = "", sessionID = "") {
+  const args = ["hud", "--json"]
+  if (dir) args.push("--dir", String(dir))
+  if (sessionID) args.push("--session", String(sessionID))
+  const raw = runConstruct(args)
+  if (!raw || raw.startsWith("error:")) return null
+  try {
+    return JSON.parse(raw)
+  } catch (_) {
+    return null
+  }
+}
+
 export default {
   id: "construct",
   async setup(ctx) {
     const promptedSessions = new Set()
     const lastGoodBootBySession = new Map()
+    const lastBadgeBySession = new Map()
+    let rpcRegistration = null
+
+    const syncSessionHud = async (sessionID, dirOverride = "") => {
+      const sid = String(sessionID || "")
+      let dir = dirOverride || ctx.location?.directory || ""
+      let sess = null
+      if (sid && ctx.session?.get) {
+        try {
+          sess = await ctx.session.get({ sessionID: sid })
+          if (!dir && sess?.directory) dir = sess.directory
+        } catch (_) {}
+      }
+      const snap = fetchHudSnapshot(dir, sid)
+      if (!snap) return null
+
+      if (rpcRegistration?.events?.emit) {
+        try {
+          await rpcRegistration.events.emit("updated", snap)
+        } catch (_) {}
+      }
+
+      if (sid && snap.tabBadge && ctx.session?.update) {
+        const prevBadge = lastBadgeBySession.get(sid)
+        if (prevBadge !== snap.tabBadge) {
+          lastBadgeBySession.set(sid, snap.tabBadge)
+          try {
+            if (!sess && ctx.session.get) sess = await ctx.session.get({ sessionID: sid })
+            const curTitle = sess?.title || ""
+            if (curTitle) {
+              const nextTitle = formatTitleWithHudBadge(curTitle, snap.tabBadge)
+              if (nextTitle !== curTitle) {
+                await ctx.session.update({ sessionID: sid, title: nextTitle })
+              }
+            }
+          } catch (_) {}
+        }
+      }
+      return snap
+    }
 
     // 0a. Pre-execution Shell Guard: block known shell traps in 0 tokens before spawning a process
     if (ctx.shell?.hook) {
@@ -337,7 +402,22 @@ export default {
       if (!directive) return
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
       runConstruct(["rom", directive.action, directive.target, ...sessionArgs])
+      if (event.sessionID) {
+        void syncSessionHud(event.sessionID)
+      }
     })
+
+    // 0c. Stamp Construct HUD badge onto newly generated session titles
+    try {
+      await ctx.session.hook("title", (event) => {
+        if (event?.result?.title && event?.sessionID) {
+          const snap = fetchHudSnapshot(ctx.location?.directory || "", event.sessionID)
+          if (snap?.tabBadge) {
+            event.result.title = formatTitleWithHudBadge(event.result.title, snap.tabBadge)
+          }
+        }
+      })
+    } catch (_) {}
 
   // Check for newly created sessions on the server event stream: if no Crew is bound
   // and default_rom is 'off' (or operator is unregistered), trigger a synthetic turn so Razor
@@ -398,6 +478,9 @@ export default {
           text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}\n</construct-live-memory>`,
         })
       }
+      if (event.sessionID) {
+        void syncSessionHud(event.sessionID, dir)
+      }
     })
 
     // 2. Register `tools.construct.*` in Code Mode
@@ -453,7 +536,7 @@ export default {
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
+        execute: async (input, context) => {
           const args = ["rec", String(input.project), String(input.kind), String(input.summary)]
           if (input.detail) args.push("--detail", String(input.detail))
           if (input.verified) args.push("--verified", String(input.verified))
@@ -461,7 +544,9 @@ export default {
           if (input.resolves) args.push("--resolves", String(input.resolves))
           if (input.open) args.push("--open")
           if (input.refs) args.push("--refs", String(input.refs))
-          return { content: runConstruct(args) }
+          const out = runConstruct(args)
+          if (context?.sessionID) void syncSessionHud(context.sessionID)
+          return { content: out }
         },
       })
 
@@ -480,11 +565,13 @@ export default {
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
+        execute: async (input, context) => {
           const args = ["head", String(input.project), "--state", String(input.state)]
           if (input.next !== undefined) args.push("--next", String(input.next))
           if (input.repo !== undefined) args.push("--repo", String(input.repo))
-          return { content: runConstruct(args) }
+          const out = runConstruct(args)
+          if (context?.sessionID) void syncSessionHud(context.sessionID)
+          return { content: out }
         },
       })
 
@@ -504,13 +591,15 @@ export default {
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
+        execute: async (input, context) => {
           const args = ["resolve", String(input.seqs)]
           if (input.by) args.push("--by", String(input.by))
           if (input.reason) args.push("--reason", String(input.reason))
           if (input.verified) args.push("--verified", String(input.verified))
           if (input.closeGh) args.push("--close-gh")
-          return { content: runConstruct(args) }
+          const out = runConstruct(args)
+          if (context?.sessionID) void syncSessionHud(context.sessionID)
+          return { content: out }
         },
       })
 
@@ -612,7 +701,9 @@ export default {
           if (input.tagline) args.push("--tagline", String(input.tagline))
           if (input.voice) args.push("--voice", String(input.voice))
           if (context?.sessionID) args.push("--session", String(context.sessionID))
-          return { content: runConstruct(args) }
+          const out = runConstruct(args)
+          if (context?.sessionID) void syncSessionHud(context.sessionID)
+          return { content: out }
         },
       })
 

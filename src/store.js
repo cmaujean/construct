@@ -2292,7 +2292,131 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+const PACK_EMBLEM_MAP = Object.freeze({
+  sprawl: '🌃',
+  nightcity: '🦾',
+  anathem: '🏛️',
+  cryptonomicon: '🔐',
+  shadowrun: '🐉',
+  generic: '⚙️',
+  core: '🔪',
+});
+
+function getHudSnapshot(options = {}, file = dbPath()) {
+  let project = options.project ? normalizeProject(options.project) : '';
+  if (!project && options.dir) {
+    project = resolveProjectFromDir(options.dir, file) || '';
+  }
+
+  return withDb((db) => {
+    const sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
+    const rom = getActiveRomInDb(db, sessionId);
+    const user = protocol.getCurrentUserInDb(db);
+    const detectedLogin = protocol.detectOsUsername();
+    const activeUserId = user?.id || detectedLogin;
+
+    const pack = rom.pack || (rom.name === 'crew' ? 'sprawl' : rom.name);
+    const emblem = PACK_EMBLEM_MAP[pack] || '🦾';
+    const displayRom = rom.name === 'crew' ? 'sprawl' : rom.name;
+    const roster = Array.isArray(rom.roster) ? rom.roster : [rom.name];
+
+    const statsRow = project
+      ? db
+          .prepare('SELECT COUNT(*) AS total, MAX(seq) AS last_seq FROM frames WHERE project = ?')
+          .get(project)
+      : db.prepare('SELECT COUNT(*) AS total, MAX(seq) AS last_seq FROM frames').get();
+
+    const openRows = project
+      ? db
+          .prepare('SELECT seq, project, summary FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
+          .all(project)
+      : db.prepare('SELECT seq, project, summary FROM frames WHERE open = 1 ORDER BY seq ASC').all();
+
+    const headRow = project ? db.prepare('SELECT * FROM heads WHERE project = ?').get(project) : null;
+    const projectGotchas = project ? protocol.listGotchasInDb(db, project) : [];
+    const customGuardCount = Number(
+      db.prepare("SELECT COUNT(*) AS c FROM gotchas WHERE guard_regex != ''").get()?.c || 0
+    );
+    const guardCount = 4 + customGuardCount; // 4 built-in mechanical guards + dynamic gotcha guards
+
+    const inboxPendingCount = Number(
+      db
+        .prepare("SELECT COUNT(*) AS c FROM messages WHERE to_user = ? AND status = 'pending'")
+        .get(activeUserId)?.c || 0
+    );
+    const inboxReplyCount = Number(
+      db
+        .prepare("SELECT COUNT(*) AS c FROM messages WHERE from_user = ? AND status = 'replied'")
+        .get(activeUserId)?.c || 0
+    );
+
+    let driftCount = 0;
+    if (project) {
+      const assimRows = db.prepare('SELECT abs_path, sha256 FROM assimilated_files WHERE project = ?').all(project);
+      for (const r of assimRows) {
+        if (!r.abs_path || !fs.existsSync(r.abs_path)) continue;
+        try {
+          const curHash = crypto.createHash('sha256').update(fs.readFileSync(r.abs_path, 'utf8'), 'utf8').digest('hex');
+          if (curHash !== r.sha256) driftCount++;
+        } catch (_) {}
+      }
+    }
+
+    const mlsRow = project ? db.prepare('SELECT group_id, epoch FROM mls_groups WHERE project = ?').get(project) : null;
+    const headSeq = statsRow?.last_seq == null ? 0 : Number(statsRow.last_seq);
+    const totalFrames = Number(statsRow?.total || 0);
+    const openCount = openRows.length;
+    const openSeqs = openRows.map((r) => Number(r.seq));
+    const openSummaries = openRows.slice(0, 5).map((r) => `#${r.seq}: ${r.summary}`);
+
+    const pillParts = [
+      `${emblem} ${displayRom}`,
+      project ? `${project}` : null,
+      headSeq ? `#${headSeq}` : '0f',
+      `${openCount} open`,
+      `🛡️${guardCount}`,
+    ].filter(Boolean);
+    if (inboxPendingCount + inboxReplyCount > 0) {
+      pillParts.push(`📬${inboxPendingCount + inboxReplyCount}`);
+    }
+    if (driftCount > 0) {
+      pillParts.push(`⚠️${driftCount} drift`);
+    }
+
+    const pill = pillParts.join(' · ');
+    const tabBadge = `${emblem} [${displayRom}${headSeq ? ` #${headSeq}` : ''} · ${openCount} open${
+      inboxPendingCount + inboxReplyCount > 0 ? ` · 📬${inboxPendingCount + inboxReplyCount}` : ''
+    }]`;
+
+    return {
+      project: project || 'workspace',
+      pack,
+      emblem,
+      romName: displayRom,
+      handle: rom.handle || displayRom,
+      roster,
+      operator: user ? `${user.name} [${user.id}]` : detectedLogin,
+      state: headRow?.state || '',
+      next: headRow?.next || '',
+      headSeq,
+      totalFrames,
+      openCount,
+      openSeqs,
+      openSummaries,
+      gotchaCount: projectGotchas.length,
+      guardCount,
+      inboxPendingCount,
+      inboxReplyCount,
+      driftCount,
+      hasMlsGroup: Boolean(mlsRow),
+      pill,
+      tabBadge,
+    };
+  }, file);
+}
+
 function generateDashboardHtml(options = {}, file = dbPath()) {
+  const hud = getHudSnapshot(options, file);
   const projects = listProjects(file);
   const data = withDb((db) => {
     const rom = getActiveRomInDb(db, options.sessionId);
@@ -2305,12 +2429,20 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     return { projects, rom, user, globalGotchas, openFrames, recentFrames, messages, mlsGroups };
   }, file);
 
+  const rosterPills = (hud.roster || [])
+    .map((rName, idx) => {
+      const seatId = romMod.SEAT_ORDER[idx] || 'recon';
+      const glyph = romMod.SEAT_MAP[seatId]?.glyph || '🔹';
+      return `<span class="badge">${glyph} ${escapeHtml(rName)}</span>`;
+    })
+    .join(' ');
+
   const projectRows = data.projects
     .map(
       (p) => `
-      <tr>
+      <tr class="${p.project === hud.project ? 'active-row' : ''}">
         <td><strong>${escapeHtml(p.project)}</strong><div class="sub">${escapeHtml(p.repo || '')}</div></td>
-        <td><span class="badge">${p.frameCount} frames</span> ${
+        <td><span class="badge">#${p.lastSeq || 0} (${p.frameCount}f)</span> ${
           p.openCount ? `<span class="badge warn">${p.openCount} open</span>` : '<span class="badge ok">0 open</span>'
         }</td>
         <td>${escapeHtml(p.state || '(unset)')}</td>
@@ -2342,13 +2474,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     )
     .join('');
 
-  const guardGotchas = data.globalGotchas.filter((g) => g.guardRegex);
-
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>CONSTRUCT // LIVE TELEMETRY DASHBOARD</title>
+<title>CONSTRUCT // LIVE TELEMETRY HUD</title>
 <style>
   :root {
     --bg: #0b0e14;
@@ -2363,28 +2493,48 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 24px 32px;
+    padding: 20px 24px;
     background: var(--bg);
     color: var(--text);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 13px;
+    font-size: 12.5px;
     line-height: 1.5;
   }
-  header {
+  .hud-bar {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 24px;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #0f1520;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    margin-bottom: 18px;
   }
-  h1 { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: 0.05em; }
-  h2 { font-size: 14px; color: var(--accent); margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 0.06em; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; }
+  .hud-pill {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.03em;
+  }
+  h1 { margin: 0; font-size: 16px; color: var(--accent); letter-spacing: 0.05em; }
+  h2 { font-size: 13px; color: var(--accent); margin: 20px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .roster-bar {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; background: #0f131b; }
+  tr.active-row td { background: rgba(88, 166, 255, 0.07); }
   .sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
   .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; background: #1f2937; color: var(--accent); font-size: 11px; }
   .badge.warn { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
@@ -2393,28 +2543,33 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 </style>
 </head>
 <body>
-  <header>
+  <div class="hud-bar">
     <div>
-      <h1>CONSTRUCT // SEQUENTIAL MEMORY &amp; CREW DECK</h1>
-      <div class="sub">Operator: ${escapeHtml(data.user?.name || 'Unregistered')} (${escapeHtml(data.user?.id || '')}) | Active Crew/ROM: ${escapeHtml(data.rom?.handle || data.rom?.name || 'crew')}</div>
+      <div class="hud-pill">${escapeHtml(hud.pill)}</div>
+      <div class="sub">CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ${escapeHtml(hud.operator)} | Crew: ${escapeHtml(hud.handle)}</div>
     </div>
     <div>
       <span class="badge">${data.projects.length} Projects</span>
-      <span class="badge warn">${data.openFrames.length} Open Threads</span>
-      <span class="badge ok">${data.globalGotchas.length} Global Gotchas (${guardGotchas.length} custom shell guards)</span>
+      <span class="badge ${data.openFrames.length ? 'warn' : 'ok'}">${data.openFrames.length} Open Threads</span>
+      <span class="badge ok">🛡️ ${hud.guardCount} Active Shell Guards</span>
     </div>
-  </header>
+  </div>
 
-  <h2>Projects &amp; State Heads (${data.projects.length})</h2>
-  <table>
-    <thead><tr><th>Project</th><th>Tape</th><th>Where It Stands</th><th>Next</th></tr></thead>
-    <tbody>${projectRows || '<tr><td colspan="4">(no projects)</td></tr>'}</tbody>
-  </table>
+  <div class="roster-bar">
+    <strong style="margin-right:6px;">ACTIVE 9-SEAT CREW (${escapeHtml(hud.romName.toUpperCase())}):</strong>
+    ${rosterPills}
+  </div>
 
   <h2>Open Verification Threads (${data.openFrames.length})</h2>
   <table>
     <thead><tr><th>Seq</th><th>Project</th><th>Summary</th></tr></thead>
     <tbody>${openRows || '<tr><td colspan="3">(none)</td></tr>'}</tbody>
+  </table>
+
+  <h2>Projects &amp; State Heads (${data.projects.length})</h2>
+  <table>
+    <thead><tr><th>Project</th><th>Tape</th><th>Where It Stands</th><th>Next</th></tr></thead>
+    <tbody>${projectRows || '<tr><td colspan="4">(no projects)</td></tr>'}</tbody>
   </table>
 
   <h2>Recent Sequential Tape (${data.recentFrames.length})</h2>
@@ -2427,10 +2582,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
   const outFile =
     options.outFile ||
-    path.join(os.tmpdir(), 'construct-dashboard.html');
+    path.join(os.homedir(), '.config', 'opencode', 'construct-hud.html');
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, html, 'utf8');
-  return { outFile, html, projectCount: data.projects.length, openCount: data.openFrames.length };
+  return { outFile, html, hud, projectCount: data.projects.length, openCount: data.openFrames.length };
 }
 
 // --- GitHub Issues <-> Construct Open Threads Bridge (`construct issues [sync | publish]`) ---
@@ -3077,16 +3232,24 @@ function assimilateLdk(targetDir, options = {}, file = dbPath()) {
 //   5. Ensures `~/.config/opencode/active-rom.md` is in `~/.config/opencode/opencode.jsonc` instructions
 //   6. Compiles `active-rom.md` (with New Operator Onboarding active if no user agreement exists yet)
 function installPluginFile(configDir = path.join(os.homedir(), '.config', 'opencode')) {
-  const pluginSrc = path.join(__dirname, '..', 'plugin', 'construct.js');
+  const pluginSrcDir = path.join(__dirname, '..', 'plugin');
+  const pluginSrc = path.join(pluginSrcDir, 'construct.js');
   const pluginDestDir = path.join(configDir, 'plugins');
   const pluginDest = path.join(pluginDestDir, 'construct.js');
+  const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
+
   if (fs.existsSync(pluginSrc)) {
     fs.mkdirSync(pluginDestDir, { recursive: true });
-    const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js');
-    const content = fs
-      .readFileSync(pluginSrc, 'utf8')
-      .replace('__CONSTRUCT_BIN_PATH__', binPath.replace(/\\/g, '/'));
+    const content = fs.readFileSync(pluginSrc, 'utf8').replace('__CONSTRUCT_BIN_PATH__', binPath);
     fs.writeFileSync(pluginDest, content, 'utf8');
+  }
+
+  // Also install the TUI HUD companion files (`rpc.js`, `tui.tsx`) alongside `construct.js`
+  for (const extraFile of ['rpc.js', 'tui.tsx']) {
+    const srcFile = path.join(pluginSrcDir, extraFile);
+    if (fs.existsSync(srcFile)) {
+      fs.copyFileSync(srcFile, path.join(pluginDestDir, extraFile));
+    }
   }
   return pluginDest;
 }
@@ -3265,6 +3428,7 @@ module.exports = {
   dropPatch,
   applyDrop,
   whyTarget,
+  getHudSnapshot,
   generateDashboardHtml,
   syncGithubIssues,
   publishThreadToGithub,

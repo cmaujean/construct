@@ -1024,11 +1024,16 @@ Found 2026-09-28.
       assert.equal(pubRes.issueNumber, 103);
       assert.ok(pubRes.frame.refs.includes('gh:#103'));
 
-      // 4f. HTML Dashboard generation (`generateDashboardHtml`)
+      // 4f. HUD Snapshot (`getHudSnapshot`) & HTML Dashboard generation (`generateDashboardHtml`)
+      const hudSnap = store.getHudSnapshot({ project: 'acme/shared_app' });
+      assert.equal(hudSnap.project, 'acme/shared_app');
+      assert.match(hudSnap.pill, /acme\/shared_app · #\d+ · 1 open · 🛡️6/);
+      assert.match(hudSnap.tabBadge, /\[dixie #\d+ · 1 open/);
+
       const dashFile = path.join(bobHome, 'dashboard.html');
-      const dash = store.generateDashboardHtml({ outFile: dashFile });
+      const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app' });
       assert.ok(fs.existsSync(dashFile));
-      assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY/);
+      assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.match(dash.html, /acme\/shared_app/);
     } finally {
       store.closeAllDbs();
@@ -1047,7 +1052,18 @@ Found 2026-09-28.
       stripShadowedInstructions,
       detectPreSlotRomDirective,
       resolveBootWithFallback,
+      formatTitleWithHudBadge,
     } = await import('../plugin/construct.js');
+
+    // HUD session tab badge formatter replaces old badges cleanly without duplicating emblems
+    assert.equal(
+      formatTitleWithHudBadge('Build sequential memory construct', '🦾 [nightcity #97 · 2 open]'),
+      '🦾 [nightcity #97 · 2 open] Build sequential memory construct'
+    );
+    assert.equal(
+      formatTitleWithHudBadge('🏛️ [anathem #95 · 2 open] Build sequential memory construct', '🦾 [nightcity #97 · 2 open]'),
+      '🦾 [nightcity #97 · 2 open] Build sequential memory construct'
+    );
 
     // Bounded last-known-good boot cache prevents transient edits/errors from dropping a session's ROM mid-loop
     const bootCache = new Map();

@@ -963,9 +963,24 @@ function main(argv) {
 
     case 'dashboard':
     case 'view': {
-      const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session });
-      if (o.json) console.log(JSON.stringify({ outFile: res.outFile, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
+      const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session, dir: o.dir, project: o.project || rest[0] });
+      if (o.json) console.log(JSON.stringify({ outFile: res.outFile, hud: res.hud, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
       else console.log(`dashboard written to ${res.outFile} (${res.projectCount} project(s), ${res.openCount} open thread(s))`);
+      return 0;
+    }
+
+    case 'hud':
+    case 'status': {
+      const snap = store.getHudSnapshot({
+        project: rest[0] || o.project,
+        dir: o.dir,
+        sessionId: o.session,
+      });
+      if (o.json) {
+        console.log(JSON.stringify(snap));
+      } else {
+        console.log(snap.pill);
+      }
       return 0;
     }
 
