@@ -432,6 +432,9 @@ const SEED_ROMS = Object.freeze([
   ...packs.SPRAWL_ROMS,
   ...packs.ANATHEM_ROMS,
   ...packs.GENERIC_ROMS,
+  ...packs.NIGHTCITY_ROMS,
+  ...packs.CRYPTONOMICON_ROMS,
+  ...packs.SHADOWRUN_ROMS,
 ]);
 
 function initRomSchema(db) {
@@ -744,7 +747,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks anytime with tools.construct.rom({ action: "use", target: "sprawl" | "anathem" | "generic" }), or sub a bench backup into their seat with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks anytime with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "generic" }), or sub a bench backup into their seat with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates (The Room Dynamic, Baton-Passing & Parallel Overwatch)',
     '',
@@ -818,13 +821,16 @@ function compileUnassignedBootloaderPrompt(razorRom) {
     '1. **If the operator\'s message already names a Crew Bank** (e.g. "use sprawl", "switch to anathem", "use generic"), immediately call `tools.construct.rom({ action: "use", target: "<bank>" })` (or `action: "default"` if they want it as their default) and reply with that Crew.',
     '2. **Otherwise, your VERY FIRST action MUST be to call the `question` tool** (rendering an interactive radio-button selector in the OpenCode UI—do NOT print a markdown bullet list in chat!) with two questions:',
     '   - **Question 1** (`header: "Crew Bank"`, `question: "Which Construct Crew do you want on your deck?"`):',
-    '     - label: `"sprawl (The Sprawl Crew — Recommended)"`, description: `"William Gibson (Neuromancer / Count Zero / Mona Lisa Overdrive). Sharp cyberpunk heist feel: Colin (pocket-ghost guide), Dixie (console cowboy), Wintermute (orbital hive-mind), Molly (razorgirl blitz), The Finn (hardware fence), Case (console jockey), Lupus (Panther Moderns red-team), Angie (SimStim UX), Continuity (biochip archivist)."`',
-    '     - label: `"anathem (The Concent of Saunt Edhar Crew)"`, description: `"Neal Stephenson (Anathem). Monastic mathic, Socratic & empiricist feel: Fraa Erasmas (first-principles guide), Sammann (Ita crypt fault tracer), Fraa Jad (polycosmic architect), Cord (extramuros master mechanic), Fraa Orolo (empiricist cosmographer), Fraa Jesry (orbital ballistics), Fraa Lio (Ringing Vale red-team), Suur Tulia (human clarity), Suur Ala (Warden Regulant archivist)."`',
+    '     - label: `"sprawl (The Sprawl Crew — Recommended)"`, description: `"William Gibson (Neuromancer / Count Zero / Mona Lisa Overdrive). 1984 noir console-cowboys & orbital AIs: Colin, Dixie, Wintermute, Molly, The Finn, Case, Lupus, Angie, Continuity."`',
+    '     - label: `"nightcity (The Afterlife Crew — Cyberpunk 2077)"`, description: `"Visceral Night City Edgerunners: Judy (Braindance recon), Vik (Ripperdoc), T-Bug (schematics), V (Sandevistan breach), Mitch (Badlands bench), Songbird (Blackwall velocity), Johnny Silverhand (Relic red-team), Evelyn (Mox UX), Rogue (Afterlife fixer)."`',
+    '     - label: `"anathem (The Concent of Saunt Edhar Crew)"`, description: `"Neal Stephenson (Anathem). Mathic Concent & empiricist Convox: Fraa Erasmas, Sammann, Fraa Jad, Cord, Fraa Orolo, Fraa Jesry, Fraa Lio, Suur Tulia, Suur Ala."`',
+    '     - label: `"cryptonomicon (Detachment 2702 & Epiphyte Corp)"`, description: `"Neal Stephenson (Cryptonomicon). 1942 Bletchley cryptanalysis + 1999 Manila Unix/crypto engineering: Lawrence Waterhouse, Goto Dengo, Enoch Root, Randy Waterhouse, Doug Shaftoe, Avi Halaby, John Cantrell, Amy Shaftoe, Golgotha."`',
+    '     - label: `"shadowrun (Seattle 2050s Shadowland Team)"`, description: `"Sixth World tactical arcology run where Awakened magic meets cyberware: Talon (Raven shaman), StreetDoc, FastJack, Hatchetman (Street Samurai), Rigger, Dodger (Excalibur decker), Harlequin, Siren (Face), Captain Chaos (Shadowland SysOp)."`',
     '     - label: `"generic (The Standard Engineering Crew)"`, description: `"Zero-fiction professional specialist pipeline. Pure engineering roles without literary personas: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger."`',
     '   - **Question 2** (`header: "Crew Scope"`, `question: "Use this Crew for this session only, or set as your default until further notice?"`):',
     '     - label: `"Default until further notice (Recommended)"`, description: `"Boot future sessions directly into this Crew without asking"`',
     '     - label: `"This session only"`, description: `"Bind to this session tab only; new sessions will ask again"`',
-    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `anathem`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
+    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
   ].join('\n');
 }
 

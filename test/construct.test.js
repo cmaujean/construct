@@ -223,11 +223,14 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 34 ROMs across sprawl, anathem, and generic banks, defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 70 ROMs across 6 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 34);
+    assert.equal(roms.length, 70);
     const packs = store.listPacks();
-    assert.deepEqual(packs.map((p) => p.pack), ['anathem', 'generic', 'sprawl']);
+    assert.deepEqual(
+      packs.map((p) => p.pack),
+      ['anathem', 'cryptonomicon', 'generic', 'nightcity', 'shadowrun', 'sprawl']
+    );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
     assert.equal(active.isCrew, true);
@@ -357,6 +360,68 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.match(genericCrew.voice, /\[LEDGER \/\/ RELEASE & TAPE\]/);
     assert.doesNotMatch(genericCrew.voice, /Actually guv/);
     assert.doesNotMatch(genericCrew.voice, /Fraa Jad/);
+
+    // Switch to `nightcity`, `cryptonomicon`, and `shadowrun` 9-seat crew banks and verify isolated banners/tags/subs
+    const nightcityCrew = store.useRom('nightcity', { sessionId: 'ses_nightcity' });
+    assert.equal(nightcityCrew.isCrew, true);
+    assert.deepEqual(nightcityCrew.roster, [
+      'judy',
+      'vik',
+      'tbug',
+      'v',
+      'mitch',
+      'songbird',
+      'johnny',
+      'evelyn',
+      'rogue',
+    ]);
+    assert.match(nightcityCrew.voice, /═══ \[AFTERLIFE \/\/ GIG ACTIVE\]/);
+    assert.match(nightcityCrew.voice, /🔵 \*\*\[JUDY \/\/ BRAINDANCE RECON\]\*\*/);
+    assert.match(nightcityCrew.voice, /🛡️ \*\*\[JOHNNY \/\/ RELIC SABOTEUR\]\*\*/);
+    assert.doesNotMatch(nightcityCrew.voice, /Actually guv/);
+    const subbedNightcity = store.subRom('takemura', { sessionId: 'ses_nightcity' });
+    assert.ok(subbedNightcity.roster.includes('takemura'));
+    assert.ok(!subbedNightcity.roster.includes('tbug'));
+
+    const cryptoCrew = store.useRom('cryptonomicon', { sessionId: 'ses_crypto' });
+    assert.equal(cryptoCrew.isCrew, true);
+    assert.deepEqual(cryptoCrew.roster, [
+      'lawrence',
+      'goto',
+      'enoch',
+      'randy',
+      'doug',
+      'avi',
+      'cantrell',
+      'amy',
+      'golgotha',
+    ]);
+    assert.match(cryptoCrew.voice, /═══ \[DETACHMENT 2702 \/\/ EPIPHYTE CORP\]/);
+    assert.match(cryptoCrew.voice, /🔵 \*\*\[LAWRENCE \/\/ BLETCHLEY ORGAN\]\*\*/);
+    assert.match(cryptoCrew.voice, /🔴 \*\*\[RANDY \/\/ MANILA TERMINAL\]\*\*/);
+    const subbedCrypto = store.subRom('turing', { sessionId: 'ses_crypto' });
+    assert.ok(subbedCrypto.roster.includes('turing'));
+    assert.ok(!subbedCrypto.roster.includes('enoch'));
+
+    const shadowrunCrew = store.useRom('shadowrun', { sessionId: 'ses_shadowrun' });
+    assert.equal(shadowrunCrew.isCrew, true);
+    assert.deepEqual(shadowrunCrew.roster, [
+      'talon',
+      'streetdoc',
+      'fastjack',
+      'hatchetman',
+      'rigger',
+      'dodger',
+      'harlequin',
+      'siren',
+      'captainchaos',
+    ]);
+    assert.match(shadowrunCrew.voice, /═══ \[SHADOWLAND \/\/ SEATTLE RUN\]/);
+    assert.match(shadowrunCrew.voice, /🔵 \*\*\[TALON \/\/ ASTRAL RECON\]\*\*/);
+    assert.match(shadowrunCrew.voice, /📓 \*\*\[CAPTAINCHAOS \/\/ SHADOWLAND PAYDATA\]\*\*/);
+    const subbedShadowrun = store.subRom('johnson', { sessionId: 'ses_shadowrun' });
+    assert.ok(subbedShadowrun.roster.includes('johnson'));
+    assert.ok(!subbedShadowrun.roster.includes('fastjack'));
 
     const customCrew = store.useRom('colin,wintermute,molly', { sessionId: 'ses_custom' });
     assert.equal(customCrew.isCrew, true);
@@ -865,9 +930,12 @@ Found 2026-09-28.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 33);
+    assert.equal(initClaude.claudeAgentsCount, 69);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'enoch.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fastjack.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);

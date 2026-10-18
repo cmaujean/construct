@@ -439,6 +439,11 @@ function resolveSingleRomRowInDb(db, name) {
   const aliasMap = {
     architect: 'wintermute',
     raz: 'erasmus',
+    waterhouse: 'lawrence',
+    shaman: 'talon',
+    samurai: 'hatchetman',
+    face: 'siren',
+    sysop: 'captainchaos',
   };
   const target = aliasMap[key] || key;
   return (
@@ -459,6 +464,13 @@ function getRomInDb(db, name) {
     all: 'sprawl',
     sprawl: 'sprawl',
     anathem: 'anathem',
+    nightcity: 'nightcity',
+    afterlife: 'nightcity',
+    cyberpunk: 'nightcity',
+    cryptonomicon: 'cryptonomicon',
+    epiphyte: 'cryptonomicon',
+    shadowrun: 'shadowrun',
+    shadowland: 'shadowrun',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
