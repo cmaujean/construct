@@ -573,6 +573,7 @@ function backfillProjectCrdtLogInDb(db, project, identityFile) {
         evidence: g.evidence,
         fix: g.fix,
         guardRegex: g.guard_regex || '',
+        guardPlatform: g.guard_platform || 'all',
         created: g.created,
       })
     );
@@ -653,11 +654,11 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
   );
   const selectGotchaStmt = db.prepare('SELECT * FROM gotchas WHERE uid = ?');
   const insertGotchaStmt = db.prepare(
-    `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, created)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, guard_platform, created)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const updateGotchaStmt = db.prepare(
-    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ?, guard_regex = ? WHERE uid = ?`
+    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ?, guard_regex = ?, guard_platform = ? WHERE uid = ?`
   );
   const selectFrameStmt = db.prepare('SELECT * FROM frames WHERE uid = ?');
   const insertFrameStmt = db.prepare(
@@ -730,6 +731,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           p.evidence || '',
           p.fix || '',
           p.guardRegex || '',
+          p.guardPlatform || 'all',
           p.created || ''
         );
         applied++;
@@ -742,6 +744,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           p.evidence || '',
           p.fix || '',
           p.guardRegex !== undefined ? p.guardRegex : existing.guard_regex || '',
+          p.guardPlatform !== undefined ? p.guardPlatform : existing.guard_platform || 'all',
           p.uid
         );
         applied++;

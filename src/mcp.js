@@ -26,8 +26,9 @@ function runConstructCli(args) {
   }).trim();
 }
 
-function validateShellCommand(command) {
+function validateShellCommand(command, options = {}) {
   const cmd = String(command || '');
+  const hostPlatform = String(options?.platform || process.platform).toLowerCase();
   if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
     throw new Error(
       'Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first.'
@@ -43,17 +44,20 @@ function validateShellCommand(command) {
       'Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo "exit=$?"`, or set `pipefail`.'
     );
   }
-  if (/\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
+  if (hostPlatform === 'win32' && /\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
     throw new Error(
-      'Construct Shell Guard (Gotcha #4): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`.'
+      'Construct Shell Guard (Gotcha #4 [win32]): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`.'
     );
   }
-  if (/core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd)) {
+  if (
+    /core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd) ||
+    /\bgit\s+add\b[^\r\n]*:Zone\.Identifier/i.test(cmd)
+  ) {
     throw new Error(
-      'Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check.'
+      'Construct Shell Guard (Gotcha #6 [all]): Never disable core.protectNTFS or stage `:Zone.Identifier` streams (invisible on Linux/macOS, breaks Windows NTFS checkouts). Remove the offending path instead.'
     );
   }
-  store.checkDynamicGotchaGuards(cmd);
+  store.checkDynamicGotchaGuards(cmd, { platform: hostPlatform, project: options?.project });
   return true;
 }
 
@@ -112,7 +116,7 @@ const MCP_TOOLS = Object.freeze([
   },
   {
     name: 'construct_resolve',
-    description: 'Resolve one or more open thread frames by seq ID.',
+    description: 'Resolve one or more open thread frames by seq ID (and optionally close linked GitHub issues when `closeGh: true` is explicitly passed).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -120,6 +124,7 @@ const MCP_TOOLS = Object.freeze([
         by: { type: 'integer', description: 'Existing frame seq that resolved them' },
         reason: { type: 'string', description: 'If given without `by`, records a new resolution frame with this summary' },
         verified: { type: 'string' },
+        closeGh: { type: 'boolean', description: 'When true, also closes any linked `gh:#N` GitHub issues on the repository' },
       },
       required: ['seqs'],
       additionalProperties: false,
@@ -221,6 +226,11 @@ const MCP_TOOLS = Object.freeze([
         evidence: { type: 'string' },
         fix: { type: 'string' },
         guard: { type: 'string', description: 'Optional regular expression to enforce as a 0-token pre-execution shell guard' },
+        guardOs: {
+          type: 'string',
+          enum: ['all', 'win32', 'linux', 'darwin'],
+          description: "Target OS for the shell guard ('all' for repo-wide guards like :Zone.Identifier, or 'win32'/'linux'/'darwin' for OS-specific shell/path traps)",
+        },
         tags: { type: 'string', description: 'Comma-separated tags' },
       },
       required: ['action'],
@@ -251,13 +261,13 @@ const MCP_TOOLS = Object.freeze([
   },
   {
     name: 'construct_sync',
-    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, or HTML dashboard generation.',
+    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), or HTML dashboard generation.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'dashboard'],
+          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'dashboard', 'issues-sync', 'issues-publish'],
         },
         target: {
           type: 'string',
@@ -308,6 +318,7 @@ function executeMcpTool(name, input = {}) {
       if (input.by) args.push('--by', String(input.by));
       if (input.reason) args.push('--reason', String(input.reason));
       if (input.verified) args.push('--verified', String(input.verified));
+      if (input.closeGh) args.push('--close-gh');
       return runConstructCli(args);
     }
     case 'construct_zoom': {
@@ -369,6 +380,7 @@ function executeMcpTool(name, input = {}) {
       if (input.evidence) args.push('--evidence', String(input.evidence));
       if (input.fix) args.push('--fix', String(input.fix));
       if (input.guard) args.push('--guard', String(input.guard));
+      if (input.guardOs) args.push('--guard-os', String(input.guardOs));
       if (input.tags) args.push('--tags', String(input.tags));
       return runConstructCli(args);
     }
@@ -406,6 +418,17 @@ function executeMcpTool(name, input = {}) {
       if (input.action === 'dashboard') {
         const args = ['dashboard'];
         if (input.target) args.push('--out', String(input.target));
+        return runConstructCli(args);
+      }
+      if (input.action === 'issues-sync') {
+        const args = ['issues', 'sync'];
+        if (input.target || input.project) args.push(String(input.target || input.project));
+        if (input.dir) args.push('--dir', String(input.dir));
+        return runConstructCli(args);
+      }
+      if (input.action === 'issues-publish') {
+        const args = ['issues', 'publish', String(input.target)];
+        if (input.dir) args.push('--dir', String(input.dir));
         return runConstructCli(args);
       }
       if (input.action === 'assimilate') {

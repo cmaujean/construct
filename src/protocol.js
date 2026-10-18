@@ -74,9 +74,10 @@ function initProtocolSchema(db) {
       status      TEXT NOT NULL DEFAULT 'observed',
       tags        TEXT NOT NULL DEFAULT '[]',
       evidence    TEXT NOT NULL DEFAULT '',
-      fix         TEXT NOT NULL DEFAULT '',
-      guard_regex TEXT NOT NULL DEFAULT '',
-      created     TEXT NOT NULL
+      fix            TEXT NOT NULL DEFAULT '',
+      guard_regex    TEXT NOT NULL DEFAULT '',
+      guard_platform TEXT NOT NULL DEFAULT 'all',
+      created        TEXT NOT NULL
     );
   `);
 
@@ -94,6 +95,9 @@ function initProtocolSchema(db) {
   }
   if (!cols.includes('guard_regex')) {
     db.exec("ALTER TABLE gotchas ADD COLUMN guard_regex TEXT NOT NULL DEFAULT '';");
+  }
+  if (!cols.includes('guard_platform')) {
+    db.exec("ALTER TABLE gotchas ADD COLUMN guard_platform TEXT NOT NULL DEFAULT 'all';");
   }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_gotchas_scope ON gotchas(scope, id);
@@ -198,6 +202,7 @@ function hydrateGotcha(row) {
     evidence: row.evidence || '',
     fix: row.fix || '',
     guardRegex: row.guard_regex || '',
+    guardPlatform: row.guard_platform || 'all',
     created: row.created || '',
   };
 }

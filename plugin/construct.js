@@ -44,15 +44,16 @@ function runConstruct(args) {
   }
 }
 
-export function validateShellCommand(command, customGuards = null) {
+export function validateShellCommand(command, customGuards = null, options = {}) {
   const cmd = String(command || "")
-  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`)
+  const hostPlatform = String(options?.platform || process.platform).toLowerCase()
+  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`) [all platforms]
   if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
     throw new Error(
       "Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first."
     )
   }
-  // 2. Block piping build/test commands into `tail`, `head`, `grep`, or `Select-Object` without `pipefail`
+  // 2. Block piping build/test commands into `tail`, `head`, `grep`, or `Select-Object` without `pipefail` [all platforms]
   if (
     !/\bpipefail\b/.test(cmd) &&
     /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object)\b/i.test(
@@ -63,27 +64,32 @@ export function validateShellCommand(command, customGuards = null) {
       "Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo \"exit=$?\"`, or set `pipefail`."
     )
   }
-  // 3. Block inline `gh api graphql -f query=` containing inner double quotes (PowerShell 5.1 strips them)
-  if (/\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
+  // 3. Block inline `gh api graphql -f query=` containing inner double quotes [win32 only: PowerShell 5.1 strips them]
+  if (hostPlatform === "win32" && /\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
     throw new Error(
-      "Construct Shell Guard (Gotcha #4): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`."
+      "Construct Shell Guard (Gotcha #4 [win32]): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`."
     )
   }
-  // 4. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`)
-  if (/core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd)) {
+  // 4. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`) OR staging `:Zone.Identifier` files [all platforms: prevents Linux/macOS from breaking Windows checkouts]
+  if (
+    /core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd) ||
+    /\bgit\s+add\b[^\r\n]*:Zone\.Identifier/i.test(cmd)
+  ) {
     throw new Error(
-      "Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check."
+      "Construct Shell Guard (Gotcha #6 [all]): Never disable core.protectNTFS or stage `:Zone.Identifier` streams (invisible on Linux/macOS, breaks Windows NTFS checkouts). Remove the offending path instead."
     )
   }
-  // 5. Enforce dynamic `--guard` regular expressions registered on gotchas
+  // 5. Enforce dynamic `--guard` regular expressions registered on gotchas (filtered by `guardPlatform`)
   if (Array.isArray(customGuards)) {
     for (const g of customGuards) {
       if (!g?.guardRegex) continue
+      const guardPlat = String(g.guardPlatform || "all").toLowerCase()
+      if (guardPlat !== "all" && guardPlat !== hostPlatform) continue
       try {
         const re = new RegExp(g.guardRegex, "i")
         if (re.test(cmd)) {
           const fixHint = g.fix ? ` Do instead: ${g.fix}` : ""
-          throw new Error(`Construct Shell Guard (Gotcha #${g.id} [${g.scope || "global"}]): ${g.title}.${fixHint}`)
+          throw new Error(`Construct Shell Guard (Gotcha #${g.id} [${g.scope || "global"}/${guardPlat}]): ${g.title}.${fixHint}`)
         }
       } catch (err) {
         if (String(err.message || "").startsWith("Construct Shell Guard")) throw err
@@ -484,7 +490,7 @@ export default {
 
       editor.add({
         name: "resolve",
-        description: "Resolve one or more open thread frames by seq ID.",
+        description: "Resolve one or more open thread frames by seq ID (and optionally close linked GitHub issues when `closeGh: true` is explicitly passed).",
         input: {
           type: "object",
           properties: {
@@ -492,6 +498,7 @@ export default {
             by: { type: "integer", description: "Existing frame seq that resolved them" },
             reason: { type: "string", description: "If given without `by`, records a new resolution frame with this summary" },
             verified: { type: "string" },
+            closeGh: { type: "boolean", description: "When true, also closes any linked `gh:#N` GitHub issues on the repository" },
           },
           required: ["seqs"],
           additionalProperties: false,
@@ -502,6 +509,7 @@ export default {
           if (input.by) args.push("--by", String(input.by))
           if (input.reason) args.push("--reason", String(input.reason))
           if (input.verified) args.push("--verified", String(input.verified))
+          if (input.closeGh) args.push("--close-gh")
           return { content: runConstruct(args) }
         },
       })
@@ -661,6 +669,11 @@ export default {
             evidence: { type: "string" },
             fix: { type: "string" },
             guard: { type: "string", description: "Optional regular expression to enforce as a 0-token pre-execution shell guard" },
+            guardOs: {
+              type: "string",
+              enum: ["all", "win32", "linux", "darwin"],
+              description: "Target OS for the shell guard ('all' for repo-wide guards like :Zone.Identifier, or 'win32'/'linux'/'darwin' for OS-specific shell/path traps)",
+            },
             tags: { type: "string", description: "Comma-separated tags" },
           },
           required: ["action"],
@@ -676,6 +689,7 @@ export default {
           if (input.evidence) args.push("--evidence", String(input.evidence))
           if (input.fix) args.push("--fix", String(input.fix))
           if (input.guard) args.push("--guard", String(input.guard))
+          if (input.guardOs) args.push("--guard-os", String(input.guardOs))
           if (input.tags) args.push("--tags", String(input.tags))
           return { content: runConstruct(args) }
         },
@@ -743,17 +757,17 @@ export default {
 
       editor.add({
         name: "sync",
-        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, or HTML dashboard generation.",
+        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), or HTML dashboard generation.",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "dashboard"],
+              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "dashboard", "issues-sync", "issues-publish"],
             },
             target: {
               type: "string",
-              description: "Project key (for invite/sync/export), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
+              description: "Project key (for invite/sync/export/issues-sync), frame seq (for issues-publish), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
             },
             dir: {
               type: "string",
@@ -772,6 +786,17 @@ export default {
           if (input.action === "dashboard") {
             const args = ["dashboard"]
             if (input.target) args.push("--out", String(input.target))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "issues-sync") {
+            const args = ["issues", "sync"]
+            if (input.target || input.project) args.push(String(input.target || input.project))
+            if (input.dir) args.push("--dir", String(input.dir))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "issues-publish") {
+            const args = ["issues", "publish", String(input.target)]
+            if (input.dir) args.push("--dir", String(input.dir))
             return { content: runConstruct(args) }
           }
           if (input.action === "assimilate") {

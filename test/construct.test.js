@@ -12,6 +12,7 @@ const store = require('../src/store');
 const CLI = path.join(__dirname, '..', 'bin', 'construct.js');
 
 function makeTempPaths() {
+  process.env.CONSTRUCT_NO_AUTOSYNC = '1';
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-test-'));
   return {
     dir,
@@ -842,23 +843,49 @@ Found 2026-09-28.
         /exceeds MAX_WS_FRAME_BYTES/
       );
 
-      // --- 4. Test the 5 Enhancements: Dynamic Gotcha Guards, Throttled Auto-Sync, `whyTarget` + Peer Escalation, `dropPatch`/`applyDrop`, and `generateDashboardHtml` ---
-      // 4a. Alice adds a project gotcha with a dynamic `--guard` regex and drops an encrypted patch snippet for Bob
+      // --- 4. Test the 5 Enhancements + Platform-Scoped Guards + GitHub Issues <-> Open Threads Bridge ---
+      // 4a. Alice adds a Windows-only gotcha guard (`guardPlatform: 'win32'`) and a repo-wide guard (`guardPlatform: 'all'`), and drops an encrypted patch snippet for Bob
       const guardedGotcha = store.addGotcha({
         scope: 'acme/shared_app',
-        title: 'Do not invoke legacy wrong-sdk binary',
+        title: 'Do not invoke legacy wrong-sdk binary on Windows',
         fix: 'Use the workspace SDK binary instead',
         guardRegex: 'legacy-wrong-sdk\\\\bin',
+        guardPlatform: 'win32',
       });
       assert.equal(guardedGotcha.guardRegex, 'legacy-wrong-sdk\\\\bin');
+      assert.equal(guardedGotcha.guardPlatform, 'win32');
+      // Blocks on Windows (`win32`), does NOT block on Linux (`linux`)
       assert.throws(
-        () => store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
+        () =>
+          store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', {
+            project: 'acme/shared_app',
+            platform: 'win32',
+          }),
         /Gotcha #/
       );
       assert.equal(
-        store.checkDynamicGotchaGuards('C:\\tools\\workspace-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
+        store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', {
+          project: 'acme/shared_app',
+          platform: 'linux',
+        }),
         true
       );
+      assert.equal(
+        store.checkDynamicGotchaGuards('C:\\tools\\workspace-sdk\\bin\\run.exe', {
+          project: 'acme/shared_app',
+          platform: 'win32',
+        }),
+        true
+      );
+
+      const repoWideGotcha = store.addGotcha({
+        scope: 'acme/shared_app',
+        title: 'Never commit .Zone.Identifier streams from Linux or Windows',
+        fix: 'Delete the :Zone.Identifier stream before staging',
+        guardRegex: ':Zone\\.Identifier',
+        guardPlatform: 'all',
+      });
+      assert.equal(repoWideGotcha.guardPlatform, 'all');
 
       const dropMsg = store.dropPatch({
         project: 'acme/shared_app',
@@ -871,7 +898,8 @@ Found 2026-09-28.
 
       await store.syncProject('acme/shared_app');
 
-      // 4b. Switch to Bob's environment: sync, verify Bob received Alice's dynamic shell guard and encrypted patch drop
+      // 4b. Switch to Bob's environment (on Linux!): sync, verify Bob's Linux shell is NOT blocked by Alice's `win32`-only guard,
+      //     IS blocked by the `all`-platform `:Zone.Identifier` guard, and extracts the encrypted patch drop
       process.env.CONSTRUCT_DB = path.join(bobHome, 'construct.db');
       process.env.CONSTRUCT_IDENTITY_FILE = path.join(bobHome, 'identity.json');
       process.env.CONSTRUCT_ROM_FILE = path.join(bobHome, 'active-rom.md');
@@ -879,9 +907,20 @@ Found 2026-09-28.
       process.env.CONSTRUCT_USER = 'bob';
 
       await store.syncProject('acme/shared_app');
+      assert.equal(
+        store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', {
+          project: 'acme/shared_app',
+          platform: 'linux',
+        }),
+        true
+      );
       assert.throws(
-        () => store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
-        /Do not invoke legacy wrong-sdk binary/
+        () =>
+          store.checkDynamicGotchaGuards('git add docs/constitution.html:Zone.Identifier', {
+            project: 'acme/shared_app',
+            platform: 'linux',
+          }),
+        /Never commit \.Zone\.Identifier/
       );
 
       const bobInbox = store.listMessages({ project: 'acme/shared_app', toUser: 'bob', status: 'pending' });
@@ -906,19 +945,86 @@ Found 2026-09-28.
       assert.equal(whyUnknown.peerQuerySent.toUser, 'alice');
       assert.match(whyUnknown.peerQuerySent.body, /\[WHY nonExistentQuantumWidget42\]/);
 
-      // 4d. Throttled background auto-sync gate on `bootProject`
+      // 4d. Throttled background auto-sync gate on `bootProject` (MLS + GitHub Issues)
       const bootTrigger1 = store.bootProject('acme/shared_app', {
+        autoSync: true,
         autoSyncThrottleMs: 0,
         dryRunAutoSync: true,
       });
       assert.equal(bootTrigger1.autoSyncTriggered, true);
+      assert.equal(bootTrigger1.ghIssuesSyncTriggered, true);
       const bootTrigger2 = store.bootProject('acme/shared_app', {
+        autoSync: true,
         autoSyncThrottleMs: 60000,
         dryRunAutoSync: true,
       });
       assert.equal(bootTrigger2.autoSyncTriggered, false);
+      assert.equal(bootTrigger2.ghIssuesSyncTriggered, false);
 
-      // 4e. HTML Dashboard generation (`generateDashboardHtml`)
+      // 4e. GitHub Issues <-> Construct Open Threads Bridge
+      //     - Private Construct thread stays private until explicitly promoted via `publishThreadToGithub`
+      const privateThread = store.recordFrame({
+        project: 'acme/shared_app',
+        kind: 'thread',
+        open: true,
+        summary: 'Internal architecture discussion before public RFC',
+        detail: 'Keep inside construct until ready.',
+      });
+      const ghSync1 = store.syncGithubIssues('acme/shared_app', {
+        issues: [
+          { number: 101, title: 'Fix Android KGP warning', state: 'OPEN', body: 'Reported by CI', labels: ['ci'] },
+          { number: 102, title: 'Add dark mode toggle', state: 'OPEN', body: 'Requested by user', labels: ['ux'] },
+        ],
+      });
+      assert.equal(ghSync1.openedCount, 2);
+      assert.equal(ghSync1.resolvedCount, 0);
+      // Idempotent on repeat sync
+      const ghSyncRepeat = store.syncGithubIssues('acme/shared_app', {
+        issues: [
+          { number: 101, title: 'Fix Android KGP warning', state: 'OPEN', body: 'Reported by CI', labels: ['ci'] },
+          { number: 102, title: 'Add dark mode toggle', state: 'OPEN', body: 'Requested by user', labels: ['ux'] },
+        ],
+      });
+      assert.equal(ghSyncRepeat.openedCount, 0);
+
+      // When #101 is closed on GitHub, `syncGithubIssues` automatically resolves the matching Construct thread!
+      const ghSync2 = store.syncGithubIssues('acme/shared_app', {
+        issues: [
+          { number: 101, title: 'Fix Android KGP warning', state: 'CLOSED', body: 'Reported by CI', labels: ['ci'] },
+          { number: 102, title: 'Add dark mode toggle', state: 'OPEN', body: 'Requested by user', labels: ['ux'] },
+        ],
+      });
+      assert.equal(ghSync2.resolvedCount, 1);
+      const openNow = store.bootProject('acme/shared_app', { autoSync: false }).openFrames;
+      assert.ok(!openNow.some((f) => f.refs.includes('gh:#101')));
+      const gh102Frame = openNow.find((f) => f.refs.includes('gh:#102'));
+      assert.ok(gh102Frame);
+
+      // Resolving #102 inside Construct WITHOUT `closeGh` leaves GitHub untouched; WITH `closeGh: true` closes on GitHub
+      const closedOnGh = [];
+      const resNoGh = store.resolveFrames([privateThread.frame.seq], {
+        closeGh: false,
+        closeIssueFn: (num) => closedOnGh.push(Number(num)),
+      });
+      assert.equal(resNoGh.closedGhIssues.length, 0);
+
+      const resWithGh = store.resolveFrames([gh102Frame.seq], {
+        closeGh: true,
+        closeIssueFn: (num) => closedOnGh.push(Number(num)),
+      });
+      assert.deepEqual(resWithGh.closedGhIssues, [102]);
+      assert.deepEqual(closedOnGh, [102]);
+
+      // Explicitly promoting a private Construct thread to GitHub (`publishThreadToGithub`) attaches `gh:#103`
+      store.reopenFrame(privateThread.frame.seq);
+      const pubRes = store.publishThreadToGithub(privateThread.frame.seq, {
+        createIssueFn: ({ title }) => ({ number: 103, url: `https://github.com/acme/shared_app/issues/103 (${title})` }),
+      });
+      assert.equal(pubRes.alreadyPublished, false);
+      assert.equal(pubRes.issueNumber, 103);
+      assert.ok(pubRes.frame.refs.includes('gh:#103'));
+
+      // 4f. HTML Dashboard generation (`generateDashboardHtml`)
       const dashFile = path.join(bobHome, 'dashboard.html');
       const dash = store.generateDashboardHtml({ outFile: dashFile });
       assert.ok(fs.existsSync(dashFile));
@@ -1003,8 +1109,17 @@ Found 2026-09-28.
     assert.throws(() => validateShellCommand('flutter build appbundle --release 2>&1 | tail -25'), /Gotcha #3/);
     assert.throws(() => validateShellCommand('npm test | grep pass'), /Gotcha #3/);
     assert.throws(
-      () => validateShellCommand('gh api graphql -f query=\'mutation { update(id: "PVT_123") }\''),
+      () => validateShellCommand('gh api graphql -f query=\'mutation { update(id: "PVT_123") }\'', null, { platform: 'win32' }),
       /Gotcha #4/
+    );
+    // On Linux, PowerShell quote-stripping guard does NOT block bash `gh api graphql`, while `:Zone.Identifier` staging DOES block on Linux!
+    assert.equal(
+      validateShellCommand('gh api graphql -f query=\'mutation { update(id: "PVT_123") }\'', null, { platform: 'linux' }),
+      true
+    );
+    assert.throws(
+      () => validateShellCommand('git add docs/legal/constitution.html:Zone.Identifier', null, { platform: 'linux' }),
+      /Gotcha #6/
     );
     assert.throws(() => validateShellCommand('git -c core.protectNTFS=false checkout main'), /Gotcha #6/);
 

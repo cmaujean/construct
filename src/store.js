@@ -160,11 +160,12 @@ function tx(db, fn) {
 function initSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS heads (
-      project TEXT PRIMARY KEY,
-      repo    TEXT NOT NULL DEFAULT '',
-      state   TEXT NOT NULL DEFAULT '',
-      next    TEXT NOT NULL DEFAULT '',
-      updated TEXT NOT NULL
+      project   TEXT PRIMARY KEY,
+      repo      TEXT NOT NULL DEFAULT '',
+      state     TEXT NOT NULL DEFAULT '',
+      next      TEXT NOT NULL DEFAULT '',
+      gh_synced TEXT NOT NULL DEFAULT '',
+      updated   TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS frames (
@@ -223,6 +224,11 @@ function initSchema(db) {
       PRIMARY KEY (project, rel_path)
     );
   `);
+
+  const headCols = db.prepare('PRAGMA table_info(heads)').all().map((c) => c.name);
+  if (!headCols.includes('gh_synced')) {
+    db.exec("ALTER TABLE heads ADD COLUMN gh_synced TEXT NOT NULL DEFAULT '';");
+  }
 
   romMod.initRomSchema(db);
   protocol.initProtocolSchema(db);
@@ -755,9 +761,37 @@ function resolveFrames(seqList, options = {}, file = dbPath()) {
           stmt.run(bySeq, id);
         }
 
+        const resolvedFrames = ids.map((id) => getFrameInDb(db, id));
+        const closedGhIssues = [];
+
+        if (options.closeGh) {
+          for (const rf of resolvedFrames) {
+            for (const ref of rf.refs || []) {
+              const m = String(ref).match(/^gh:#(\d+)$/i);
+              if (!m) continue;
+              const issueNum = m[1];
+              const hRow = db.prepare('SELECT repo FROM heads WHERE project = ?').get(rf.project);
+              const repoDir = options.repoDir || (hRow?.repo ? expandHome(hRow.repo) : defaultRepoPathInDb(db, rf.project));
+              if (typeof options.closeIssueFn === 'function') {
+                options.closeIssueFn(issueNum, rf.project, repoDir);
+                closedGhIssues.push(Number(issueNum));
+              } else if (repoDir && fs.existsSync(repoDir)) {
+                execFileSync('gh', ['issue', 'close', String(issueNum)], {
+                  cwd: repoDir,
+                  encoding: 'utf8',
+                  stdio: 'pipe',
+                  windowsHide: true,
+                });
+                closedGhIssues.push(Number(issueNum));
+              }
+            }
+          }
+        }
+
         return {
-          resolved: ids.map((id) => getFrameInDb(db, id)),
+          resolved: resolvedFrames,
           byFrame: createdFrame || (bySeq ? getFrameInDb(db, bySeq) : null),
+          closedGhIssues,
         };
       }),
     file
@@ -990,7 +1024,9 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
     // arrive automatically without blocking `boot`.
     let autoSyncTriggered = false;
     const mlsRow = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
-    if (mlsRow && options.autoSync !== false && process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+    const allowAutoSync =
+      options.autoSync === true || (options.autoSync !== false && process.env.CONSTRUCT_NO_AUTOSYNC !== '1');
+    if (mlsRow && allowAutoSync) {
       const lastTs = Date.parse(mlsRow.updated || '') || 0;
       const throttleMs = Number(options.autoSyncThrottleMs ?? 60000);
       if (Date.now() - lastTs >= throttleMs) {
@@ -1012,6 +1048,40 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       }
     }
 
+    // Throttled (60s) non-blocking background GitHub Issues sync when a local git repo is present
+    let ghIssuesSyncTriggered = false;
+    const headSyncRow = db.prepare('SELECT repo, gh_synced FROM heads WHERE project = ?').get(project);
+    const candidateRepo = headSyncRow?.repo ? expandHome(headSyncRow.repo) : head.repo ? expandHome(head.repo) : '';
+    if (
+      candidateRepo &&
+      fs.existsSync(path.join(candidateRepo, '.git')) &&
+      allowAutoSync
+    ) {
+      const lastGhTs = Date.parse(headSyncRow?.gh_synced || '') || 0;
+      const throttleMs = Number(options.autoSyncThrottleMs ?? 60000);
+      if (Date.now() - lastGhTs >= throttleMs) {
+        const now = nowIso();
+        db.prepare(
+          `INSERT INTO heads (project, repo, state, next, gh_synced, updated)
+           VALUES (?, ?, '', '', ?, ?)
+           ON CONFLICT(project) DO UPDATE SET gh_synced = excluded.gh_synced`
+        ).run(project, candidateRepo, now, now);
+        ghIssuesSyncTriggered = true;
+        if (!options.dryRunAutoSync) {
+          try {
+            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+            const child = spawn(process.execPath, [binScript, 'issues', 'sync', project], {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+              env: { ...process.env, CONSTRUCT_DB: file },
+            });
+            child.unref();
+          } catch (_) {}
+        }
+      }
+    }
+
     return {
       rom,
       romSlotted,
@@ -1022,6 +1092,7 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       detectedLogin,
       head,
       autoSyncTriggered,
+      ghIssuesSyncTriggered,
       hasMlsGroup: Boolean(mlsRow),
       stats: {
         totalFrames: Number(statsRow?.total || 0),
@@ -1696,6 +1767,12 @@ function addGotcha(fields = {}, file = dbPath()) {
       throw new Error(`invalid gotcha guard regex "${guardRegex}": ${err.message}`);
     }
   }
+  const rawPlat = String(fields.guardPlatform || fields.guardOs || 'all').trim().toLowerCase();
+  const platAlias = { windows: 'win32', win: 'win32', mac: 'darwin', macos: 'darwin', osx: 'darwin' };
+  const guardPlatform = platAlias[rawPlat] || rawPlat || 'all';
+  if (!['all', 'win32', 'linux', 'darwin'].includes(guardPlatform)) {
+    throw new Error(`invalid guardPlatform "${guardPlatform}". Use: all, win32, linux, or darwin`);
+  }
   const created = fields.created ? String(fields.created).trim() : nowIso().slice(0, 10);
 
   return withDb(
@@ -1707,9 +1784,9 @@ function addGotcha(fields = {}, file = dbPath()) {
 
         const info = db
           .prepare(
-            'INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, guard_platform, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
-          .run(uid, hlc, scope, title, status, JSON.stringify(tags), evidence, fix, guardRegex, created);
+          .run(uid, hlc, scope, title, status, JSON.stringify(tags), evidence, fix, guardRegex, guardPlatform, created);
         const newId = Number(info.lastInsertRowid);
 
         crdt.appendCrdtOpInDb(db, {
@@ -1726,6 +1803,7 @@ function addGotcha(fields = {}, file = dbPath()) {
             evidence,
             fix,
             guardRegex,
+            guardPlatform,
             created,
           },
         });
@@ -1742,6 +1820,7 @@ function addGotcha(fields = {}, file = dbPath()) {
 function checkDynamicGotchaGuards(command, options = {}, file = dbPath()) {
   const cmd = String(command || '');
   if (!cmd.trim()) return true;
+  const hostPlatform = String(options.platform || process.platform).toLowerCase();
   return withDb((db) => {
     const rows = db.prepare("SELECT * FROM gotchas WHERE guard_regex != '' ORDER BY id ASC").all();
     const project = options.project ? normalizeProject(options.project) : '';
@@ -1751,11 +1830,15 @@ function checkDynamicGotchaGuards(command, options = {}, file = dbPath()) {
       if (scope !== 'global' && project && scope !== project && scope !== parentScope) {
         continue;
       }
+      const guardPlat = (r.guard_platform || 'all').toLowerCase();
+      if (guardPlat !== 'all' && guardPlat !== hostPlatform) {
+        continue;
+      }
       try {
         const re = new RegExp(r.guard_regex, 'i');
         if (re.test(cmd)) {
           const fixHint = r.fix ? ` Do instead: ${r.fix}` : '';
-          throw new Error(`Construct Shell Guard (Gotcha #${r.id} [${scope}]): ${r.title}.${fixHint}`);
+          throw new Error(`Construct Shell Guard (Gotcha #${r.id} [${scope}/${guardPlat}]): ${r.title}.${fixHint}`);
         }
       } catch (err) {
         if (err.message.startsWith('Construct Shell Guard')) throw err;
@@ -2348,6 +2431,225 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, html, 'utf8');
   return { outFile, html, projectCount: data.projects.length, openCount: data.openFrames.length };
+}
+
+// --- GitHub Issues <-> Construct Open Threads Bridge (`construct issues [sync | publish]`) ---
+//
+// Invariant:
+//   - Every OPEN GitHub Issue on the repository maps to an `[OPEN]` `thread` frame with `gh:#<number>` in `refs`.
+//   - Every CLOSED GitHub Issue on the repository automatically resolves its matching `gh:#<number>` `thread` frame.
+//   - Local Construct `thread` frames remain private inside `construct.db` (and MLS sync) unless explicitly
+//     promoted to GitHub with `publishThreadToGithub(seq)` (`construct issues publish <seq>`), and GitHub issues
+//     are never closed from Construct unless `--close-gh` is explicitly passed to `construct resolve`.
+
+function syncGithubIssues(projectInput, options = {}, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+
+  let issues = options.issues;
+  if (!Array.isArray(issues)) {
+    const repoDir =
+      options.repoDir ||
+      withDb((db) => {
+        const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(project);
+        return h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, project);
+      }, file);
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${project}" to query GitHub issues`);
+    }
+    const rawJson = execFileSync(
+      'gh',
+      ['issue', 'list', '--state', 'all', '--limit', String(options.limit || 50), '--json', 'number,title,state,body,labels,updatedAt'],
+      {
+        cwd: repoDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      }
+    );
+    issues = JSON.parse(rawJson || '[]');
+  }
+
+  let openedCount = 0;
+  let resolvedCount = 0;
+  const createdSeqs = [];
+  const resolvedSeqs = [];
+
+  withDb(
+    (db) =>
+      tx(db, () => {
+        const existingFrames = db
+          .prepare('SELECT * FROM frames WHERE project = ? ORDER BY seq ASC')
+          .all(project)
+          .map(hydrateFrame);
+
+        for (const issue of issues) {
+          const num = Number(issue.number);
+          if (!Number.isInteger(num) || num <= 0) continue;
+          const ghRef = `gh:#${num}`;
+          const shortRef = `#${num}`;
+          const state = String(issue.state || 'OPEN').toUpperCase();
+          const title = String(issue.title || `Issue #${num}`).trim();
+          const body = String(issue.body || '').trim();
+          const labelNames = Array.isArray(issue.labels)
+            ? issue.labels.map((l) => (typeof l === 'string' ? l : l?.name)).filter(Boolean)
+            : [];
+
+          // Find any existing frame linked to `gh:#<num>` (or a `thread` frame with `#<num>`)
+          const matchingFrames = existingFrames.filter(
+            (f) => f.refs.includes(ghRef) || (f.kind === 'thread' && f.refs.includes(shortRef))
+          );
+
+          if (state === 'OPEN') {
+            if (matchingFrames.length === 0) {
+              const identity = crdt.loadOrCreateIdentity();
+              const uid = `frame-${project}-gh-${num}-${crypto.randomUUID()}`;
+              const hlc = crdt.nextHlc(identity.did);
+              const ts = issue.updatedAt ? String(issue.updatedAt).trim() : nowIso();
+              const refs = [ghRef, shortRef, ...labelNames];
+              const summary = `[GH #${num}] ${title}`;
+              const info = db
+                .prepare(
+                  `INSERT INTO frames (uid, hlc, ts, project, kind, summary, detail, verified, parent_seq, open, refs)
+                   VALUES (?, ?, ?, ?, 'thread', ?, ?, '', NULL, 1, ?)`
+                )
+                .run(uid, hlc, ts, project, summary, body, JSON.stringify(refs));
+              const newSeq = Number(info.lastInsertRowid);
+              crdt.appendCrdtOpInDb(db, {
+                project,
+                entity: 'frame',
+                recordUid: uid,
+                payload: {
+                  uid,
+                  hlc,
+                  ts,
+                  project,
+                  kind: 'thread',
+                  summary,
+                  detail: body,
+                  verified: '',
+                  open: true,
+                  refs,
+                },
+              });
+              openedCount++;
+              createdSeqs.push(newSeq);
+            }
+          } else if (state === 'CLOSED') {
+            for (const mf of matchingFrames) {
+              if (mf.open) {
+                const identity = crdt.loadOrCreateIdentity();
+                const hlc = crdt.nextHlc(identity.did);
+                const verifiedNote = mf.verified
+                  ? `${mf.verified}; Closed on GitHub (${ghRef})`
+                  : `Closed on GitHub (${ghRef})`;
+                db.prepare('UPDATE frames SET open = 0, hlc = ?, verified = ? WHERE seq = ?').run(
+                  hlc,
+                  verifiedNote,
+                  mf.seq
+                );
+                if (mf.uid) {
+                  crdt.appendCrdtOpInDb(db, {
+                    project,
+                    entity: 'frame',
+                    recordUid: mf.uid,
+                    payload: {
+                      uid: mf.uid,
+                      hlc,
+                      ts: mf.ts,
+                      project: mf.project,
+                      kind: mf.kind,
+                      summary: mf.summary,
+                      detail: mf.detail,
+                      verified: verifiedNote,
+                      open: false,
+                      refs: mf.refs,
+                    },
+                  });
+                }
+                resolvedCount++;
+                resolvedSeqs.push(mf.seq);
+              }
+            }
+          }
+        }
+
+        const now = nowIso();
+        db.prepare(
+          `INSERT INTO heads (project, repo, state, next, gh_synced, updated)
+           VALUES (?, '', '', '', ?, ?)
+           ON CONFLICT(project) DO UPDATE SET gh_synced = excluded.gh_synced`
+        ).run(project, now, now);
+      }),
+    file
+  );
+
+  return {
+    project,
+    totalIssuesChecked: issues.length,
+    openedCount,
+    resolvedCount,
+    createdSeqs,
+    resolvedSeqs,
+  };
+}
+
+function publishThreadToGithub(seqInput, options = {}, file = dbPath()) {
+  const seq = requireSeq(seqInput);
+  const frame = withDb((db) => getFrameInDb(db, seq), file);
+  if (!frame) throw new Error(`no frame #${seq}`);
+
+  const existingGhRef = (frame.refs || []).find((r) => /^gh:#\d+$/i.test(r));
+  if (existingGhRef) {
+    return {
+      alreadyPublished: true,
+      issueNumber: Number(existingGhRef.replace(/^gh:#/i, '')),
+      frame,
+    };
+  }
+
+  const repoDir =
+    options.repoDir ||
+    withDb((db) => {
+      const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(frame.project);
+      return h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, frame.project);
+    }, file);
+
+  const cleanTitle = frame.summary.replace(/^\[GH #\d+\]\s*/i, '');
+  const body = frame.detail || `Promoted from Construct open thread #${frame.seq} (${frame.project}).`;
+  let issueNumber = null;
+  let issueUrl = '';
+
+  if (typeof options.createIssueFn === 'function') {
+    const created = options.createIssueFn({ title: cleanTitle, body, project: frame.project, repoDir });
+    issueNumber = Number(created.number || created);
+    issueUrl = created.url || '';
+  } else {
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${frame.project}" to run "gh issue create"`);
+    }
+    const out = execFileSync('gh', ['issue', 'create', '--title', cleanTitle, '--body', body], {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    }).trim();
+    issueUrl = out;
+    const m = out.match(/\/issues\/(\d+)/) || out.match(/#(\d+)/);
+    if (!m) throw new Error(`could not parse created GitHub issue number from output: "${out}"`);
+    issueNumber = Number(m[1]);
+  }
+
+  const ghRef = `gh:#${issueNumber}`;
+  const shortRef = `#${issueNumber}`;
+  const nextRefs = [...new Set([...(frame.refs || []), ghRef, shortRef])];
+  const updatedFrame = editFrame(frame.seq, { refs: nextRefs }, file);
+
+  return {
+    alreadyPublished: false,
+    issueNumber,
+    issueUrl,
+    frame: updatedFrame,
+  };
 }
 
 // --- DID Identity, DIDComm v2 Invitations, MLS Group Ratchet & CRDT Sync ---
@@ -2964,6 +3266,8 @@ module.exports = {
   applyDrop,
   whyTarget,
   generateDashboardHtml,
+  syncGithubIssues,
+  publishThreadToGithub,
   getIdentity,
   createInvite,
   joinInvite,

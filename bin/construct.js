@@ -146,6 +146,8 @@ const OPTIONS = {
   evidence: { type: 'string' },
   fix: { type: 'string' },
   guard: { type: 'string' },
+  'guard-os': { type: 'string' },
+  'close-gh': { type: 'boolean' },
   tags: { type: 'string' },
   ask: { type: 'string' },
   file: { type: 'string' },
@@ -588,7 +590,7 @@ function handleGotchaCommand(rest, o) {
       }
       for (const g of gotchas) {
         const tags = g.tags.length ? ` [${g.tags.join(', ')}]` : '';
-        const guardTag = g.guardRegex ? ` [guard: /${g.guardRegex}/i]` : '';
+        const guardTag = g.guardRegex ? ` [guard(${g.guardPlatform || 'all'}): /${g.guardRegex}/i]` : '';
         const scopeStr = scope === 'all' ? `[${g.scope}] ` : '';
         console.log(`#${String(g.id).padEnd(3)} ${scopeStr}${g.title} (${g.status}${tags}${guardTag}, ${g.created})`);
         if (g.fix) console.log(`     -> ${g.fix}`);
@@ -606,10 +608,16 @@ function handleGotchaCommand(rest, o) {
         evidence: o.evidence,
         fix: o.fix,
         guardRegex: o.guard,
+        guardPlatform: o['guard-os'],
         created: o.ts,
       });
       if (o.json) console.log(JSON.stringify(g, null, 2));
-      else console.log(`added gotcha #${g.id} [${g.scope}]: ${g.title}${g.guardRegex ? ` (guard: /${g.guardRegex}/i)` : ''}`);
+      else
+        console.log(
+          `added gotcha #${g.id} [${g.scope}]: ${g.title}${
+            g.guardRegex ? ` (guard[${g.guardPlatform}]: /${g.guardRegex}/i)` : ''
+          }`
+        );
       return 0;
     }
     case 'search':
@@ -802,7 +810,7 @@ function main(argv) {
 
     case 'resolve': {
       const rawIds = rest.join(',').split(',').map((s) => s.trim()).filter(Boolean);
-      if (!rawIds.length) throw new Error('usage: construct resolve <seq[,seq]> [--by <seq>] [--reason "<text>"]');
+      if (!rawIds.length) throw new Error('usage: construct resolve <seq[,seq]> [--by <seq>] [--reason "<text>"] [--close-gh]');
       const res = store.resolveFrames(rawIds, {
         by: o.by,
         reason: o.reason,
@@ -810,13 +818,43 @@ function main(argv) {
         verified: o.verified,
         kind: o.kind,
         ts: o.ts,
+        closeGh: Boolean(o['close-gh']),
+        repoDir: o.dir,
       });
       if (o.json) {
         console.log(JSON.stringify(res, null, 2));
       } else {
         const idsStr = res.resolved.map((f) => `#${f.seq}`).join(', ');
         const byStr = res.byFrame ? ` -> #${res.byFrame.seq} (${res.byFrame.summary})` : '';
-        console.log(`resolved ${idsStr}${byStr}`);
+        const ghStr = res.closedGhIssues?.length ? ` (closed GitHub issue(s): #${res.closedGhIssues.join(', #')})` : '';
+        console.log(`resolved ${idsStr}${byStr}${ghStr}`);
+      }
+      return 0;
+    }
+
+    case 'issues':
+    case 'issue': {
+      const sub = rest[0] || 'sync';
+      if (sub === 'publish' || sub === 'promote' || sub === 'create') {
+        const seq = rest[1];
+        if (!seq) throw new Error('usage: construct issues publish <seq> [--dir <repo_dir>]');
+        const res = store.publishThreadToGithub(seq, { repoDir: o.dir });
+        if (o.json) console.log(JSON.stringify(res, null, 2));
+        else if (res.alreadyPublished) {
+          console.log(`frame #${res.frame.seq} is already linked to GitHub issue #${res.issueNumber}`);
+        } else {
+          console.log(`published thread #${res.frame.seq} -> GitHub issue #${res.issueNumber} (${res.issueUrl || `gh:#${res.issueNumber}`})`);
+        }
+        return 0;
+      }
+      const project = (sub === 'sync' ? rest[1] : sub) || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
+      if (!project) throw new Error('usage: construct issues sync <project> [--dir <repo_dir>]');
+      const res = store.syncGithubIssues(project, { repoDir: o.dir, limit: o.limit ? Number(o.limit) : 50 });
+      if (o.json) console.log(JSON.stringify(res, null, 2));
+      else {
+        console.log(
+          `synced ${res.totalIssuesChecked} GitHub issue(s) for ${res.project}: ${res.openedCount} new open thread(s), ${res.resolvedCount} closed thread(s) resolved`
+        );
       }
       return 0;
     }
