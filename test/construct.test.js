@@ -1035,6 +1035,8 @@ Found 2026-09-28.
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.match(dash.html, /acme\/shared_app/);
+      assert.match(dash.html, /data-pack="cryptonomicon"/);
+      assert.match(dash.html, /applyHudToDom\(data\.hud\)/);
     } finally {
       store.closeAllDbs();
       await relaySrv.close();

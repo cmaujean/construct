@@ -2567,13 +2567,13 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 <body>
   <div class="hud-bar">
     <div>
-      <div class="hud-pill">${escapeHtml(hud.pill)}</div>
-      <div class="sub">CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ${escapeHtml(hud.operator)} | Crew: ${escapeHtml(hud.handle)}</div>
+      <div class="hud-pill" id="hud-pill">${escapeHtml(hud.pill)}</div>
+      <div class="sub" id="hud-sub">CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ${escapeHtml(hud.operator)} | Crew: ${escapeHtml(hud.handle)}</div>
     </div>
     <div>
       <span class="badge">${data.projects.length} Projects</span>
-      <span class="badge ${data.openFrames.length ? 'warn' : 'ok'}">${data.openFrames.length} Open Threads</span>
-      <span class="badge ok">🛡️ ${hud.guardCount} Active Shell Guards</span>
+      <span class="badge ${data.openFrames.length ? 'warn' : 'ok'}" id="hud-open-badge">${data.openFrames.length} Open Threads</span>
+      <span class="badge ok" id="hud-guard-badge">🛡️ ${hud.guardCount} Active Shell Guards</span>
     </div>
   </div>
 
@@ -2589,27 +2589,59 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <span id="hud-toast"></span>
     </div>
     <div class="btn-row">
-      <button class="crew-btn ${hud.pack === 'sprawl' ? 'active' : ''}" onclick="switchCrew('use','sprawl')">🌃 Sprawl</button>
-      <button class="crew-btn ${hud.pack === 'nightcity' ? 'active' : ''}" onclick="switchCrew('use','nightcity')">🦾 Night City</button>
-      <button class="crew-btn ${hud.pack === 'anathem' ? 'active' : ''}" onclick="switchCrew('use','anathem')">🏛️ Anathem</button>
-      <button class="crew-btn ${hud.pack === 'cryptonomicon' ? 'active' : ''}" onclick="switchCrew('use','cryptonomicon')">🔐 Cryptonomicon</button>
-      <button class="crew-btn ${hud.pack === 'shadowrun' ? 'active' : ''}" onclick="switchCrew('use','shadowrun')">🐉 Shadowrun</button>
-      <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" onclick="switchCrew('use','generic')">⚙️ Generic</button>
+      <button class="crew-btn ${hud.pack === 'sprawl' ? 'active' : ''}" data-pack="sprawl" onclick="switchCrew('use','sprawl')">🌃 Sprawl</button>
+      <button class="crew-btn ${hud.pack === 'nightcity' ? 'active' : ''}" data-pack="nightcity" onclick="switchCrew('use','nightcity')">🦾 Night City</button>
+      <button class="crew-btn ${hud.pack === 'anathem' ? 'active' : ''}" data-pack="anathem" onclick="switchCrew('use','anathem')">🏛️ Anathem</button>
+      <button class="crew-btn ${hud.pack === 'cryptonomicon' ? 'active' : ''}" data-pack="cryptonomicon" onclick="switchCrew('use','cryptonomicon')">🔐 Cryptonomicon</button>
+      <button class="crew-btn ${hud.pack === 'shadowrun' ? 'active' : ''}" data-pack="shadowrun" onclick="switchCrew('use','shadowrun')">🐉 Shadowrun</button>
+      <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
       <span class="sub" style="align-self:center;margin-right:4px;">Bench Sub:</span>
-      <button class="crew-btn" onclick="switchCrew('sub','lodoghir')">🟣 Lodoghir (Procian)</button>
-      <button class="crew-btn" onclick="switchCrew('sub','takemura')">🟣 Takemura</button>
-      <button class="crew-btn" onclick="switchCrew('sub','turing')">🟣 Turing</button>
-      <button class="crew-btn" onclick="switchCrew('sub','johnson')">🟣 Mr. Johnson</button>
-      <button class="crew-btn" onclick="switchCrew('sub','jules')">⚡ Jules (A/B Probe)</button>
-      <button class="crew-btn" onclick="switchCrew('sub','reed')">🛡️ Reed (FIA)</button>
-      <button class="crew-btn" onclick="switchCrew('sub','marly')">🎨 Marly</button>
+      <button class="crew-btn" data-sub="lodoghir" onclick="switchCrew('sub','lodoghir')">🟣 Lodoghir (Procian)</button>
+      <button class="crew-btn" data-sub="takemura" onclick="switchCrew('sub','takemura')">🟣 Takemura</button>
+      <button class="crew-btn" data-sub="turing" onclick="switchCrew('sub','turing')">🟣 Turing</button>
+      <button class="crew-btn" data-sub="johnson" onclick="switchCrew('sub','johnson')">🟣 Mr. Johnson</button>
+      <button class="crew-btn" data-sub="jules" onclick="switchCrew('sub','jules')">⚡ Jules (A/B Probe)</button>
+      <button class="crew-btn" data-sub="reed" onclick="switchCrew('sub','reed')">🛡️ Reed (FIA)</button>
+      <button class="crew-btn" data-sub="marly" onclick="switchCrew('sub','marly')">🎨 Marly</button>
     </div>
   </div>
   <script>
     const CURRENT_SESSION_ID = ${JSON.stringify(options.sessionId || '')};
     const CURRENT_PROJECT = ${JSON.stringify(hud.project || '')};
+    const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
+
+    function applyHudToDom(h) {
+      if (!h) return;
+      const pillEl = document.getElementById('hud-pill');
+      if (pillEl && h.pill) pillEl.textContent = h.pill;
+      const subEl = document.getElementById('hud-sub');
+      if (subEl) subEl.textContent = 'CONSTRUCT // SEQUENTIAL MEMORY HUD — Operator: ' + (h.operator || '') + ' | Crew: ' + (h.handle || h.romName || '');
+      const romNameEl = document.getElementById('active-rom-name');
+      if (romNameEl && h.romName) romNameEl.textContent = String(h.romName).toUpperCase();
+      const pillsEl = document.getElementById('roster-pills');
+      if (pillsEl && Array.isArray(h.roster)) {
+        pillsEl.innerHTML = '';
+        h.roster.forEach((rName, idx) => {
+          const span = document.createElement('span');
+          span.className = 'badge';
+          span.style.marginRight = '4px';
+          span.textContent = (SEAT_GLYPHS[idx] || '🔹') + ' ' + rName;
+          pillsEl.appendChild(span);
+        });
+      }
+      document.querySelectorAll('button.crew-btn[data-pack]').forEach((btn) => {
+        if (btn.getAttribute('data-pack') === h.pack) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+      document.querySelectorAll('button.crew-btn[data-sub]').forEach((btn) => {
+        const subName = btn.getAttribute('data-sub');
+        if (Array.isArray(h.roster) && h.roster.includes(subName)) btn.classList.add('active');
+        else btn.classList.remove('active');
+      });
+    }
+
     async function switchCrew(action, target) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Switching -> ' + target + '...';
@@ -2620,16 +2652,24 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           body: JSON.stringify({ action, target, sessionID: CURRENT_SESSION_ID, project: CURRENT_PROJECT })
         });
         const data = await res.json();
-        if (data && data.ok) {
-          window.location.reload();
+        if (data && data.ok && data.hud) {
+          applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Slotted ' + data.hud.emblem + ' ' + data.hud.romName;
         } else if (toast) {
           toast.textContent = 'Updated: ' + target;
-          setTimeout(() => window.location.reload(), 300);
         }
       } catch (e) {
         if (toast) toast.textContent = 'Run "/construct ' + target + '" in prompt';
       }
     }
+
+    setInterval(async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:47420/hud');
+        const data = await res.json();
+        if (data && data.ok && data.hud) applyHudToDom(data.hud);
+      } catch (_) {}
+    }, 2500);
   </script>
 
   <h2>Open Verification Threads (${data.openFrames.length})</h2>
