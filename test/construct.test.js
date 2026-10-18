@@ -1055,6 +1055,8 @@ Found 2026-09-28.
       detectPreSlotRomDirective,
       resolveBootWithFallback,
       formatTitleWithHudBadge,
+      buildFrontierVoiceLock,
+      injectFrontierVoiceLock,
     } = await import('../plugin/construct.js');
 
     // HUD session tab badge formatter replaces old badges cleanly without duplicating emblems
@@ -1089,9 +1091,53 @@ Found 2026-09-28.
     }
     assert.equal(bootCache.size, 50);
 
-    // Crew prompt includes the multi-step tool loop voice continuity rule
+    // Crew prompt includes the multi-step tool loop voice continuity rule, full craft/world register on immersive banks,
+    // and ultra-lean tagline-only mode on the `generic` bank
     const sprawlCrew = store.getRom('sprawl');
+    const genericCrew = store.getRom('generic');
     assert.match(sprawlCrew.voice, /Voice Continuity Across Multi-Step Tool Loops/);
+    assert.match(sprawlCrew.voice, /Villa Straylight|Sense\/Net|Chiba/);
+    assert.match(sprawlCrew.voice, /\*Voice cue \(vary, never repeat verbatim\):*/);
+    assert.doesNotMatch(genericCrew.voice, /\*Voice cue/);
+    assert.ok(
+      genericCrew.voice.length < sprawlCrew.voice.length - 1200,
+      'generic bank should be significantly leaner than immersive banks'
+    );
+
+    // Generation-frontier voice lock attaches ONLY to the final message (preserving prompt cache on messages[0..N-2])
+    const lockText = buildFrontierVoiceLock(sprawlCrew.voice);
+    assert.match(lockText, /<construct-voice-lock>/);
+    assert.match(lockText, /MOLLY \/\/ THE BLITZ/);
+    const mockMsgs = [
+      { type: 'user', text: 'Earlier cached user turn' },
+      { type: 'assistant', content: [{ type: 'text', text: 'Earlier cached assistant turn' }] },
+      { type: 'user', text: 'Current user turn at generation frontier' },
+    ];
+    assert.equal(injectFrontierVoiceLock(mockMsgs, sprawlCrew.voice), true);
+    assert.equal(mockMsgs[0].text, 'Earlier cached user turn');
+    assert.match(mockMsgs[2].text, /<construct-voice-lock>/);
+    // Idempotent if called twice on the same message
+    assert.equal(injectFrontierVoiceLock(mockMsgs, sprawlCrew.voice), false);
+
+    // Also attaches to completed tool output during a multi-step tool loop continuation
+    const toolLoopMsgs = [
+      { type: 'user', text: 'Fix #111' },
+      {
+        type: 'assistant',
+        content: [
+          {
+            type: 'tool',
+            state: {
+              status: 'completed',
+              content: [{ type: 'text', text: 'On branch main\nnothing to commit' }],
+            },
+          },
+        ],
+      },
+    ];
+    assert.equal(injectFrontierVoiceLock(toolLoopMsgs, sprawlCrew.voice), true);
+    assert.equal(toolLoopMsgs[0].text, 'Fix #111');
+    assert.match(toolLoopMsgs[1].content[0].state.content[0].text, /<construct-voice-lock>/);
 
     // Zero-round-trip ROM pre-slot detector (including subagent `[ROM: <name>]` tags and backup substitutions)
     assert.deepEqual(detectPreSlotRomDirective('[ROM: lupus] Audit this diff for missed auth guards'), {

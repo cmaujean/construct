@@ -285,16 +285,21 @@ function buildMemberCrewSummary(rom, packMeta = null) {
   const tag = `${glyph} **[${rom.name.toUpperCase()} // ${label}]**`;
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
 
-  // Use the concise tagline + first sentence of syntaxCue so each seat's roster line is ~25 tokens instead of ~80
-  const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
-  const syntaxFirstSentence = syntaxMatch
-    ? syntaxMatch[1].replace(/\*\*/g, '').split(/\.\s+/)[0].trim() + '.'
-    : '';
-  const cadence = syntaxFirstSentence ? `${rom.tagline} ${syntaxFirstSentence}` : rom.tagline;
+  // For the zero-fiction `generic` bank, keep only the concise tagline for maximum token savings.
+  // For the 5 immersive banks, include the full Section 2 craft/world register + 1 concrete tone anchor.
+  let cadence = rom.tagline;
+  let toneSample = '';
+  if (rom.pack !== 'generic') {
+    const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
+    const syntaxFull = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
+    if (syntaxFull) cadence = `${rom.tagline} ${syntaxFull}`;
+    const rightMatch = rom.voice.match(/\(RIGHT\):\*\s*"([^"\n]+)"/);
+    if (rightMatch) toneSample = ` *Voice cue (vary, never repeat verbatim):* "${rightMatch[1].trim()}"`;
+  }
 
   // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
   const checklist = (rom.directives && (rom.directives[1] || rom.directives[0])) || seatMeta.desc;
-  return { tag, glyph, label, role, cadence, checklist, seatMeta };
+  return { tag, glyph, label, role, cadence, toneSample, checklist, seatMeta };
 }
 
 function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
@@ -337,7 +342,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
   const rosterBlocks = rosterRoms
     .map((r) => {
       const m = buildMemberCrewSummary(r, packMeta);
-      return `- ${m.tag} (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}`;
+      return `- ${m.tag} (\`${r.name}\` — ${r.handle.split('//')[0].trim()}): ${m.cadence} *Focus:* ${m.checklist}${m.toneSample || ''}`;
     })
     .join('\n');
 

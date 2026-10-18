@@ -3356,12 +3356,17 @@ function installPluginFile(configDir = path.join(os.homedir(), '.config', 'openc
     fs.writeFileSync(pluginDest, content, 'utf8');
   }
 
-  // Also install the TUI HUD companion files (`rpc.js`, `tui.tsx`) alongside `construct.js`
-  for (const extraFile of ['rpc.js', 'tui.tsx']) {
-    const srcFile = path.join(pluginSrcDir, extraFile);
-    if (fs.existsSync(srcFile)) {
-      fs.copyFileSync(srcFile, path.join(pluginDestDir, extraFile));
-    }
+  // Install the TUI HUD plugin (`tui.tsx`) alongside `construct.js` and remove any legacy `rpc.js`
+  // so OpenCode's server plugin scanner only sees valid plugin entrypoints.
+  const legacyRpcDest = path.join(pluginDestDir, 'rpc.js');
+  if (fs.existsSync(legacyRpcDest)) {
+    try {
+      fs.unlinkSync(legacyRpcDest);
+    } catch (_) {}
+  }
+  const tuiSrc = path.join(pluginSrcDir, 'tui.tsx');
+  if (fs.existsSync(tuiSrc)) {
+    fs.copyFileSync(tuiSrc, path.join(pluginDestDir, 'tui.tsx'));
   }
   return pluginDest;
 }

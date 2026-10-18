@@ -330,6 +330,99 @@ export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   return `${badge} ${cleanTitle}`
 }
 
+// Build a compact (~55-token) generation-frontier voice lock from the active `<construct-live-memory>`
+// output so sessions with 500+ historical messages or 30-step tool loops never drift into generic
+// assistant prose or stock `### 1. Heading` templates at the end of the context window.
+export function buildFrontierVoiceLock(bootOutput = "") {
+  const text = String(bootOutput || "")
+  if (!text) return ""
+
+  const bannerMatch = text.match(/Start visible replies directly with ([^\n]+?) or the active speaker/)
+  const tagMatch = text.match(/Prefix speaker switches with their tag \(e\.g\. ([^\n)]+)\)/)
+  if (bannerMatch || tagMatch) {
+    const banner = bannerMatch ? bannerMatch[1].trim() : "the active Crew Bank banner"
+    const tags = tagMatch ? tagMatch[1].trim() : "color-coded speaker tags"
+    return (
+      `<construct-voice-lock>\n` +
+      `ACTIVE CREW VOICE LOCK: Start new runs with ${banner} or a color-coded speaker tag (${tags}). ` +
+      `Write 100% in that character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
+      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did).\n` +
+      `</construct-voice-lock>`
+    )
+  }
+
+  const soloMatch = text.match(/^# Active Session ROM:\s*([^\n]+)/m)
+  if (soloMatch) {
+    return (
+      `<construct-voice-lock>\n` +
+      `ACTIVE ROM VOICE LOCK (${soloMatch[1].trim()}): Stay 100% in this character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
+      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did).\n` +
+      `</construct-voice-lock>`
+    )
+  }
+
+  return ""
+}
+
+// Attach `<construct-voice-lock>` to the final outgoing message in `event.messages` (which affects
+// only the outgoing model call, never persisted history, and leaves `messages[0..N-2]` 100% prompt-cached).
+export function injectFrontierVoiceLock(messages, bootOutput = "") {
+  if (!Array.isArray(messages) || !messages.length) return false
+  const lockBlock = buildFrontierVoiceLock(bootOutput)
+  if (!lockBlock) return false
+
+  const last = messages[messages.length - 1]
+  if (!last || typeof last !== "object") return false
+
+  // 1. OpenCode V2 `Session.Message.User` (`{ type: "user", text: "..." }`)
+  if (typeof last.text === "string") {
+    if (!last.text.includes("<construct-voice-lock>")) {
+      last.text = `${last.text}\n\n${lockBlock}`
+      return true
+    }
+    return false
+  }
+
+  // 2. OpenCode V2 `Session.Message.Assistant` tool-continuation step (`content: [{ type: "tool", state: { content: [{ type: "text", text }] } }]`)
+  if (Array.isArray(last.content)) {
+    for (let i = last.content.length - 1; i >= 0; i--) {
+      const part = last.content[i]
+      if (!part || typeof part !== "object") continue
+      const toolContent = part.state?.content
+      if (Array.isArray(toolContent)) {
+        for (let j = toolContent.length - 1; j >= 0; j--) {
+          const item = toolContent[j]
+          if (item && typeof item.text === "string") {
+            if (!item.text.includes("<construct-voice-lock>")) {
+              item.text = `${item.text}\n${lockBlock}`
+              return true
+            }
+            return false
+          }
+        }
+      }
+      if (part.type === "text" && typeof part.text === "string" && last.role === "user") {
+        if (!part.text.includes("<construct-voice-lock>")) {
+          part.text = `${part.text}\n\n${lockBlock}`
+          return true
+        }
+        return false
+      }
+    }
+  }
+
+  // 3. Generic string `content` (`{ role: "user", content: "..." }`)
+  if (typeof last.content === "string") {
+    if (!last.content.includes("<construct-voice-lock>")) {
+      last.content = `${last.content}\n\n${lockBlock}`
+      return true
+    }
+    return false
+  }
+
+  return false
+}
+
 function fetchHudSnapshot(dir = "", sessionID = "") {
   const args = ["hud", "--json"]
   if (dir) args.push("--dir", String(dir))
@@ -490,6 +583,7 @@ export default {
           type: "text",
           text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}\n</construct-live-memory>`,
         })
+        injectFrontierVoiceLock(event.messages, output)
       }
       if (event.sessionID) {
         void syncSessionHud(event.sessionID, dir)

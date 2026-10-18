@@ -9,9 +9,67 @@
 
 import { Plugin } from "@opencode/plugin/tui"
 import { Rpc } from "@opencode/plugin/rpc"
-import { CONSTRUCT_RPC_SPEC } from "./rpc.js"
 
-const ConstructRpc = Rpc.define(CONSTRUCT_RPC_SPEC)
+const HUD_SNAPSHOT_SCHEMA = {
+  type: "object",
+  properties: {
+    project: { type: "string" },
+    pack: { type: "string" },
+    emblem: { type: "string" },
+    romName: { type: "string" },
+    handle: { type: "string" },
+    roster: { type: "array", items: { type: "string" } },
+    operator: { type: "string" },
+    state: { type: "string" },
+    next: { type: "string" },
+    headSeq: { type: "number" },
+    totalFrames: { type: "number" },
+    openCount: { type: "number" },
+    openSeqs: { type: "array", items: { type: "number" } },
+    openSummaries: { type: "array", items: { type: "string" } },
+    gotchaCount: { type: "number" },
+    guardCount: { type: "number" },
+    inboxPendingCount: { type: "number" },
+    inboxReplyCount: { type: "number" },
+    driftCount: { type: "number" },
+    hasMlsGroup: { type: "boolean" },
+    pill: { type: "string" },
+    tabBadge: { type: "string" },
+  },
+  required: ["project", "pack", "emblem", "romName", "headSeq", "openCount", "pill", "tabBadge"],
+  additionalProperties: true,
+}
+
+const ConstructRpc = Rpc.define({
+  id: "construct",
+  methods: {
+    hud: {
+      input: {
+        type: "object",
+        properties: { sessionID: { type: "string" }, dir: { type: "string" } },
+        additionalProperties: false,
+      },
+      output: HUD_SNAPSHOT_SCHEMA,
+    },
+    switchRom: {
+      input: {
+        type: "object",
+        properties: {
+          action: { type: "string" },
+          target: { type: "string" },
+          sessionID: { type: "string" },
+          dir: { type: "string" },
+        },
+        required: ["action", "target"],
+        additionalProperties: false,
+      },
+      output: HUD_SNAPSHOT_SCHEMA,
+    },
+  },
+  events: {
+    updated: { schema: HUD_SNAPSHOT_SCHEMA },
+  },
+})
 
 const CREW_OPTIONS = [
   { title: "🌃 sprawl — The Sprawl Crew (Gibson)", value: "use:sprawl", category: "Crew Banks", description: "Colin · Dixie · Wintermute · Molly · Finn · Case · Lupus · Angie · Continuity" },
