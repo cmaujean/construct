@@ -44,7 +44,7 @@ function runConstruct(args) {
   }
 }
 
-export function validateShellCommand(command) {
+export function validateShellCommand(command, customGuards = null) {
   const cmd = String(command || "")
   // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`)
   if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
@@ -74,6 +74,21 @@ export function validateShellCommand(command) {
     throw new Error(
       "Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check."
     )
+  }
+  // 5. Enforce dynamic `--guard` regular expressions registered on gotchas
+  if (Array.isArray(customGuards)) {
+    for (const g of customGuards) {
+      if (!g?.guardRegex) continue
+      try {
+        const re = new RegExp(g.guardRegex, "i")
+        if (re.test(cmd)) {
+          const fixHint = g.fix ? ` Do instead: ${g.fix}` : ""
+          throw new Error(`Construct Shell Guard (Gotcha #${g.id} [${g.scope || "global"}]): ${g.title}.${fixHint}`)
+        }
+      } catch (err) {
+        if (String(err.message || "").startsWith("Construct Shell Guard")) throw err
+      }
+    }
   }
   return true
 }
@@ -513,7 +528,7 @@ export default {
 
       editor.add({
         name: "search",
-        description: "FTS5 BM25 search across the sequential tape.",
+        description: "FTS5 BM25 search across the sequential tape, or unified provenance lookup (`why: true` for gotchas + CRDT tape authors + git log + optional peer Construct query).",
         input: {
           type: "object",
           properties: {
@@ -521,12 +536,20 @@ export default {
             project: { type: "string" },
             kind: { type: "string" },
             open: { type: "boolean" },
+            why: { type: "boolean", description: "Run unified provenance lookup (`construct why`) across gotchas, CRDT tape authors, and git log" },
+            ask: { type: "string", description: "Optional teammate user id to query over MLS comms when `why: true`" },
           },
           required: ["query"],
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
         execute: async (input) => {
+          if (input.why) {
+            const args = ["why", String(input.query)]
+            if (input.project) args.push("--project", String(input.project))
+            if (input.ask) args.push("--ask", String(input.ask))
+            return { content: runConstruct(args) }
+          }
           const args = ["search", String(input.query)]
           if (input.project) args.push("--project", String(input.project))
           if (input.kind) args.push("--kind", String(input.kind))
@@ -637,6 +660,7 @@ export default {
             status: { type: "string", enum: ["observed", "from_source", "reported"] },
             evidence: { type: "string" },
             fix: { type: "string" },
+            guard: { type: "string", description: "Optional regular expression to enforce as a 0-token pre-execution shell guard" },
             tags: { type: "string", description: "Comma-separated tags" },
           },
           required: ["action"],
@@ -651,6 +675,7 @@ export default {
           if (input.status) args.push("--status", String(input.status))
           if (input.evidence) args.push("--evidence", String(input.evidence))
           if (input.fix) args.push("--fix", String(input.fix))
+          if (input.guard) args.push("--guard", String(input.guard))
           if (input.tags) args.push("--tags", String(input.tags))
           return { content: runConstruct(args) }
         },
@@ -658,18 +683,21 @@ export default {
 
       editor.add({
         name: "comms",
-        description: "Send, reply, acknowledge, or list Construct-to-Construct messages (e.g. Alice's Molly <-> Bob's Dixie).",
+        description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`).",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["msg", "reply", "ack", "inbox"],
+              enum: ["msg", "reply", "ack", "inbox", "drop", "apply-drop"],
             },
             project: { type: "string", description: "Project key, e.g. acme/alpha_app" },
-            to: { type: "string", description: "Recipient operator id (for msg/inbox), e.g. bob" },
-            id: { type: "integer", description: "Message id (for reply/ack)" },
-            body: { type: "string", description: "Message or reply text" },
+            to: { type: "string", description: "Recipient operator id (for msg/inbox/drop), e.g. bob" },
+            id: { type: "integer", description: "Message id (for reply/ack/apply-drop)" },
+            body: { type: "string", description: "Message, reply text, or patch content (for drop)" },
+            file: { type: "string", description: "File path to drop or output path for apply-drop" },
+            gitDiff: { type: "boolean", description: "Capture and drop uncommitted git diff from project repo" },
+            apply: { type: "boolean", description: "Run `git apply` on an incoming git-diff drop" },
           },
           required: ["action"],
           additionalProperties: false,
@@ -693,6 +721,19 @@ export default {
           if (input.action === "ack") {
             return { content: runConstruct(["ack", String(input.id)]) }
           }
+          if (input.action === "drop") {
+            const args = ["drop", String(input.project || "global"), "--to", String(input.to)]
+            if (input.file) args.push("--file", String(input.file))
+            if (input.gitDiff) args.push("--git-diff")
+            if (input.body) args.push("--content", String(input.body))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "apply-drop") {
+            const args = ["apply-drop", String(input.id)]
+            if (input.file) args.push("--out", String(input.file))
+            if (input.apply) args.push("--apply")
+            return { content: runConstruct(args) }
+          }
           const args = ["inbox"]
           if (input.project) args.push("--project", String(input.project))
           if (input.to) args.push("--to", String(input.to))
@@ -702,17 +743,17 @@ export default {
 
       editor.add({
         name: "sync",
-        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, or instruction file assimilation.",
+        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, or HTML dashboard generation.",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init"],
+              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "dashboard"],
             },
             target: {
               type: "string",
-              description: "Project key (for invite/sync/export), construct://invite/... URI (for join), construct://packet/... token (for import), or directory path (for assimilate)",
+              description: "Project key (for invite/sync/export), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
             },
             dir: {
               type: "string",
@@ -728,6 +769,11 @@ export default {
         execute: async (input) => {
           if (input.action === "did") return { content: runConstruct(["did"]) }
           if (input.action === "init") return { content: runConstruct(["init"]) }
+          if (input.action === "dashboard") {
+            const args = ["dashboard"]
+            if (input.target) args.push("--out", String(input.target))
+            return { content: runConstruct(args) }
+          }
           if (input.action === "assimilate") {
             const args = ["assimilate"]
             if (input.target) args.push(String(input.target))

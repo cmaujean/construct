@@ -53,6 +53,7 @@ function validateShellCommand(command) {
       'Construct Shell Guard (Gotcha #6): Never disable core.protectNTFS. It is a safety guard; remove the offending path instead of silencing the check.'
     );
   }
+  store.checkDynamicGotchaGuards(cmd);
   return true;
 }
 
@@ -139,7 +140,7 @@ const MCP_TOOLS = Object.freeze([
   },
   {
     name: 'construct_search',
-    description: 'FTS5 BM25 search across the sequential tape.',
+    description: 'FTS5 BM25 search across the sequential tape, or unified provenance lookup (`why: true` for gotchas + frames with author attribution + git log + optional peer Construct query).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -147,6 +148,8 @@ const MCP_TOOLS = Object.freeze([
         project: { type: 'string' },
         kind: { type: 'string' },
         open: { type: 'boolean' },
+        why: { type: 'boolean', description: 'Run unified provenance lookup (`construct why`) across gotchas, CRDT tape authors, and git log' },
+        ask: { type: 'string', description: 'Optional teammate user id to query over MLS comms when `why: true`' },
       },
       required: ['query'],
       additionalProperties: false,
@@ -217,6 +220,7 @@ const MCP_TOOLS = Object.freeze([
         status: { type: 'string', enum: ['observed', 'from_source', 'reported'] },
         evidence: { type: 'string' },
         fix: { type: 'string' },
+        guard: { type: 'string', description: 'Optional regular expression to enforce as a 0-token pre-execution shell guard' },
         tags: { type: 'string', description: 'Comma-separated tags' },
       },
       required: ['action'],
@@ -225,18 +229,21 @@ const MCP_TOOLS = Object.freeze([
   },
   {
     name: 'construct_comms',
-    description: "Send, reply, acknowledge, or list Construct-to-Construct messages (e.g. Alice's Molly <-> Bob's Dixie).",
+    description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`).",
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['msg', 'reply', 'ack', 'inbox'],
+          enum: ['msg', 'reply', 'ack', 'inbox', 'drop', 'apply-drop'],
         },
         project: { type: 'string', description: 'Project key, e.g. acme/alpha_app' },
-        to: { type: 'string', description: 'Recipient operator id (for msg/inbox), e.g. bob' },
-        id: { type: 'integer', description: 'Message id (for reply/ack)' },
-        body: { type: 'string', description: 'Message or reply text' },
+        to: { type: 'string', description: 'Recipient operator id (for msg/inbox/drop), e.g. bob' },
+        id: { type: 'integer', description: 'Message id (for reply/ack/apply-drop)' },
+        body: { type: 'string', description: 'Message, reply text, or patch content (for drop)' },
+        file: { type: 'string', description: 'File path to drop or output path for apply-drop' },
+        gitDiff: { type: 'boolean', description: 'Capture and drop uncommitted git diff from project repo' },
+        apply: { type: 'boolean', description: 'Run `git apply` on an incoming git-diff drop' },
       },
       required: ['action'],
       additionalProperties: false,
@@ -244,13 +251,13 @@ const MCP_TOOLS = Object.freeze([
   },
   {
     name: 'construct_sync',
-    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, or instruction file assimilation.',
+    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, or HTML dashboard generation.',
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init'],
+          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'dashboard'],
         },
         target: {
           type: 'string',
@@ -309,6 +316,12 @@ function executeMcpTool(name, input = {}) {
       return runConstructCli(args);
     }
     case 'construct_search': {
+      if (input.why) {
+        const args = ['why', String(input.query)];
+        if (input.project) args.push('--project', String(input.project));
+        if (input.ask) args.push('--ask', String(input.ask));
+        return runConstructCli(args);
+      }
       const args = ['search', String(input.query)];
       if (input.project) args.push('--project', String(input.project));
       if (input.kind) args.push('--kind', String(input.kind));
@@ -355,6 +368,7 @@ function executeMcpTool(name, input = {}) {
       if (input.status) args.push('--status', String(input.status));
       if (input.evidence) args.push('--evidence', String(input.evidence));
       if (input.fix) args.push('--fix', String(input.fix));
+      if (input.guard) args.push('--guard', String(input.guard));
       if (input.tags) args.push('--tags', String(input.tags));
       return runConstructCli(args);
     }
@@ -368,6 +382,19 @@ function executeMcpTool(name, input = {}) {
       if (input.action === 'ack') {
         return runConstructCli(['ack', String(input.id)]);
       }
+      if (input.action === 'drop') {
+        const args = ['drop', String(input.project || 'global'), '--to', String(input.to)];
+        if (input.file) args.push('--file', String(input.file));
+        if (input.gitDiff) args.push('--git-diff');
+        if (input.body) args.push('--content', String(input.body));
+        return runConstructCli(args);
+      }
+      if (input.action === 'apply-drop') {
+        const args = ['apply-drop', String(input.id)];
+        if (input.file) args.push('--out', String(input.file));
+        if (input.apply) args.push('--apply');
+        return runConstructCli(args);
+      }
       const args = ['inbox'];
       if (input.project) args.push('--project', String(input.project));
       if (input.to) args.push('--to', String(input.to));
@@ -376,6 +403,11 @@ function executeMcpTool(name, input = {}) {
     case 'construct_sync': {
       if (input.action === 'did') return runConstructCli(['did']);
       if (input.action === 'init') return runConstructCli(['init']);
+      if (input.action === 'dashboard') {
+        const args = ['dashboard'];
+        if (input.target) args.push('--out', String(input.target));
+        return runConstructCli(args);
+      }
       if (input.action === 'assimilate') {
         const args = ['assimilate'];
         if (input.target) args.push(String(input.target));

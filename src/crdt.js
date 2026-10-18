@@ -572,6 +572,7 @@ function backfillProjectCrdtLogInDb(db, project, identityFile) {
         tags: JSON.parse(g.tags || '[]'),
         evidence: g.evidence,
         fix: g.fix,
+        guardRegex: g.guard_regex || '',
         created: g.created,
       })
     );
@@ -652,11 +653,11 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
   );
   const selectGotchaStmt = db.prepare('SELECT * FROM gotchas WHERE uid = ?');
   const insertGotchaStmt = db.prepare(
-    `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, created)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, created)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const updateGotchaStmt = db.prepare(
-    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ? WHERE uid = ?`
+    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ?, guard_regex = ? WHERE uid = ?`
   );
   const selectFrameStmt = db.prepare('SELECT * FROM frames WHERE uid = ?');
   const insertFrameStmt = db.prepare(
@@ -728,6 +729,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           JSON.stringify(p.tags || []),
           p.evidence || '',
           p.fix || '',
+          p.guardRegex || '',
           p.created || ''
         );
         applied++;
@@ -739,6 +741,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           JSON.stringify(p.tags || []),
           p.evidence || '',
           p.fix || '',
+          p.guardRegex !== undefined ? p.guardRegex : existing.guard_regex || '',
           p.uid
         );
         applied++;

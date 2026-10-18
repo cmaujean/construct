@@ -68,14 +68,15 @@ function initProtocolSchema(db) {
     );
 
     CREATE TABLE IF NOT EXISTS gotchas (
-      id       INTEGER PRIMARY KEY AUTOINCREMENT,
-      scope    TEXT NOT NULL DEFAULT 'global',
-      title    TEXT NOT NULL,
-      status   TEXT NOT NULL DEFAULT 'observed',
-      tags     TEXT NOT NULL DEFAULT '[]',
-      evidence TEXT NOT NULL DEFAULT '',
-      fix      TEXT NOT NULL DEFAULT '',
-      created  TEXT NOT NULL
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope       TEXT NOT NULL DEFAULT 'global',
+      title       TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'observed',
+      tags        TEXT NOT NULL DEFAULT '[]',
+      evidence    TEXT NOT NULL DEFAULT '',
+      fix         TEXT NOT NULL DEFAULT '',
+      guard_regex TEXT NOT NULL DEFAULT '',
+      created     TEXT NOT NULL
     );
   `);
 
@@ -90,6 +91,9 @@ function initProtocolSchema(db) {
   const cols = db.prepare("PRAGMA table_info(gotchas)").all().map((c) => c.name);
   if (!cols.includes('scope')) {
     db.exec("ALTER TABLE gotchas ADD COLUMN scope TEXT NOT NULL DEFAULT 'global';");
+  }
+  if (!cols.includes('guard_regex')) {
+    db.exec("ALTER TABLE gotchas ADD COLUMN guard_regex TEXT NOT NULL DEFAULT '';");
   }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_gotchas_scope ON gotchas(scope, id);
@@ -193,6 +197,7 @@ function hydrateGotcha(row) {
     tags,
     evidence: row.evidence || '',
     fix: row.fix || '',
+    guardRegex: row.guard_regex || '',
     created: row.created || '',
   };
 }

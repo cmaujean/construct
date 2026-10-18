@@ -145,7 +145,15 @@ const OPTIONS = {
   status: { type: 'string' },
   evidence: { type: 'string' },
   fix: { type: 'string' },
+  guard: { type: 'string' },
   tags: { type: 'string' },
+  ask: { type: 'string' },
+  file: { type: 'string' },
+  out: { type: 'string' },
+  content: { type: 'string' },
+  note: { type: 'string' },
+  'git-diff': { type: 'boolean' },
+  apply: { type: 'boolean' },
   relays: { type: 'string' },
   'git-url': { type: 'string' },
   branch: { type: 'string' },
@@ -580,8 +588,9 @@ function handleGotchaCommand(rest, o) {
       }
       for (const g of gotchas) {
         const tags = g.tags.length ? ` [${g.tags.join(', ')}]` : '';
+        const guardTag = g.guardRegex ? ` [guard: /${g.guardRegex}/i]` : '';
         const scopeStr = scope === 'all' ? `[${g.scope}] ` : '';
-        console.log(`#${String(g.id).padEnd(3)} ${scopeStr}${g.title} (${g.status}${tags}, ${g.created})`);
+        console.log(`#${String(g.id).padEnd(3)} ${scopeStr}${g.title} (${g.status}${tags}${guardTag}, ${g.created})`);
         if (g.fix) console.log(`     -> ${g.fix}`);
       }
       console.log(`${gotchas.length} gotcha(s) (${scope})`);
@@ -596,10 +605,11 @@ function handleGotchaCommand(rest, o) {
         tags: o.tags,
         evidence: o.evidence,
         fix: o.fix,
+        guardRegex: o.guard,
         created: o.ts,
       });
       if (o.json) console.log(JSON.stringify(g, null, 2));
-      else console.log(`added gotcha #${g.id} [${g.scope}]: ${g.title}`);
+      else console.log(`added gotcha #${g.id} [${g.scope}]: ${g.title}${g.guardRegex ? ` (guard: /${g.guardRegex}/i)` : ''}`);
       return 0;
     }
     case 'search':
@@ -874,6 +884,80 @@ function main(argv) {
           console.log(formatFrameLine(f, { includeProject: !o.project }));
         }
         console.log(`${hits.length} hit(s) (use "construct zoom <seq>" for full detail and surrounding tape)`);
+      }
+      return 0;
+    }
+
+    case 'why': {
+      const target = rest.join(' ');
+      if (!target) throw new Error('usage: construct why <file_or_symbol> [--project <proj>] [--ask <user>]');
+      let project = o.project || '';
+      if (!project && o.dir) project = store.resolveProjectFromDir(o.dir);
+      const res = store.whyTarget(project, target, {
+        ask: o.ask,
+        repoDir: o.dir,
+      });
+      if (o.json) {
+        console.log(JSON.stringify(res, null, 2));
+        return 0;
+      }
+      console.log(`WHY "${res.target}" (scope: ${res.project}):`);
+      console.log(`\nGOTCHAS (${res.gotchas.length}):`);
+      if (!res.gotchas.length) console.log('  (none)');
+      for (const g of res.gotchas) {
+        console.log(`  [G#${g.id}] [${g.scope}] ${g.title}${g.fix ? ` -> ${g.fix}` : ''}`);
+      }
+      console.log(`\nSEQUENTIAL TAPE FRAMES (${res.frames.length}):`);
+      if (!res.frames.length) console.log('  (none)');
+      for (const f of res.frames) {
+        console.log(`  #${String(f.seq).padEnd(4)} ${shortTs(f.ts)} [${f.project}/${f.kind}] (by ${f.authorUser}) ${f.summary}`);
+      }
+      console.log(`\nGIT LOG PROVENANCE (${res.gitCommits.length}):`);
+      if (!res.gitCommits.length) console.log('  (none)');
+      for (const c of res.gitCommits) {
+        console.log(`  ${c.hash} ${c.date} (${c.author}) ${c.subject}`);
+      }
+      if (res.peerQuerySent) {
+        console.log(`\nPEER QUERY SENT: [M#${res.peerQuerySent.id}] -> ${res.peerQuerySent.toUser} (${res.peerQuerySent.project})`);
+      }
+      return 0;
+    }
+
+    case 'dashboard':
+    case 'view': {
+      const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session });
+      if (o.json) console.log(JSON.stringify({ outFile: res.outFile, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
+      else console.log(`dashboard written to ${res.outFile} (${res.projectCount} project(s), ${res.openCount} open thread(s))`);
+      return 0;
+    }
+
+    case 'drop': {
+      const project = rest[0] || o.project || 'global';
+      const m = store.dropPatch({
+        project,
+        to: o.to,
+        filePath: o.file || rest[1],
+        gitDiff: Boolean(o['git-diff']),
+        content: o.content,
+        note: o.note,
+      });
+      if (o.json) console.log(JSON.stringify(m, null, 2));
+      else console.log(`queued encrypted drop [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project})`);
+      return 0;
+    }
+
+    case 'apply-drop': {
+      if (!rest[0]) throw new Error('usage: construct apply-drop <msg_id> [--out <file> | --apply]');
+      const res = store.applyDrop(rest[0], {
+        targetFile: o.out || o.file,
+        apply: Boolean(o.apply),
+        repoDir: o.dir,
+      });
+      if (o.json) console.log(JSON.stringify(res, null, 2));
+      else if (res.writtenTo) {
+        console.log(`applied drop from [M#${res.messageId}] (${res.fromUser}/${res.fromRom}) -> ${res.writtenTo}`);
+      } else {
+        console.log(res.content);
       }
       return 0;
     }

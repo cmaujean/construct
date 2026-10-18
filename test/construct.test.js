@@ -841,6 +841,89 @@ Found 2026-09-28.
         () => relayMod.decodeWsFrames(Buffer.alloc(relayMod.MAX_WS_FRAME_BYTES + 16)),
         /exceeds MAX_WS_FRAME_BYTES/
       );
+
+      // --- 4. Test the 5 Enhancements: Dynamic Gotcha Guards, Throttled Auto-Sync, `whyTarget` + Peer Escalation, `dropPatch`/`applyDrop`, and `generateDashboardHtml` ---
+      // 4a. Alice adds a project gotcha with a dynamic `--guard` regex and drops an encrypted patch snippet for Bob
+      const guardedGotcha = store.addGotcha({
+        scope: 'acme/shared_app',
+        title: 'Do not invoke legacy wrong-sdk binary',
+        fix: 'Use the workspace SDK binary instead',
+        guardRegex: 'legacy-wrong-sdk\\\\bin',
+      });
+      assert.equal(guardedGotcha.guardRegex, 'legacy-wrong-sdk\\\\bin');
+      assert.throws(
+        () => store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
+        /Gotcha #/
+      );
+      assert.equal(
+        store.checkDynamicGotchaGuards('C:\\tools\\workspace-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
+        true
+      );
+
+      const dropMsg = store.dropPatch({
+        project: 'acme/shared_app',
+        to: 'bob',
+        filePath: 'repro.patch',
+        content: 'diff --git a/app.js b/app.js\n+// repro fix\n',
+        note: 'Quick repro patch for stream bug',
+      });
+      assert.match(dropMsg.body, /\[DROP:repro\.patch\]/);
+
+      await store.syncProject('acme/shared_app');
+
+      // 4b. Switch to Bob's environment: sync, verify Bob received Alice's dynamic shell guard and encrypted patch drop
+      process.env.CONSTRUCT_DB = path.join(bobHome, 'construct.db');
+      process.env.CONSTRUCT_IDENTITY_FILE = path.join(bobHome, 'identity.json');
+      process.env.CONSTRUCT_ROM_FILE = path.join(bobHome, 'active-rom.md');
+      delete process.env.CONSTRUCT_SRC_ROOT;
+      process.env.CONSTRUCT_USER = 'bob';
+
+      await store.syncProject('acme/shared_app');
+      assert.throws(
+        () => store.checkDynamicGotchaGuards('C:\\tools\\legacy-wrong-sdk\\bin\\run.exe', { project: 'acme/shared_app' }),
+        /Do not invoke legacy wrong-sdk binary/
+      );
+
+      const bobInbox = store.listMessages({ project: 'acme/shared_app', toUser: 'bob', status: 'pending' });
+      const incomingDrop = bobInbox.find((m) => m.body.includes('construct-drop'));
+      assert.ok(incomingDrop);
+      const extractedOutFile = path.join(bobHome, 'extracted.patch');
+      const appliedDrop = store.applyDrop(incomingDrop.id, { targetFile: extractedOutFile });
+      assert.equal(appliedDrop.fromUser, 'alice');
+      assert.equal(appliedDrop.filePath, 'repro.patch');
+      assert.match(fs.readFileSync(extractedOutFile, 'utf8'), /\+\/\/ repro fix/);
+
+      // 4c. `whyTarget` unified provenance: finds synced gotcha + git log, and auto-dispatches a `[WHY]` peer query to Alice when 0 local hits exist
+      const whyStream = store.whyTarget('acme/shared_app', 'StreamProvider');
+      assert.equal(whyStream.gotchas.length, 1);
+      assert.ok(whyStream.gitCommits.length >= 1);
+      assert.equal(whyStream.peerQuerySent, null);
+
+      const whyUnknown = store.whyTarget('acme/shared_app', 'nonExistentQuantumWidget42', { autoAskPeers: true });
+      assert.equal(whyUnknown.gotchas.length, 0);
+      assert.equal(whyUnknown.frames.length, 0);
+      assert.ok(whyUnknown.peerQuerySent);
+      assert.equal(whyUnknown.peerQuerySent.toUser, 'alice');
+      assert.match(whyUnknown.peerQuerySent.body, /\[WHY nonExistentQuantumWidget42\]/);
+
+      // 4d. Throttled background auto-sync gate on `bootProject`
+      const bootTrigger1 = store.bootProject('acme/shared_app', {
+        autoSyncThrottleMs: 0,
+        dryRunAutoSync: true,
+      });
+      assert.equal(bootTrigger1.autoSyncTriggered, true);
+      const bootTrigger2 = store.bootProject('acme/shared_app', {
+        autoSyncThrottleMs: 60000,
+        dryRunAutoSync: true,
+      });
+      assert.equal(bootTrigger2.autoSyncTriggered, false);
+
+      // 4e. HTML Dashboard generation (`generateDashboardHtml`)
+      const dashFile = path.join(bobHome, 'dashboard.html');
+      const dash = store.generateDashboardHtml({ outFile: dashFile });
+      assert.ok(fs.existsSync(dashFile));
+      assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY/);
+      assert.match(dash.html, /acme\/shared_app/);
     } finally {
       store.closeAllDbs();
       await relaySrv.close();

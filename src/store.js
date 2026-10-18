@@ -20,7 +20,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
-const { execFileSync, execSync } = require('node:child_process');
+const { execFileSync, execSync, spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -985,6 +985,33 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       } catch (_) {}
     }
 
+    // Check whether this project belongs to an active MLS group and trigger a throttled (60s),
+    // non-blocking detached background `construct sync` so teammates' frames, gotchas, and comms
+    // arrive automatically without blocking `boot`.
+    let autoSyncTriggered = false;
+    const mlsRow = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    if (mlsRow && options.autoSync !== false && process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+      const lastTs = Date.parse(mlsRow.updated || '') || 0;
+      const throttleMs = Number(options.autoSyncThrottleMs ?? 60000);
+      if (Date.now() - lastTs >= throttleMs) {
+        const now = nowIso();
+        db.prepare('UPDATE mls_groups SET updated = ? WHERE project = ?').run(now, project);
+        autoSyncTriggered = true;
+        if (!options.dryRunAutoSync) {
+          try {
+            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+            const child = spawn(process.execPath, [binScript, 'sync', project], {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+              env: { ...process.env, CONSTRUCT_DB: file },
+            });
+            child.unref();
+          } catch (_) {}
+        }
+      }
+    }
+
     return {
       rom,
       romSlotted,
@@ -994,6 +1021,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       user,
       detectedLogin,
       head,
+      autoSyncTriggered,
+      hasMlsGroup: Boolean(mlsRow),
       stats: {
         totalFrames: Number(statsRow?.total || 0),
         openCount: openFrames.length,
@@ -1659,6 +1688,14 @@ function addGotcha(fields = {}, file = dbPath()) {
   const tags = normalizeRefs(fields.tags);
   const evidence = fields.evidence ? String(fields.evidence).trim() : '';
   const fix = fields.fix ? String(fields.fix).trim() : '';
+  const guardRegex = fields.guardRegex !== undefined ? String(fields.guardRegex).trim() : fields.guard ? String(fields.guard).trim() : '';
+  if (guardRegex) {
+    try {
+      new RegExp(guardRegex, 'i');
+    } catch (err) {
+      throw new Error(`invalid gotcha guard regex "${guardRegex}": ${err.message}`);
+    }
+  }
   const created = fields.created ? String(fields.created).trim() : nowIso().slice(0, 10);
 
   return withDb(
@@ -1670,9 +1707,9 @@ function addGotcha(fields = {}, file = dbPath()) {
 
         const info = db
           .prepare(
-            'INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
-          .run(uid, hlc, scope, title, status, JSON.stringify(tags), evidence, fix, created);
+          .run(uid, hlc, scope, title, status, JSON.stringify(tags), evidence, fix, guardRegex, created);
         const newId = Number(info.lastInsertRowid);
 
         crdt.appendCrdtOpInDb(db, {
@@ -1688,6 +1725,7 @@ function addGotcha(fields = {}, file = dbPath()) {
             tags,
             evidence,
             fix,
+            guardRegex,
             created,
           },
         });
@@ -1699,6 +1737,32 @@ function addGotcha(fields = {}, file = dbPath()) {
       }),
     file
   );
+}
+
+function checkDynamicGotchaGuards(command, options = {}, file = dbPath()) {
+  const cmd = String(command || '');
+  if (!cmd.trim()) return true;
+  return withDb((db) => {
+    const rows = db.prepare("SELECT * FROM gotchas WHERE guard_regex != '' ORDER BY id ASC").all();
+    const project = options.project ? normalizeProject(options.project) : '';
+    const parentScope = project.includes('/') ? project.split('/')[0] : '';
+    for (const r of rows) {
+      const scope = r.scope || 'global';
+      if (scope !== 'global' && project && scope !== project && scope !== parentScope) {
+        continue;
+      }
+      try {
+        const re = new RegExp(r.guard_regex, 'i');
+        if (re.test(cmd)) {
+          const fixHint = r.fix ? ` Do instead: ${r.fix}` : '';
+          throw new Error(`Construct Shell Guard (Gotcha #${r.id} [${scope}]): ${r.title}.${fixHint}`);
+        }
+      } catch (err) {
+        if (err.message.startsWith('Construct Shell Guard')) throw err;
+      }
+    }
+    return true;
+  }, file);
 }
 
 function searchGotchas(queryInput, options = {}, file = dbPath()) {
@@ -1896,6 +1960,394 @@ function listMessages(options = {}, file = dbPath()) {
       .all(...params)
       .map(crdt.hydrateMessage);
   }, file);
+}
+
+// --- Encrypted Patch / Snippet Drop Over MLS Comms (`construct drop` & `construct apply-drop`) ---
+
+function dropPatch(fields = {}, file = dbPath()) {
+  const project = normalizeProject(fields.project || 'global');
+  const toUser = String(fields.to || fields.toUser || '').trim().toLowerCase();
+  if (!toUser) throw new Error('recipient user id (--to <user>) is required for drop');
+
+  let content = fields.content ? String(fields.content) : '';
+  let label = fields.note ? String(fields.note).trim() : '';
+  let isGitDiff = Boolean(fields.gitDiff);
+  let relPath = fields.filePath ? String(fields.filePath).trim() : '';
+
+  if (!content && relPath) {
+    const abs = path.resolve(expandHome(relPath));
+    if (!fs.existsSync(abs)) throw new Error(`drop file does not exist: ${abs}`);
+    content = fs.readFileSync(abs, 'utf8');
+    relPath = path.basename(abs);
+  } else if (!content && isGitDiff) {
+    const repoDir = withDb((db) => {
+      const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(project);
+      return h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, project);
+    }, file);
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository path configured for "${project}" to capture git diff`);
+    }
+    content = execFileSync('git', ['-C', repoDir, 'diff'], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    if (!content.trim()) {
+      throw new Error(`working tree in ${repoDir} has no uncommitted git diff to drop`);
+    }
+  }
+
+  if (!content) {
+    throw new Error('give --file <path>, --git-diff, or --content "<patch>" to drop');
+  }
+
+  const dropEnvelope = {
+    type: 'construct.drop.v1',
+    filePath: relPath,
+    isGitDiff,
+    note: label,
+    content,
+  };
+  const body = `[DROP:${relPath || (isGitDiff ? 'git-diff' : 'snippet')}] ${label || 'Encrypted patch/snippet drop'}\n` +
+    `\`\`\`construct-drop\n${Buffer.from(JSON.stringify(dropEnvelope), 'utf8').toString('base64')}\n\`\`\``;
+
+  return sendMessage({ project, to: toUser, body }, file);
+}
+
+function applyDrop(idOrUid, options = {}, file = dbPath()) {
+  const msg = withDb((db) => {
+    const key = String(idOrUid || '').replace(/^[#M]+/i, '').trim();
+    const row = /^\d+$/.test(key)
+      ? db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(key))
+      : db.prepare('SELECT * FROM messages WHERE uid = ?').get(key);
+    return crdt.hydrateMessage(row);
+  }, file);
+
+  if (!msg) throw new Error(`no construct message matching "${idOrUid}"`);
+  const m = msg.body.match(/```construct-drop\r?\n([A-Za-z0-9+/=]+)\r?\n```/);
+  if (!m) {
+    throw new Error(`message #${msg.id} does not contain a construct-drop payload`);
+  }
+  const drop = JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'));
+  let writtenTo = '';
+
+  if (options.targetFile) {
+    const dest = path.resolve(expandHome(options.targetFile));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, drop.content, 'utf8');
+    writtenTo = dest;
+  } else if (options.apply && drop.isGitDiff) {
+    const repoDir = options.repoDir || withDb((db) => {
+      const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(msg.project);
+      return h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, msg.project);
+    }, file);
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository path found for "${msg.project}" to apply diff`);
+    }
+    execFileSync('git', ['-C', repoDir, 'apply', '-'], {
+      input: drop.content,
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    writtenTo = `${repoDir} (git apply)`;
+  }
+
+  return {
+    messageId: msg.id,
+    fromUser: msg.fromUser,
+    fromRom: msg.fromRom,
+    project: msg.project,
+    filePath: drop.filePath || '',
+    isGitDiff: Boolean(drop.isGitDiff),
+    note: drop.note || '',
+    content: drop.content,
+    writtenTo,
+  };
+}
+
+// --- Unified Provenance Lookup (`construct why <file_or_symbol>`) ---
+// Combines synced CRDT frames (with author attribution from `crdt_log` & `mls_groups.members`),
+// project/global gotchas, local `git log -S` provenance, and optional `[WHY]` peer Construct queries.
+
+function whyTarget(projectInput, targetInput, options = {}, file = dbPath()) {
+  const target = String(targetInput || '').trim();
+  if (!target) throw new Error('give a file path, symbol, or term to inspect, e.g. construct why src/crdt.js');
+  const project = projectInput ? normalizeProject(projectInput) : '';
+
+  const result = withDb((db) => {
+    const localIdentity = crdt.loadOrCreateIdentity();
+    const activeUser = protocol.getCurrentUserInDb(db);
+    const didToUser = new Map([[localIdentity.did, activeUser?.id || protocol.detectOsUsername()]]);
+
+    const mlsRow = project ? db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project) : null;
+    const mlsGroup = mlsRow ? crdt.hydrateMlsGroup(mlsRow) : null;
+    if (mlsGroup) {
+      for (const mem of mlsGroup.members || []) {
+        if (mem.did && mem.userId) didToUser.set(mem.did, mem.userId);
+      }
+    }
+
+    // 1. Search matching Gotchas (project + global)
+    const lowerTarget = target.toLowerCase();
+    const allGotchas = project
+      ? [...protocol.listGotchasInDb(db, project), ...protocol.listGotchasInDb(db, 'global')]
+      : protocol.listGotchasInDb(db, 'all');
+    const seenGotchaIds = new Set();
+    const gotchas = [];
+    for (const g of allGotchas) {
+      if (seenGotchaIds.has(g.id)) continue;
+      const hay = `${g.title} ${g.evidence} ${g.fix} ${(g.tags || []).join(' ')} ${g.guardRegex || ''}`.toLowerCase();
+      if (hay.includes(lowerTarget)) {
+        seenGotchaIds.add(g.id);
+        gotchas.push(g);
+      }
+    }
+
+    // 2. Search matching Sequential Tape Frames + attribute each frame to its author Construct/Operator via `crdt_log`
+    const frameCandidates = project
+      ? db.prepare('SELECT * FROM frames WHERE project = ? ORDER BY seq DESC').all(project).map(hydrateFrame)
+      : db.prepare('SELECT * FROM frames ORDER BY seq DESC LIMIT 200').all().map(hydrateFrame);
+
+    const crdtAuthorStmt = db.prepare(
+      "SELECT author_did FROM crdt_log WHERE entity = 'frame' AND record_uid = ? LIMIT 1"
+    );
+    const frames = [];
+    for (const f of frameCandidates) {
+      const hay = `${f.summary} ${f.detail} ${f.verified} ${(f.refs || []).join(' ')}`.toLowerCase();
+      if (hay.includes(lowerTarget)) {
+        let authorDid = localIdentity.did;
+        if (f.uid) {
+          const opRow = crdtAuthorStmt.get(f.uid);
+          if (opRow?.author_did) authorDid = opRow.author_did;
+        }
+        const authorUser = didToUser.get(authorDid) || authorDid.slice(-8);
+        frames.push({ ...f, authorDid, authorUser });
+      }
+    }
+
+    // 3. Check local Git commit history if a local repo checkout exists
+    let repoDir = options.repoDir || '';
+    if (!repoDir && project) {
+      const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(project);
+      repoDir = h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, project);
+    }
+    const gitCommits = [];
+    if (repoDir && fs.existsSync(path.join(repoDir, '.git'))) {
+      try {
+        const candidatePath = path.join(repoDir, target);
+        const gitArgs = fs.existsSync(candidatePath)
+          ? ['-C', repoDir, 'log', '-n', '5', '--date=short', '--pretty=format:%h|%an|%ad|%s', '--', target]
+          : ['-C', repoDir, 'log', '-n', '5', '--date=short', '--pretty=format:%h|%an|%ad|%s', '-S', target];
+        const logOut = execFileSync('git', gitArgs, {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+        }).trim();
+        if (logOut) {
+          for (const line of logOut.split(/\r?\n/)) {
+            const [hash, author, date, ...subjParts] = line.split('|');
+            if (hash) {
+              gitCommits.push({ hash, author, date, subject: subjParts.join('|') });
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return {
+      project: project || 'all',
+      target,
+      hasMlsGroup: Boolean(mlsGroup),
+      mlsMembers: mlsGroup ? mlsGroup.members : [],
+      gotchas,
+      frames,
+      gitCommits,
+    };
+  }, file);
+
+  // 4. Optional Peer Construct Escalation (`--ask <user>` or `autoAskPeers` when 0 local frames/gotchas found on an MLS project)
+  let peerQuerySent = null;
+  const askUser = options.ask ? String(options.ask).trim().toLowerCase() : '';
+  if (askUser) {
+    peerQuerySent = sendMessage(
+      {
+        project: project || 'global',
+        to: askUser,
+        body: `[WHY ${target}] Seeking provenance/context on "${target}" in ${project || 'workspace'} (local frames=${result.frames.length}, gotchas=${result.gotchas.length}). Why is it shaped this way?`,
+      },
+      file
+    );
+  } else if (
+    options.autoAskPeers &&
+    result.hasMlsGroup &&
+    result.frames.length === 0 &&
+    result.gotchas.length === 0
+  ) {
+    const localDid = getIdentity().did;
+    const peerMember = (result.mlsMembers || []).find((m) => m.did && m.did !== localDid && m.userId);
+    if (peerMember) {
+      peerQuerySent = sendMessage(
+        {
+          project: project || 'global',
+          to: peerMember.userId,
+          body: `[WHY ${target}] No local Construct frames or gotchas matched "${target}" in ${project}. Can your Construct check its session history or checkout and reply with the context?`,
+        },
+        file
+      );
+    }
+  }
+
+  return { ...result, peerQuerySent };
+}
+
+// --- Zero-Dependency Dark-Mode HTML Dashboard (`construct dashboard`) ---
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function generateDashboardHtml(options = {}, file = dbPath()) {
+  const data = withDb((db) => {
+    const projects = listProjectsInDb(db);
+    const rom = getActiveRomInDb(db, options.sessionId);
+    const user = protocol.getCurrentUserInDb(db);
+    const globalGotchas = protocol.listGotchasInDb(db, 'global');
+    const openFrames = db.prepare('SELECT * FROM frames WHERE open = 1 ORDER BY seq DESC').all().map(hydrateFrame);
+    const recentFrames = db.prepare('SELECT * FROM frames ORDER BY seq DESC LIMIT 25').all().map(hydrateFrame);
+    const messages = db.prepare('SELECT * FROM messages ORDER BY hlc DESC LIMIT 20').all().map(crdt.hydrateMessage);
+    const mlsGroups = db.prepare('SELECT * FROM mls_groups ORDER BY project ASC').all().map(crdt.hydrateMlsGroup);
+    return { projects, rom, user, globalGotchas, openFrames, recentFrames, messages, mlsGroups };
+  }, file);
+
+  const projectRows = data.projects
+    .map(
+      (p) => `
+      <tr>
+        <td><strong>${escapeHtml(p.project)}</strong><div class="sub">${escapeHtml(p.repo || '')}</div></td>
+        <td><span class="badge">${p.frameCount} frames</span> ${
+          p.openCount ? `<span class="badge warn">${p.openCount} open</span>` : '<span class="badge ok">0 open</span>'
+        }</td>
+        <td>${escapeHtml(p.state || '(unset)')}</td>
+        <td>${escapeHtml(p.next || '')}</td>
+      </tr>`
+    )
+    .join('');
+
+  const openRows = data.openFrames
+    .map(
+      (f) => `
+      <tr>
+        <td><code>#${f.seq}</code></td>
+        <td><strong>${escapeHtml(f.project)}</strong></td>
+        <td>${escapeHtml(f.summary)}<div class="sub">${escapeHtml(f.detail || '')}</div></td>
+      </tr>`
+    )
+    .join('');
+
+  const tapeRows = data.recentFrames
+    .map(
+      (f) => `
+      <tr>
+        <td><code>#${f.seq}</code></td>
+        <td>${escapeHtml(f.project)}</td>
+        <td><span class="badge">${escapeHtml(f.kind)}</span></td>
+        <td>${escapeHtml(f.summary)} ${f.verified ? `<span class="sub">{verified: ${escapeHtml(f.verified)}}</span>` : ''}</td>
+      </tr>`
+    )
+    .join('');
+
+  const guardGotchas = data.globalGotchas.filter((g) => g.guardRegex);
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>CONSTRUCT // LIVE TELEMETRY DASHBOARD</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131822;
+    --border: #242d3d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --ok: #3fb950;
+    --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 32px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  h1 { margin: 0; font-size: 18px; color: var(--accent); letter-spacing: 0.05em; }
+  h2 { font-size: 14px; color: var(--accent); margin: 24px 0 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; background: #0f131b; }
+  .sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; background: #1f2937; color: var(--accent); font-size: 11px; }
+  .badge.warn { background: rgba(210, 153, 34, 0.18); color: var(--warn); }
+  .badge.ok { background: rgba(63, 185, 80, 0.18); color: var(--ok); }
+  code { color: var(--accent); }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>CONSTRUCT // SEQUENTIAL MEMORY &amp; CREW DECK</h1>
+      <div class="sub">Operator: ${escapeHtml(data.user?.name || 'Unregistered')} (${escapeHtml(data.user?.id || '')}) | Active Crew/ROM: ${escapeHtml(data.rom?.handle || data.rom?.name || 'crew')}</div>
+    </div>
+    <div>
+      <span class="badge">${data.projects.length} Projects</span>
+      <span class="badge warn">${data.openFrames.length} Open Threads</span>
+      <span class="badge ok">${data.globalGotchas.length} Global Gotchas (${guardGotchas.length} custom shell guards)</span>
+    </div>
+  </header>
+
+  <h2>Projects &amp; State Heads (${data.projects.length})</h2>
+  <table>
+    <thead><tr><th>Project</th><th>Tape</th><th>Where It Stands</th><th>Next</th></tr></thead>
+    <tbody>${projectRows || '<tr><td colspan="4">(no projects)</td></tr>'}</tbody>
+  </table>
+
+  <h2>Open Verification Threads (${data.openFrames.length})</h2>
+  <table>
+    <thead><tr><th>Seq</th><th>Project</th><th>Summary</th></tr></thead>
+    <tbody>${openRows || '<tr><td colspan="3">(none)</td></tr>'}</tbody>
+  </table>
+
+  <h2>Recent Sequential Tape (${data.recentFrames.length})</h2>
+  <table>
+    <thead><tr><th>Seq</th><th>Project</th><th>Kind</th><th>Summary</th></tr></thead>
+    <tbody>${tapeRows || '<tr><td colspan="4">(empty tape)</td></tr>'}</tbody>
+  </table>
+</body>
+</html>`;
+
+  const outFile =
+    options.outFile ||
+    path.join(os.tmpdir(), 'construct-dashboard.html');
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  fs.writeFileSync(outFile, html, 'utf8');
+  return { outFile, html, projectCount: data.projects.length, openCount: data.openFrames.length };
 }
 
 // --- DID Identity, DIDComm v2 Invitations, MLS Group Ratchet & CRDT Sync ---
@@ -2501,12 +2953,17 @@ module.exports = {
   useUser,
   listGotchas,
   addGotcha,
+  checkDynamicGotchaGuards,
   searchGotchas,
   removeGotcha,
   sendMessage,
   replyMessage,
   ackMessage,
   listMessages,
+  dropPatch,
+  applyDrop,
+  whyTarget,
+  generateDashboardHtml,
   getIdentity,
   createInvite,
   joinInvite,
