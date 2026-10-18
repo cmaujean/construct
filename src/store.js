@@ -1993,6 +1993,19 @@ function createInvite(projectInput, options = {}, file = dbPath()) {
   );
 }
 
+function validateGitCloneParams(gitUrl, branch = '') {
+  const url = String(gitUrl || '').trim();
+  const br = String(branch || '').trim();
+  if (!url) return true;
+  if (url.startsWith('-') || /^ext::/i.test(url) || /[\r\n\0]/.test(url)) {
+    throw new Error(`unsafe gitUrl rejected by Construct security guard: "${url}"`);
+  }
+  if (br && (br.startsWith('-') || br.includes('..') || !/^[A-Za-z0-9._/-]+$/.test(br))) {
+    throw new Error(`unsafe git branch rejected by Construct security guard: "${br}"`);
+  }
+  return true;
+}
+
 function joinInvite(inviteUri, options = {}, file = dbPath()) {
   const invite = crdt.parseAndVerifyDidCommInvite(inviteUri);
   const b = invite.body;
@@ -2000,6 +2013,7 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
   if (project === 'global') {
     throw new Error('refusing invite for "global" scope');
   }
+  validateGitCloneParams(b.gitUrl, b.branch);
 
   const resolvedTargetDir = withDb((db) => {
     if (options.targetDir) return path.resolve(expandHome(options.targetDir));
@@ -2023,7 +2037,7 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
     fs.mkdirSync(path.dirname(targetDir), { recursive: true });
     const cloneArgs = ['clone'];
     if (b.branch) cloneArgs.push('--branch', b.branch);
-    cloneArgs.push(b.gitUrl, targetDir);
+    cloneArgs.push('--', b.gitUrl, targetDir);
     execFileSync('git', cloneArgs, {
       encoding: 'utf8',
       stdio: 'pipe',
@@ -2148,6 +2162,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           envelope,
           token: `construct://packet/${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`,
           opCount: ops.length,
+          maxHlc: ops.length ? ops[ops.length - 1].hlc : sinceHlc,
         };
       }),
     file
@@ -2172,6 +2187,25 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
         }
         const group = crdt.hydrateMlsGroup(groupRow);
         const decrypted = crdt.openMlsApplicationMessage(group, envelope);
+
+        // Pin newly joined peer's Ed25519 public key into `mls_groups.members` on first verified epoch proof
+        if (!group.members.some((m) => m.did === envelope.senderDid)) {
+          const updatedMembers = [
+            ...group.members,
+            {
+              did: envelope.senderDid,
+              userId: 'peer',
+              signPub: envelope.senderSignPub,
+              dhPub: '',
+            },
+          ];
+          db.prepare('UPDATE mls_groups SET members = ?, updated = ? WHERE group_id = ?').run(
+            JSON.stringify(updatedMembers),
+            nowIso(),
+            group.groupId
+          );
+        }
+
         // Enforce strict project scope boundary: only ops belonging to `group.project` can be applied
         const applied = crdt.applyCrdtOpsInDb(db, decrypted.ops || [], undefined, group.project);
         return {
@@ -2212,12 +2246,25 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     }
   }
 
-  // 2. Export and push local CRDT state to relays
-  const exported = exportEncryptedPacket(project, { relays }, file);
+  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays
+  const exported = exportEncryptedPacket(
+    project,
+    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '' },
+    file
+  );
   let pushedOk = 0;
   if (exported.opCount > 0) {
     const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, exported.envelope, options.timeoutMs || 4000);
     pushedOk = pubRes.results.filter((r) => r.ok).length;
+    if (pushedOk > 0 && exported.maxHlc) {
+      withDb((db) => {
+        db.prepare('UPDATE mls_groups SET last_sync_hlc = ?, updated = ? WHERE project = ?').run(
+          exported.maxHlc,
+          nowIso(),
+          project
+        );
+      }, file);
+    }
   }
 
   return {
@@ -2463,6 +2510,7 @@ module.exports = {
   getIdentity,
   createInvite,
   joinInvite,
+  validateGitCloneParams,
   exportEncryptedPacket,
   importEncryptedPacket,
   syncProject,

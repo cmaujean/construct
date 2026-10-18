@@ -96,6 +96,8 @@ function loadOrCreateIdentity(file = identityFilePath()) {
 // Guarantees strict lexical ordering (`a > b`), causality (`recv(remoteHlc)` advances local clock),
 // and global uniqueness across concurrent offline nodes.
 
+const MAX_HLC_DRIFT_MS = 5 * 60 * 1000; // 5 minutes maximum tolerated remote clock drift
+
 let lastWallMs = 0;
 let hlcCounter = 0;
 
@@ -109,9 +111,21 @@ function parseHlc(hlcStr) {
   };
 }
 
+function isHlcWithinDrift(hlcStr, nowMs = Date.now()) {
+  if (!hlcStr || typeof hlcStr !== 'string') return false;
+  const parsed = parseHlc(hlcStr);
+  if (! parsed.wallMs || parsed.wallMs <= 0) return false;
+  return parsed.wallMs <= nowMs + MAX_HLC_DRIFT_MS;
+}
+
 function nextHlc(did, remoteHlcStr = null, nowMs = Date.now()) {
   const nodeTail = String(did || 'local').slice(-8);
-  const remote = remoteHlcStr ? parseHlc(remoteHlcStr) : { wallMs: 0, counter: 0 };
+  const rawRemote = remoteHlcStr ? parseHlc(remoteHlcStr) : { wallMs: 0, counter: 0 };
+  // Clamp remote wall clock to prevent future-timestamp clock poisoning
+  const remote =
+    rawRemote.wallMs > nowMs + MAX_HLC_DRIFT_MS
+      ? { wallMs: nowMs, counter: 0 }
+      : rawRemote;
 
   if (nowMs > lastWallMs && nowMs > remote.wallMs) {
     lastWallMs = nowMs;
@@ -214,9 +228,12 @@ function sealMlsApplicationMessage(group, identity, crdtOpsPayload) {
   };
 }
 
-function openMlsApplicationMessage(group, envelope) {
+function openMlsApplicationMessage(group, envelope, options = {}) {
   if (envelope.groupId !== group.groupId) {
     throw new Error(`groupId mismatch: expected ${group.groupId}, got ${envelope.groupId}`);
+  }
+  if (Number(envelope.epoch) !== Number(group.epoch)) {
+    throw new Error(`epoch mismatch: expected ${group.epoch}, got ${envelope.epoch}`);
   }
   const { aeadKey } = deriveEpochKeys(group.epochSecret, group.groupId, envelope.epoch);
   const aad = Buffer.from(envelope.aad, 'base64');
@@ -229,6 +246,14 @@ function openMlsApplicationMessage(group, envelope) {
   if (expectedDid !== envelope.senderDid) {
     throw new Error('sender DID does not match sender Ed25519 public key');
   }
+  const members = Array.isArray(group.members) ? group.members : [];
+  const knownMember = members.find((m) => m.did === envelope.senderDid);
+  if (knownMember && knownMember.signPub && knownMember.signPub !== envelope.senderSignPub) {
+    throw new Error('sender public key does not match pinned MLS group member key');
+  }
+  if (options.strictMembers && !knownMember) {
+    throw new Error(`sender DID "${envelope.senderDid}" is not a registered member of MLS group "${group.groupId}"`);
+  }
   if (!verifyPayloadSignature(toVerify, envelope.signature, envelope.senderSignPub)) {
     throw new Error('invalid Ed25519 signature on MLS application message');
   }
@@ -237,13 +262,84 @@ function openMlsApplicationMessage(group, envelope) {
   decipher.setAAD(aad, { plaintextLength: ciphertext.length });
   decipher.setAuthTag(tag);
   const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+
+  let aadObj;
+  try {
+    aadObj = JSON.parse(aad.toString('utf8'));
+  } catch (_) {
+    throw new Error('malformed MLS AAD JSON');
+  }
+  if (
+    aadObj.groupId !== group.groupId ||
+    Number(aadObj.epoch) !== Number(group.epoch) ||
+    aadObj.senderDid !== envelope.senderDid
+  ) {
+    throw new Error('MLS AAD metadata mismatch against outer envelope');
+  }
+
   return JSON.parse(plaintext.toString('utf8'));
 }
 
+function wrapInviteEpochSecret(epochSecretBase64, wrapSeedBytes, groupId) {
+  const wrapKey = Buffer.from(
+    crypto.hkdfSync('sha256', wrapSeedBytes, Buffer.from(groupId, 'utf8'), 'construct-invite-wrap-v1', 32)
+  );
+  const nonce = crypto.randomBytes(12);
+  const aad = Buffer.from(`construct-invite-v1|${groupId}`, 'utf8');
+  const plain = Buffer.from(epochSecretBase64, 'utf8');
+  const cipher = crypto.createCipheriv('chacha20-poly1305', wrapKey, nonce, { authTagLength: 16 });
+  cipher.setAAD(aad, { plaintextLength: plain.length });
+  const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    nonce: nonce.toString('base64url'),
+    ct: ct.toString('base64url'),
+    tag: tag.toString('base64url'),
+  };
+}
+
+function unwrapInviteEpochSecret(wrapped, wrapSeedBytes, groupId) {
+  const wrapKey = Buffer.from(
+    crypto.hkdfSync('sha256', wrapSeedBytes, Buffer.from(groupId, 'utf8'), 'construct-invite-wrap-v1', 32)
+  );
+  const nonce = Buffer.from(wrapped.nonce, 'base64url');
+  const ct = Buffer.from(wrapped.ct, 'base64url');
+  const tag = Buffer.from(wrapped.tag, 'base64url');
+  const aad = Buffer.from(`construct-invite-v1|${groupId}`, 'utf8');
+  const decipher = crypto.createDecipheriv('chacha20-poly1305', wrapKey, nonce, { authTagLength: 16 });
+  decipher.setAAD(aad, { plaintextLength: ct.length });
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(ct), decipher.final()]).toString('utf8');
+}
+
 // Create a signed DIDComm v2 Out-of-Band (OOB) Invitation bundling the MLS group welcome credentials
-// and repository bootstrap metadata (`gitUrl`, `branch`, `setupCommands`) so `construct join` can
-// clone and stand up the project automatically when the invitee doesn't have it on disk yet.
+// (with `epochSecret` AEAD-wrapped via X25519 ECDH or an out-of-band fragment key `#ik=...`) and
+// repository bootstrap metadata (`gitUrl`, `branch`, `setupCommands`).
 function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
+  let wrapSeedBytes;
+  let fragmentSuffix = '';
+  let wrapMode = 'fragment';
+
+  if (repoMeta.recipientDhPub) {
+    wrapMode = 'x25519';
+    const privKey = crypto.createPrivateKey({
+      key: Buffer.from(identity.dhPriv, 'base64'),
+      format: 'der',
+      type: 'pkcs8',
+    });
+    const pubKey = crypto.createPublicKey({
+      key: Buffer.from(repoMeta.recipientDhPub, 'base64'),
+      format: 'der',
+      type: 'spki',
+    });
+    wrapSeedBytes = crypto.diffieHellman({ privateKey: privKey, publicKey: pubKey });
+  } else {
+    wrapSeedBytes = crypto.randomBytes(16);
+    fragmentSuffix = `#${wrapSeedBytes.toString('base64url')}`;
+  }
+
+  const encryptedEpochSecret = wrapInviteEpochSecret(group.epochSecret, wrapSeedBytes, group.groupId);
+
   const payload = {
     type: 'https://didcomm.org/out-of-band/2.0/invitation',
     id: crypto.randomUUID(),
@@ -258,7 +354,8 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
       setupCommands: Array.isArray(repoMeta.setupCommands) ? repoMeta.setupCommands : [],
       groupId: group.groupId,
       epoch: group.epoch,
-      epochSecret: group.epochSecret,
+      wrapMode,
+      encryptedEpochSecret,
       relays: group.relays,
       inviterMember: {
         did: identity.did,
@@ -276,11 +373,12 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
     s: Buffer.from(sig, 'base64').toString('base64url'),
     k: Buffer.from(identity.signPub, 'base64').toString('base64url'),
   };
-  return `construct://invite/${Buffer.from(JSON.stringify(tokenObj), 'utf8').toString('base64url')}`;
+  return `construct://invite/${Buffer.from(JSON.stringify(tokenObj), 'utf8').toString('base64url')}${fragmentSuffix}`;
 }
 
-function parseAndVerifyDidCommInvite(inviteUri) {
-  const cleaned = String(inviteUri || '').trim().replace(/^construct:\/\/invite\//, '');
+function parseAndVerifyDidCommInvite(inviteUri, recipientIdentity = null) {
+  const raw = String(inviteUri || '').trim().replace(/^construct:\/\/invite\//, '');
+  const [cleaned, fragmentKey] = raw.split('#');
   let tokenObj;
   try {
     tokenObj = JSON.parse(Buffer.from(cleaned, 'base64url').toString('utf8'));
@@ -299,6 +397,35 @@ function parseAndVerifyDidCommInvite(inviteUri) {
   if (payload.from !== expectedDid) {
     throw new Error('invite signer DID mismatch');
   }
+
+  if (payload.body && payload.body.encryptedEpochSecret && !payload.body.epochSecret) {
+    let wrapSeedBytes;
+    if (payload.body.wrapMode === 'x25519') {
+      const id = recipientIdentity || loadOrCreateIdentity();
+      const privKey = crypto.createPrivateKey({
+        key: Buffer.from(id.dhPriv, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      });
+      const pubKey = crypto.createPublicKey({
+        key: Buffer.from(payload.body.inviterMember.dhPub, 'base64'),
+        format: 'der',
+        type: 'spki',
+      });
+      wrapSeedBytes = crypto.diffieHellman({ privateKey: privKey, publicKey: pubKey });
+    } else {
+      if (!fragmentKey) {
+        throw new Error('missing invite fragment key (#...) required to unwrap MLS epochSecret');
+      }
+      wrapSeedBytes = Buffer.from(fragmentKey, 'base64url');
+    }
+    payload.body.epochSecret = unwrapInviteEpochSecret(
+      payload.body.encryptedEpochSecret,
+      wrapSeedBytes,
+      payload.body.groupId
+    );
+  }
+
   return payload;
 }
 
@@ -411,19 +538,26 @@ function appendCrdtOpInDb(db, { project, entity, recordUid, payload }, identityF
 // Backfill existing project gotchas, frames, and heads into crdt_log when a project group is initialized
 function backfillProjectCrdtLogInDb(db, project, identityFile) {
   const identity = loadOrCreateIdentity(identityFile);
+  const updateGotchaStmt = db.prepare('UPDATE gotchas SET uid = ?, hlc = ? WHERE id = ?');
+  const insertGotchaOpStmt = db.prepare(
+    `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
+     VALUES (?, ?, ?, ?, 'gotcha', ?, ?)`
+  );
+  const updateFrameStmt = db.prepare('UPDATE frames SET uid = ?, hlc = ? WHERE seq = ?');
+  const insertFrameOpStmt = db.prepare(
+    `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
+     VALUES (?, ?, ?, ?, 'frame', ?, ?)`
+  );
 
   const gotchas = db.prepare('SELECT * FROM gotchas WHERE scope = ? ORDER BY id ASC').all(project);
   for (const g of gotchas) {
     const uid = g.uid || `gotcha-${project}-${g.id}-${crypto.randomBytes(4).toString('hex')}`;
     const hlc = g.hlc || nextHlc(identity.did);
     if (!g.uid || !g.hlc) {
-      db.prepare('UPDATE gotchas SET uid = ?, hlc = ? WHERE id = ?').run(uid, hlc, g.id);
+      updateGotchaStmt.run(uid, hlc, g.id);
     }
     const opId = `${hlc}:gotcha:${uid}`;
-    db.prepare(
-      `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
-       VALUES (?, ?, ?, ?, 'gotcha', ?, ?)`
-    ).run(
+    insertGotchaOpStmt.run(
       opId,
       hlc,
       project,
@@ -448,13 +582,10 @@ function backfillProjectCrdtLogInDb(db, project, identityFile) {
     const uid = f.uid || `frame-${project}-${f.seq}-${crypto.randomBytes(4).toString('hex')}`;
     const hlc = f.hlc || nextHlc(identity.did);
     if (!f.uid || !f.hlc) {
-      db.prepare('UPDATE frames SET uid = ?, hlc = ? WHERE seq = ?').run(uid, hlc, f.seq);
+      updateFrameStmt.run(uid, hlc, f.seq);
     }
     const opId = `${hlc}:frame:${uid}`;
-    db.prepare(
-      `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
-       VALUES (?, ?, ?, ?, 'frame', ?, ?)`
-    ).run(
+    insertFrameOpStmt.run(
       opId,
       hlc,
       project,
@@ -477,38 +608,91 @@ function backfillProjectCrdtLogInDb(db, project, identityFile) {
 
   const head = db.prepare('SELECT * FROM heads WHERE project = ?').get(project);
   if (head) {
-    const hlc = nextHlc(identity.did);
-    const opId = `${hlc}:head:${project}`;
-    db.prepare(
-      `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
-       VALUES (?, ?, ?, ?, 'head', ?, ?)`
-    ).run(
-      opId,
-      hlc,
-      project,
-      identity.did,
-      project,
-      JSON.stringify({
-        project,
+    const existingHeadOp = db
+      .prepare("SELECT op_id FROM crdt_log WHERE project = ? AND entity = 'head' AND record_uid = ?")
+      .get(project, `${project}:${head.updated || ''}`);
+    if (!existingHeadOp) {
+      const hlc = nextHlc(identity.did);
+      const opId = `${hlc}:head:${project}`;
+      db.prepare(
+        `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
+         VALUES (?, ?, ?, ?, 'head', ?, ?)`
+      ).run(
+        opId,
         hlc,
-        repo: head.repo,
-        state: head.state,
-        next: head.next,
-        updated: head.updated,
-      })
-    );
+        project,
+        identity.did,
+        `${project}:${head.updated || ''}`,
+        JSON.stringify({
+          project,
+          hlc,
+          repo: head.repo,
+          state: head.state,
+          next: head.next,
+          updated: head.updated,
+        })
+      );
+    }
   }
 }
 
 // Merge an array of incoming CRDT operations idempotently & deterministically (G-Set + LWW-Element-Map by HLC).
 // When `allowedProject` is given (always set on MLS group packet import), any op targeting a different
-// project or global scope is rejected at the boundary so cross-project bleed is impossible.
+// project or global scope, or carrying a future-poisoned HLC timestamp (`> now + 5m`), is rejected at the boundary.
 function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
+  if (!Array.isArray(ops) || !ops.length) return 0;
   const identity = loadOrCreateIdentity(identityFile);
+  const nowMs = Date.now();
   let applied = 0;
+
+  const seenOpStmt = db.prepare('SELECT op_id FROM crdt_log WHERE op_id = ?');
+  const insertOpStmt = db.prepare(
+    `INSERT INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const selectGotchaStmt = db.prepare('SELECT * FROM gotchas WHERE uid = ?');
+  const insertGotchaStmt = db.prepare(
+    `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, created)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateGotchaStmt = db.prepare(
+    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ? WHERE uid = ?`
+  );
+  const selectFrameStmt = db.prepare('SELECT * FROM frames WHERE uid = ?');
+  const insertFrameStmt = db.prepare(
+    `INSERT INTO frames (uid, hlc, ts, project, kind, summary, detail, verified, open, refs)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateFrameStmt = db.prepare(
+    `UPDATE frames SET hlc = ?, summary = ?, detail = ?, verified = ?, open = ?, refs = ? WHERE uid = ?`
+  );
+  const selectHeadStmt = db.prepare('SELECT * FROM heads WHERE project = ?');
+  const upsertHeadStmt = db.prepare(
+    `INSERT INTO heads (project, repo, state, next, updated)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(project) DO UPDATE SET
+       state = excluded.state,
+       next = excluded.next,
+       updated = excluded.updated`
+  );
+  const selectMsgStmt = db.prepare('SELECT * FROM messages WHERE uid = ?');
+  const insertMsgStmt = db.prepare(
+    `INSERT INTO messages (uid, hlc, project, from_user, from_rom, from_did, to_user, body, status, reply_body, reply_rom, reply_hlc, created)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateMsgStmt = db.prepare(
+    `UPDATE messages
+     SET status = ?, reply_body = ?, reply_rom = ?, reply_hlc = ?
+     WHERE uid = ?`
+  );
 
   for (const op of ops) {
     if (!op || !op.opId || !op.hlc || !op.entity || !op.payload) continue;
+    // Reject future-timestamp HLC poisoning (> 5 minutes ahead of wall clock)
+    if (!isHlcWithinDrift(op.hlc, nowMs)) continue;
+    if (op.payload.hlc && !isHlcWithinDrift(op.payload.hlc, nowMs)) continue;
+    if (op.payload.replyHlc && !isHlcWithinDrift(op.payload.replyHlc, nowMs)) continue;
+
     if (allowedProject) {
       if (op.project !== allowedProject) continue;
       if (op.entity === 'gotcha' && op.payload.scope && op.payload.scope !== allowedProject) continue;
@@ -516,15 +700,12 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
       if (op.entity === 'message' && op.payload.project && op.payload.project !== allowedProject) continue;
     }
     // Advance local HLC past remote HLC so causal ordering holds
-    nextHlc(identity.did, op.hlc);
+    nextHlc(identity.did, op.hlc, nowMs);
 
-    const seen = db.prepare('SELECT op_id FROM crdt_log WHERE op_id = ?').get(op.opId);
+    const seen = seenOpStmt.get(op.opId);
     if (seen) continue;
 
-    db.prepare(
-      `INSERT INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(
+    insertOpStmt.run(
       op.opId,
       op.hlc,
       op.project,
@@ -536,12 +717,9 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
 
     const p = op.payload;
     if (op.entity === 'gotcha') {
-      const existing = db.prepare('SELECT * FROM gotchas WHERE uid = ?').get(p.uid);
+      const existing = selectGotchaStmt.get(p.uid);
       if (!existing) {
-        db.prepare(
-          `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, created)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        insertGotchaStmt.run(
           p.uid,
           p.hlc || op.hlc,
           p.scope || op.project,
@@ -554,9 +732,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         );
         applied++;
       } else if ((p.hlc || op.hlc) > (existing.hlc || '')) {
-        db.prepare(
-          `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ? WHERE uid = ?`
-        ).run(
+        updateGotchaStmt.run(
           p.hlc || op.hlc,
           p.title,
           p.status || existing.status,
@@ -568,12 +744,9 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         applied++;
       }
     } else if (op.entity === 'frame') {
-      const existing = db.prepare('SELECT * FROM frames WHERE uid = ?').get(p.uid);
+      const existing = selectFrameStmt.get(p.uid);
       if (!existing) {
-        db.prepare(
-          `INSERT INTO frames (uid, hlc, ts, project, kind, summary, detail, verified, open, refs)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        insertFrameStmt.run(
           p.uid,
           p.hlc || op.hlc,
           p.ts || new Date().toISOString(),
@@ -587,9 +760,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         );
         applied++;
       } else if ((p.hlc || op.hlc) > (existing.hlc || '')) {
-        db.prepare(
-          `UPDATE frames SET hlc = ?, summary = ?, detail = ?, verified = ?, open = ?, refs = ? WHERE uid = ?`
-        ).run(
+        updateFrameStmt.run(
           p.hlc || op.hlc,
           p.summary ?? existing.summary,
           p.detail ?? existing.detail,
@@ -601,28 +772,16 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         applied++;
       }
     } else if (op.entity === 'head') {
-      const existing = db.prepare('SELECT * FROM heads WHERE project = ?').get(op.project);
+      const existing = selectHeadStmt.get(op.project);
       if (!existing || (p.updated || '') >= (existing.updated || '')) {
-        // Keep the local machine's checkout path (`existing.repo`) if already set, so syncing a head
-        // between two operators with different disk layouts never overwrites local paths.
         const localRepo = existing && existing.repo ? existing.repo : p.repo || '';
-        db.prepare(
-          `INSERT INTO heads (project, repo, state, next, updated)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(project) DO UPDATE SET
-             state = excluded.state,
-             next = excluded.next,
-             updated = excluded.updated`
-        ).run(op.project, localRepo, p.state || '', p.next || '', p.updated || new Date().toISOString());
+        upsertHeadStmt.run(op.project, localRepo, p.state || '', p.next || '', p.updated || new Date().toISOString());
         applied++;
       }
     } else if (op.entity === 'message') {
-      const existing = db.prepare('SELECT * FROM messages WHERE uid = ?').get(p.uid);
+      const existing = selectMsgStmt.get(p.uid);
       if (!existing) {
-        db.prepare(
-          `INSERT INTO messages (uid, hlc, project, from_user, from_rom, from_did, to_user, body, status, reply_body, reply_rom, reply_hlc, created)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
+        insertMsgStmt.run(
           p.uid,
           p.hlc || op.hlc,
           p.project || op.project,
@@ -639,11 +798,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         );
         applied++;
       } else if ((p.replyHlc || p.hlc || op.hlc) > (existing.reply_hlc || existing.hlc || '')) {
-        db.prepare(
-          `UPDATE messages
-           SET status = ?, reply_body = ?, reply_rom = ?, reply_hlc = ?
-           WHERE uid = ?`
-        ).run(
+        updateMsgStmt.run(
           p.status || existing.status,
           p.replyBody ?? existing.reply_body,
           p.replyRom ?? existing.reply_rom,
@@ -660,10 +815,12 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
 
 module.exports = {
   DEFAULT_RELAYS,
+  MAX_HLC_DRIFT_MS,
   identityFilePath,
   loadOrCreateIdentity,
   makeDidKeyFromEd25519Spki,
   parseHlc,
+  isHlcWithinDrift,
   nextHlc,
   deriveEpochKeys,
   ratchetEpochSecret,

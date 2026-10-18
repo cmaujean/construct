@@ -119,16 +119,32 @@ function taggedHash(tag, ...buffers) {
   return h.digest();
 }
 
+const pubPointCache = new Map();
+
+function getCachedPubPoint(privKeyBytes) {
+  const hexKey = privKeyBytes.toString('hex');
+  let Ppt = pubPointCache.get(hexKey);
+  if (!Ppt) {
+    const d0 = bytesToBigInt(privKeyBytes);
+    if (d0 <= 0n || d0 >= N) throw new Error('invalid secp256k1 private key scalar');
+    Ppt = pointMul(d0);
+    if (pubPointCache.size >= 64) {
+      const oldest = pubPointCache.keys().next().value;
+      if (oldest !== undefined) pubPointCache.delete(oldest);
+    }
+    pubPointCache.set(hexKey, Ppt);
+  }
+  return Ppt;
+}
+
 function schnorrGetPublicKey(privKeyBytes) {
-  const d0 = bytesToBigInt(privKeyBytes);
-  if (d0 <= 0n || d0 >= N) throw new Error('invalid secp256k1 private key scalar');
-  const Ppt = pointMul(d0);
+  const Ppt = getCachedPubPoint(privKeyBytes);
   return bigIntTo32Bytes(Ppt[0]);
 }
 
 function schnorrSign(msg32Bytes, privKeyBytes, auxRand32 = crypto.randomBytes(32)) {
   const d0 = bytesToBigInt(privKeyBytes);
-  const Ppt = pointMul(d0);
+  const Ppt = getCachedPubPoint(privKeyBytes);
   const d = (Ppt[1] & 1n) === 0n ? d0 : N - d0;
   const pxBytes = bigIntTo32Bytes(Ppt[0]);
   const dBytes = bigIntTo32Bytes(d);
@@ -306,7 +322,12 @@ function encodeWsFrame(text) {
   return Buffer.concat([header, payload]);
 }
 
+const MAX_WS_FRAME_BYTES = 4 * 1024 * 1024; // 4 MB max WebSocket frame/buffer size
+
 function decodeWsFrames(buffer) {
+  if (buffer.length > MAX_WS_FRAME_BYTES) {
+    throw new Error(`WebSocket frame buffer exceeds MAX_WS_FRAME_BYTES (${MAX_WS_FRAME_BYTES})`);
+  }
   const messages = [];
   let offset = 0;
   while (offset + 2 <= buffer.length) {
@@ -325,6 +346,10 @@ function decodeWsFrames(buffer) {
       if (offset + 10 > buffer.length) break;
       payloadLen = Number(buffer.readBigUInt64BE(offset + 2));
       headerLen = 10;
+    }
+
+    if (payloadLen > MAX_WS_FRAME_BYTES) {
+      throw new Error(`WebSocket payload length (${payloadLen}) exceeds MAX_WS_FRAME_BYTES (${MAX_WS_FRAME_BYTES})`);
     }
 
     const maskLen = masked ? 4 : 0;
@@ -379,8 +404,18 @@ function startLocalRelayServer(port = 0) {
 
     let buf = Buffer.alloc(0);
     socket.on('data', (chunk) => {
+      if (buf.length + chunk.length > MAX_WS_FRAME_BYTES) {
+        socket.destroy();
+        return;
+      }
       buf = Buffer.concat([buf, chunk]);
-      const decoded = decodeWsFrames(buf);
+      let decoded;
+      try {
+        decoded = decodeWsFrames(buf);
+      } catch (_) {
+        socket.destroy();
+        return;
+      }
       buf = decoded.remaining;
       for (const msg of decoded.messages) {
         if (msg === null) {
@@ -427,6 +462,8 @@ function startLocalRelayServer(port = 0) {
 }
 
 module.exports = {
+  MAX_WS_FRAME_BYTES,
+  decodeWsFrames,
   schnorrGetPublicKey,
   schnorrSign,
   buildNostrWrapperEvent,

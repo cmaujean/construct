@@ -770,6 +770,76 @@ Found 2026-09-28.
       assert.equal(aliceBoot.inboxReplies.length, 1);
       assert.equal(aliceBoot.inboxReplies[0].replyRom, 'dixie');
       assert.equal(aliceBoot.inboxReplies[0].replyBody, 'No, peace is still an option');
+
+      // Delta sync check: repeating syncProject with no new local ops pushes 0 redundant ops
+      const repeatSync = await store.syncProject('acme/shared_app');
+      assert.equal(repeatSync.pushedOps, 0);
+
+      // Invite URI encryption check: stripping the `#...` fragment key fails to unwrap `epochSecret`
+      const crdtMod = require('../src/crdt');
+      const relayMod = require('../src/relay');
+      const strippedUri = invite.inviteUri.split('#')[0];
+      assert.throws(() => crdtMod.parseAndVerifyDidCommInvite(strippedUri), /missing invite fragment key/);
+
+      // Git clone flag/protocol injection guard (`validateGitCloneParams`)
+      assert.equal(store.validateGitCloneParams('https://github.com/acme/shared_app.git', 'main'), true);
+      assert.throws(() => store.validateGitCloneParams('--upload-pack=calc.exe', 'main'), /unsafe gitUrl/);
+      assert.throws(() => store.validateGitCloneParams('ext::sh -c id', 'main'), /unsafe gitUrl/);
+      assert.throws(
+        () => store.validateGitCloneParams('https://github.com/acme/shared_app.git', '--upload-pack=evil'),
+        /unsafe git branch/
+      );
+      assert.throws(
+        () => store.validateGitCloneParams('https://github.com/acme/shared_app.git', 'main/../evil'),
+        /unsafe git branch/
+      );
+
+      // HLC future-timestamp poisoning guard (> 5m ahead of wall clock is rejected)
+      const poisonedHlc = '9999999999999-0000-deadbeef';
+      assert.equal(crdtMod.isHlcWithinDrift(poisonedHlc), false);
+      const exportedAlice = store.exportEncryptedPacket('acme/shared_app');
+      const groupRow = {
+        project: 'acme/shared_app',
+        groupId: invite.groupId,
+        epoch: invite.epoch,
+        epochSecret: crdtMod.parseAndVerifyDidCommInvite(invite.inviteUri).body.epochSecret,
+        members: [],
+      };
+      const aliceId = store.getIdentity();
+      const poisonedEnv = crdtMod.sealMlsApplicationMessage(groupRow, aliceId, {
+        project: 'acme/shared_app',
+        opCount: 1,
+        ops: [
+          {
+            opId: `${poisonedHlc}:frame:frame-poison-1`,
+            hlc: poisonedHlc,
+            project: 'acme/shared_app',
+            authorDid: aliceId.did,
+            entity: 'frame',
+            recordUid: 'frame-poison-1',
+            payload: {
+              uid: 'frame-poison-1',
+              hlc: poisonedHlc,
+              project: 'acme/shared_app',
+              kind: 'finding',
+              summary: 'Poisoned future frame',
+            },
+          },
+        ],
+      });
+      const poisonImport = store.importEncryptedPacket(poisonedEnv);
+      assert.equal(poisonImport.appliedOps, 0);
+
+      // Key-substitution spoofing guard: once `aliceId.did` is pinned in `mls_groups.members`,
+      // an envelope claiming `senderDid = aliceId.did` with a mismatched key or tampered epoch is rejected
+      const tamperedEpochEnv = { ...exportedAlice.envelope, epoch: 999 };
+      assert.throws(() => store.importEncryptedPacket(tamperedEpochEnv), /epoch mismatch/);
+
+      // WebSocket frame size cap (`MAX_WS_FRAME_BYTES`)
+      assert.throws(
+        () => relayMod.decodeWsFrames(Buffer.alloc(relayMod.MAX_WS_FRAME_BYTES + 16)),
+        /exceeds MAX_WS_FRAME_BYTES/
+      );
     } finally {
       store.closeAllDbs();
       await relaySrv.close();
