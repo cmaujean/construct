@@ -1024,17 +1024,47 @@ Found 2026-09-28.
       assert.equal(pubRes.issueNumber, 103);
       assert.ok(pubRes.frame.refs.includes('gh:#103'));
 
-      // 4f. HUD Snapshot (`getHudSnapshot`) & HTML Dashboard generation (`generateDashboardHtml`)
+      // 4f. HUD Snapshot (`getHudSnapshot`), Multi-Tab / Multi-Project Crew Isolation, & HTML Dashboard generation
       const hudSnap = store.getHudSnapshot({ project: 'acme/shared_app' });
       assert.equal(hudSnap.project, 'acme/shared_app');
       assert.match(hudSnap.pill, /acme\/shared_app · #\d+ · 1 open · 🛡️6/);
       assert.match(hudSnap.tabBadge, /\[dixie #\d+ · 1 open/);
 
+      // Multi-tab + multi-project Crew sensitivity:
+      // Tab A on `acme/shared_app` switches to `nightcity`, Tab B on `acme/other_app` switches to `anathem`
+      store.useRom('nightcity', { sessionId: 'ses_tab_a', project: 'acme/shared_app' });
+      store.useRom('anathem', { sessionId: 'ses_tab_b', project: 'acme/other_app' });
+
+      const hudTabA = store.getHudSnapshot({ sessionId: 'ses_tab_a' });
+      const hudTabB = store.getHudSnapshot({ sessionId: 'ses_tab_b' });
+      assert.equal(hudTabA.project, 'acme/shared_app');
+      assert.equal(hudTabA.romName, 'nightcity');
+      assert.equal(hudTabB.project, 'acme/other_app');
+      assert.equal(hudTabB.romName, 'anathem');
+
+      // Opening a brand-new Tab C in `acme/shared_app` automatically inherits `acme/shared_app`'s project Crew (`nightcity`)
+      const bootNewTabC = store.bootProject('acme/shared_app', { sessionId: 'ses_tab_c', autoSync: false });
+      assert.equal(bootNewTabC.rom.name, 'nightcity');
+
+      // Switching Tab C to `cryptonomicon` isolates Tab C while Tab A stays on `nightcity`
+      store.useRom('cryptonomicon', { sessionId: 'ses_tab_c' });
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_c' }).romName, 'cryptonomicon');
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).romName, 'nightcity');
+
+      // Switching project `acme/shared_app` directly (no sessionId) updates `project_roms` and all tabs bound to `acme/shared_app`
+      // without touching `acme/other_app` (`ses_tab_b`)
+      store.useRom('shadowrun', { project: 'acme/shared_app' });
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).romName, 'shadowrun');
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_c' }).romName, 'shadowrun');
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_b' }).romName, 'anathem');
+
       const dashFile = path.join(bobHome, 'dashboard.html');
-      const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app' });
+      const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
+      assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
       assert.match(dash.html, /acme\/shared_app/);
+      assert.match(dash.html, /acme\/other_app/);
       assert.match(dash.html, /data-pack="cryptonomicon"/);
       assert.match(dash.html, /applyHudToDom\(data\.hud\)/);
     } finally {

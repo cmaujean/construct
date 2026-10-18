@@ -408,22 +408,30 @@ function getDefaultRomNameInDb(db) {
   return activeRow?.name || 'crew';
 }
 
-function getActiveRomInDb(db, sessionId) {
+function getActiveRomInDb(db, sessionId, project = '') {
   const sid = sessionId || process.env.CONSTRUCT_SESSION_ID || '';
+  let proj = project ? normalizeProject(project) : '';
   if (sid) {
-    const sessRow = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(sid);
+    const sessRow = db.prepare('SELECT rom_name, project FROM session_roms WHERE session_id = ?').get(sid);
     if (sessRow && sessRow.rom_name) {
       return getRomInDb(db, sessRow.rom_name);
     }
-    const defaultRom = getDefaultRomNameInDb(db);
-    if (defaultRom) {
-      return getRomInDb(db, defaultRom);
+    if (!proj && sessRow && sessRow.project) {
+      proj = sessRow.project;
     }
-    return getRomInDb(db, 'razor');
+  }
+  if (proj) {
+    const projRow = db.prepare('SELECT rom_name FROM project_roms WHERE project = ?').get(proj);
+    if (projRow && projRow.rom_name) {
+      return getRomInDb(db, projRow.rom_name);
+    }
   }
   const defaultRom = getDefaultRomNameInDb(db);
   if (defaultRom) {
     return getRomInDb(db, defaultRom);
+  }
+  if (sid) {
+    return getRomInDb(db, 'razor');
   }
   const row =
     db.prepare("SELECT * FROM roms WHERE name = 'razor' LIMIT 1").get() ||
@@ -431,11 +439,19 @@ function getActiveRomInDb(db, sessionId) {
   return romMod.hydrateRom(row);
 }
 
-function isSessionRomSlottedInDb(db, sessionId) {
+function isSessionRomSlottedInDb(db, sessionId, project = '') {
   const sid = sessionId || process.env.CONSTRUCT_SESSION_ID || '';
+  let proj = project ? normalizeProject(project) : '';
+  if (sid) {
+    const sessRow = db.prepare('SELECT rom_name, project FROM session_roms WHERE session_id = ?').get(sid);
+    if (sessRow && sessRow.rom_name) return true;
+    if (!proj && sessRow && sessRow.project) proj = sessRow.project;
+  }
+  if (proj) {
+    const projRow = db.prepare('SELECT rom_name FROM project_roms WHERE project = ?').get(proj);
+    if (projRow && projRow.rom_name) return true;
+  }
   if (!sid) return true;
-  const sessRow = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(sid);
-  if (sessRow && sessRow.rom_name) return true;
   const defaultRom = getDefaultRomNameInDb(db);
   return Boolean(defaultRom);
 }
@@ -944,8 +960,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
   const sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
 
   return withDb((db) => {
-    const rom = getActiveRomInDb(db, sessionId);
-    const romSlotted = isSessionRomSlottedInDb(db, sessionId);
+    const rom = getActiveRomInDb(db, sessionId, project);
+    const romSlotted = isSessionRomSlottedInDb(db, sessionId, project);
     const allRoms = db.prepare('SELECT * FROM roms ORDER BY name ASC').all().map(romMod.hydrateRom);
     const detectedLogin = protocol.detectOsUsername();
     const user = protocol.getCurrentUserInDb(db);
@@ -956,6 +972,20 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       next: '',
       updated: '',
     };
+
+    // Record tab -> project/directory binding on `session_roms` (preserving any explicitly slotted `rom_name`)
+    if (sessionId && !sessionId.startsWith('pending_subagent:') && !sessionId.includes(':')) {
+      const now = nowIso();
+      const repoDir = options.dir || head.repo || '';
+      db.prepare(
+        `INSERT INTO session_roms (session_id, rom_name, project, directory, updated)
+         VALUES (?, '', ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           project = CASE WHEN excluded.project != '' THEN excluded.project ELSE session_roms.project END,
+           directory = CASE WHEN excluded.directory != '' THEN excluded.directory ELSE session_roms.directory END,
+           updated = excluded.updated`
+      ).run(sessionId, project, repoDir, now);
+    }
 
     const openFrames = db
       .prepare('SELECT * FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
@@ -1285,8 +1315,12 @@ function setDefaultRom(nameOrOff, options = {}, file = dbPath()) {
 
 function getRom(name, options = {}, file = dbPath()) {
   const sid = (typeof options === 'string' ? '' : options?.sessionId) || process.env.CONSTRUCT_SESSION_ID || '';
+  const proj = typeof options === 'string' ? '' : options?.project || '';
   const actualFile = typeof options === 'string' ? options : file;
-  return withDb((db) => (name ? getRomInDb(db, name) : getActiveRomInDb(db, sid)), actualFile);
+  return withDb((db) => {
+    const resolvedProj = proj || (options?.dir ? resolveProjectFromDirInDb(db, options.dir) : '');
+    return name ? getRomInDb(db, name) : getActiveRomInDb(db, sid, resolvedProj);
+  }, actualFile);
 }
 
 function subRom(backupName, options = {}, file = dbPath()) {
@@ -1294,6 +1328,8 @@ function subRom(backupName, options = {}, file = dbPath()) {
     throw new Error('give a backup ROM name to substitute into its seat, e.g. construct rom sub marly');
   }
   const sid = (typeof options === 'string' ? '' : options?.sessionId) || process.env.CONSTRUCT_SESSION_ID || '';
+  const proj = typeof options === 'string' ? '' : options?.project || '';
+  const dir = typeof options === 'string' ? '' : options?.dir || '';
   const actualFile = typeof options === 'string' ? options : file;
 
   const newSpec = withDb((db) => {
@@ -1301,7 +1337,8 @@ function subRom(backupName, options = {}, file = dbPath()) {
     if (!subRow) throw new Error(`unknown ROM "${backupName}"`);
     const subHydrated = romMod.hydrateRom(subRow);
 
-    const current = getActiveRomInDb(db, sid);
+    const resolvedProj = proj || (dir ? resolveProjectFromDirInDb(db, dir) : '');
+    const current = getActiveRomInDb(db, sid, resolvedProj);
     let rosterNames;
     if (current.isCrew && Array.isArray(current.roster)) {
       let replaced = false;
@@ -1320,7 +1357,7 @@ function subRom(backupName, options = {}, file = dbPath()) {
     return rosterNames.join(',');
   }, actualFile);
 
-  return useRom(newSpec, { sessionId: sid }, actualFile);
+  return useRom(newSpec, { sessionId: sid, project: proj, dir }, actualFile);
 }
 
 function listPacks(file = dbPath()) {
@@ -1354,6 +1391,8 @@ function useRom(name, options = {}, file = dbPath()) {
   if (!name || !String(name).trim()) throw new Error('give a ROM name or crew roster to activate, e.g. construct rom use crew');
   const key = String(name).trim().toLowerCase();
   const sid = (typeof options === 'string' ? '' : options?.sessionId) || process.env.CONSTRUCT_SESSION_ID || '';
+  const rawProject = typeof options === 'string' ? '' : options?.project || '';
+  const rawDir = typeof options === 'string' ? '' : options?.dir || '';
   const actualFile = typeof options === 'string' ? options : file;
 
   return withDb(
@@ -1361,16 +1400,48 @@ function useRom(name, options = {}, file = dbPath()) {
       tx(db, () => {
         const target = getRomInDb(db, key);
         const now = nowIso();
-        if (sid) {
+        let proj = rawProject ? normalizeProject(rawProject) : '';
+        let dir = rawDir ? path.resolve(expandHome(rawDir)) : '';
+
+        if (!proj && dir) {
+          proj = resolveProjectFromDirInDb(db, dir) || '';
+        }
+        if (sid && (!proj || !dir)) {
+          const existingSess = db.prepare('SELECT project, directory FROM session_roms WHERE session_id = ?').get(sid);
+          if (!proj && existingSess?.project) proj = existingSess.project;
+          if (!dir && existingSess?.directory) dir = existingSess.directory;
+          if (!proj && dir) proj = resolveProjectFromDirInDb(db, dir) || '';
+        }
+
+        if (proj) {
           db.prepare(
-            `INSERT INTO session_roms (session_id, rom_name, updated)
+            `INSERT INTO project_roms (project, rom_name, updated)
              VALUES (?, ?, ?)
-             ON CONFLICT(session_id) DO UPDATE SET
+             ON CONFLICT(project) DO UPDATE SET
                rom_name = excluded.rom_name,
                updated = excluded.updated`
-          ).run(sid, target.name, now);
-          return { ...target, active: true, sessionId: sid };
+          ).run(proj, target.name, now);
         }
+
+        if (sid) {
+          db.prepare(
+            `INSERT INTO session_roms (session_id, rom_name, project, directory, updated)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(session_id) DO UPDATE SET
+               rom_name = excluded.rom_name,
+               project = CASE WHEN excluded.project != '' THEN excluded.project ELSE session_roms.project END,
+               directory = CASE WHEN excluded.directory != '' THEN excluded.directory ELSE session_roms.directory END,
+               updated = excluded.updated`
+          ).run(sid, target.name, proj, dir, now);
+          return { ...target, active: true, sessionId: sid, project: proj || null };
+        }
+
+        if (proj) {
+          // When switching a project's ROM without a specific session ID, also update any open tabs bound to that project
+          db.prepare('UPDATE session_roms SET rom_name = ?, updated = ? WHERE project = ?').run(target.name, now, proj);
+          return { ...target, active: true, sessionId: null, project: proj };
+        }
+
         db.prepare('UPDATE roms SET active = 0').run();
         if (!target.isCrew) {
           db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
@@ -2302,15 +2373,138 @@ const PACK_EMBLEM_MAP = Object.freeze({
   core: '🔪',
 });
 
-function getHudSnapshot(options = {}, file = dbPath()) {
-  let project = options.project ? normalizeProject(options.project) : '';
-  if (!project && options.dir) {
-    project = resolveProjectFromDir(options.dir, file) || '';
+function listActiveTabsInDb(db, file = dbPath()) {
+  const sessRows = db
+    .prepare(
+      "SELECT session_id, rom_name, project, directory, updated FROM session_roms WHERE session_id NOT LIKE 'pending_subagent:%' AND session_id NOT LIKE '%:%' ORDER BY updated DESC"
+    )
+    .all();
+
+  const bySid = new Map();
+  for (const r of sessRows) {
+    bySid.set(r.session_id, {
+      sessionId: r.session_id,
+      romName: r.rom_name,
+      project: r.project || '',
+      directory: r.directory || '',
+      title: '',
+      updatedMs: Date.parse(r.updated || '') || 0,
+    });
   }
 
+  // When running against the primary Construct DB, also inspect OpenCode's live `session_v2` table (read-only)
+  // so we know every open root tab's directory, human title, and `time_viewed` / `time_updated` across all Locations.
+  if (!process.env.CONSTRUCT_DB) {
+    const ocDbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+    if (fs.existsSync(ocDbPath)) {
+      let ocDb = null;
+      try {
+        ocDb = new DatabaseSync(ocDbPath, { readOnly: true });
+        const ocRows = ocDb
+          .prepare(
+            'SELECT id, title, directory, time_viewed, time_updated FROM session_v2 WHERE parent_id IS NULL AND time_archived IS NULL ORDER BY COALESCE(time_viewed, time_updated) DESC LIMIT 10'
+          )
+          .all();
+        for (const row of ocRows) {
+          if (!row.id) continue;
+          const existing = bySid.get(row.id) || {
+            sessionId: row.id,
+            romName: '',
+            project: '',
+            directory: '',
+            title: '',
+            updatedMs: 0,
+          };
+          if (row.directory) existing.directory = row.directory;
+          if (row.title) {
+            existing.title = String(row.title)
+              .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
+              .trim();
+          }
+          const ocTs = Math.max(Number(row.time_viewed || 0), Number(row.time_updated || 0));
+          if (ocTs > existing.updatedMs) existing.updatedMs = ocTs;
+          bySid.set(row.id, existing);
+        }
+      } catch (_) {
+      } finally {
+        try {
+          ocDb?.close();
+        } catch (_) {}
+      }
+    }
+  }
+
+  const out = [];
+  for (const item of bySid.values()) {
+    let proj = item.project;
+    if (!proj && item.directory) {
+      proj = resolveProjectFromDirInDb(db, item.directory) || '';
+    }
+    const rom = getActiveRomInDb(db, item.sessionId, proj);
+    const pack = rom.pack || (rom.name === 'crew' ? 'sprawl' : rom.name);
+    const emblem = PACK_EMBLEM_MAP[pack] || '🦾';
+    const displayRom = rom.name === 'crew' ? 'sprawl' : rom.name;
+    out.push({
+      sessionId: item.sessionId,
+      shortId: item.sessionId.replace(/^ses_/, '').slice(0, 6),
+      project: proj || 'workspace',
+      directory: item.directory || '',
+      title: item.title || proj || item.sessionId.slice(0, 10),
+      romName: displayRom,
+      pack,
+      emblem,
+      updatedMs: item.updatedMs,
+    });
+  }
+
+  out.sort((a, b) => b.updatedMs - a.updatedMs);
+  return out.slice(0, 8);
+}
+
+function getHudSnapshot(options = {}, file = dbPath()) {
   return withDb((db) => {
-    const sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
-    const rom = getActiveRomInDb(db, sessionId);
+    const tabs = listActiveTabsInDb(db, file);
+    let sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
+    let dir = options.dir || '';
+    let project = options.project ? normalizeProject(options.project) : '';
+
+    if (!project && dir) {
+      project = resolveProjectFromDirInDb(db, dir) || '';
+    }
+
+    // If a sessionId was given without a project/dir, resolve its bound project/directory from `tabs` or `session_roms`
+    if (sessionId && (!project || !dir)) {
+      const matchingTab = tabs.find((t) => t.sessionId === sessionId);
+      if (matchingTab) {
+        if (!project && matchingTab.project && matchingTab.project !== 'workspace') project = matchingTab.project;
+        if (!dir && matchingTab.directory) dir = matchingTab.directory;
+      } else {
+        const sessRow = db.prepare('SELECT project, directory FROM session_roms WHERE session_id = ?').get(sessionId);
+        if (sessRow) {
+          if (!project && sessRow.project) project = sessRow.project;
+          if (!dir && sessRow.directory) dir = sessRow.directory;
+          if (!project && dir) project = resolveProjectFromDirInDb(db, dir) || '';
+        }
+      }
+    }
+
+    // If a project was given without a sessionId, pick the most recently active tab on that project (if any)
+    if (project && !sessionId) {
+      const matchingTab = tabs.find((t) => t.project === project);
+      if (matchingTab) {
+        sessionId = matchingTab.sessionId;
+        if (!dir && matchingTab.directory) dir = matchingTab.directory;
+      }
+    }
+
+    // If neither sessionId nor project was given (e.g. auto-follow HUD poll), pick the most recently viewed/active tab
+    if (!sessionId && !project && tabs.length) {
+      sessionId = tabs[0].sessionId;
+      if (tabs[0].project && tabs[0].project !== 'workspace') project = tabs[0].project;
+      if (!dir && tabs[0].directory) dir = tabs[0].directory;
+    }
+
+    const rom = getActiveRomInDb(db, sessionId, project);
     const user = protocol.getCurrentUserInDb(db);
     const detectedLogin = protocol.detectOsUsername();
     const activeUserId = user?.id || detectedLogin;
@@ -2388,7 +2582,20 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       inboxPendingCount + inboxReplyCount > 0 ? ` · 📬${inboxPendingCount + inboxReplyCount}` : ''
     }]`;
 
+    const projectRoms = {};
+    for (const r of db.prepare('SELECT project, rom_name FROM project_roms').all()) {
+      const pRom = getRomInDb(db, r.rom_name);
+      const pPack = pRom.pack || (pRom.name === 'crew' ? 'sprawl' : pRom.name);
+      projectRoms[r.project] = {
+        romName: pRom.name === 'crew' ? 'sprawl' : pRom.name,
+        pack: pPack,
+        emblem: PACK_EMBLEM_MAP[pPack] || '🦾',
+      };
+    }
+
     return {
+      sessionId,
+      dir: dir || headRow?.repo || '',
       project: project || 'workspace',
       pack,
       emblem,
@@ -2411,6 +2618,8 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       hasMlsGroup: Boolean(mlsRow),
       pill,
       tabBadge,
+      tabs,
+      projectRoms,
     };
   }, file);
 }
@@ -2436,6 +2645,25 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       return `<span class="badge">${glyph} ${escapeHtml(rName)}</span>`;
     })
     .join(' ');
+
+    const initialTabs = Array.isArray(hud.tabs) ? hud.tabs : [];
+  const tabSelectorButtons = initialTabs
+    .map((t) => {
+      const isSelected = (hud.sessionId && t.sessionId === hud.sessionId) || (!hud.sessionId && t.project === hud.project);
+      return `<button class="crew-btn ${isSelected ? 'active' : ''}" data-target-sid="${escapeHtml(t.sessionId)}" data-target-proj="${escapeHtml(t.project)}" onclick="selectTarget('${escapeHtml(t.sessionId)}','${escapeHtml(t.project)}')">${escapeHtml(t.emblem)} ${escapeHtml(t.project)} <span class="sub">[tab:${escapeHtml(t.shortId)} · ${escapeHtml(t.romName)}]</span></button>`;
+    })
+    .join('\n      ');
+
+  const projectSelectorButtons = data.projects
+    .filter((p) => !initialTabs.some((t) => t.project === p.project))
+    .map((p) => {
+      const pRom = hud.projectRoms?.[p.project];
+      const pEmblem = pRom?.emblem || '📁';
+      const pRomLabel = pRom?.romName ? ` · ${pRom.romName}` : '';
+      const isSelected = !hud.sessionId && p.project === hud.project;
+      return `<button class="crew-btn ${isSelected ? 'active' : ''}" data-target-sid="" data-target-proj="${escapeHtml(p.project)}" onclick="selectTarget('','${escapeHtml(p.project)}')">${escapeHtml(pEmblem)} ${escapeHtml(p.project)} <span class="sub">[project${escapeHtml(pRomLabel)}]</span></button>`;
+    })
+    .join('\n      ');
 
   const projectRows = data.projects
     .map(
@@ -2583,9 +2811,18 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </div>
 
   <div class="control-deck">
+    <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);">
+      <strong>TARGET TAB &amp; PROJECT SCOPE</strong>
+      <span class="sub" style="margin-left:8px;">(Select which open tab or project the Control Deck inspects and switches; each tab &amp; project keeps its own Crew)</span>
+      <div class="btn-row" id="target-tab-row">
+        <button class="crew-btn" id="btn-autofollow" onclick="enableAutoFollow()">🎯 Auto-Follow Active Tab</button>
+        ${tabSelectorButtons}
+        ${projectSelectorButtons}
+      </div>
+    </div>
     <div>
       <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
-      <span class="sub" style="margin-left:8px;">(Click to switch active session Crew Bank or sub a Bench specialist in &lt;10ms; or type <code>/construct &lt;bank&gt;</code> in chat)</span>
+      <span class="sub" style="margin-left:8px;">(Switches Crew for target: <code id="target-scope-label">${escapeHtml(hud.project)}${hud.sessionId ? ` [tab:${hud.sessionId.replace(/^ses_/, '').slice(0, 6)}]` : ''}</code>)</span>
       <span id="hud-toast"></span>
     </div>
     <div class="btn-row">
@@ -2608,12 +2845,56 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     </div>
   </div>
   <script>
-    const CURRENT_SESSION_ID = ${JSON.stringify(options.sessionId || '')};
-    const CURRENT_PROJECT = ${JSON.stringify(hud.project || '')};
+    let selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
+    let selectedProject = ${JSON.stringify(hud.project || '')};
+    let autoFollow = true;
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
+
+    function renderTargetButtons(h) {
+      const rowEl = document.getElementById('target-tab-row');
+      if (!rowEl || !h) return;
+      const tabs = Array.isArray(h.tabs) ? h.tabs : [];
+      rowEl.innerHTML = '';
+
+      const autoBtn = document.createElement('button');
+      autoBtn.className = 'crew-btn' + (autoFollow ? ' active' : '');
+      autoBtn.textContent = '🎯 Auto-Follow Active Tab';
+      autoBtn.onclick = () => enableAutoFollow();
+      rowEl.appendChild(autoBtn);
+
+      tabs.forEach((t) => {
+        const btn = document.createElement('button');
+        const isSel = !autoFollow && ((selectedSessionId && t.sessionId === selectedSessionId) || (!selectedSessionId && t.project === selectedProject));
+        btn.className = 'crew-btn' + (isSel ? ' active' : '');
+        btn.textContent = (t.emblem || '🦾') + ' ' + t.project + ' [tab:' + (t.shortId || '') + ' · ' + (t.romName || '') + ']';
+        btn.onclick = () => selectTarget(t.sessionId, t.project);
+        rowEl.appendChild(btn);
+      });
+
+      const projectRoms = h.projectRoms || {};
+      Object.keys(projectRoms).forEach((proj) => {
+        if (tabs.some((t) => t.project === proj)) return;
+        const pr = projectRoms[proj];
+        const btn = document.createElement('button');
+        const isSel = !autoFollow && !selectedSessionId && selectedProject === proj;
+        btn.className = 'crew-btn' + (isSel ? ' active' : '');
+        btn.textContent = (pr.emblem || '📁') + ' ' + proj + ' [project · ' + (pr.romName || '') + ']';
+        btn.onclick = () => selectTarget('', proj);
+        rowEl.appendChild(btn);
+      });
+    }
 
     function applyHudToDom(h) {
       if (!h) return;
+      if (autoFollow) {
+        selectedSessionId = h.sessionId || '';
+        selectedProject = h.project || '';
+      }
+      const scopeEl = document.getElementById('target-scope-label');
+      if (scopeEl) {
+        const shortSid = selectedSessionId ? ' [tab:' + selectedSessionId.replace(/^ses_/, '').slice(0, 6) + ']' : ' [project]';
+        scopeEl.textContent = (selectedProject || h.project || 'workspace') + shortSid + (autoFollow ? ' (auto-following)' : ' (pinned)');
+      }
       const pillEl = document.getElementById('hud-pill');
       if (pillEl && h.pill) pillEl.textContent = h.pill;
       const subEl = document.getElementById('hud-sub');
@@ -2640,21 +2921,49 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         if (Array.isArray(h.roster) && h.roster.includes(subName)) btn.classList.add('active');
         else btn.classList.remove('active');
       });
+      renderTargetButtons(h);
+    }
+
+    async function pollHud() {
+      try {
+        const qs = autoFollow
+          ? ''
+          : '?sessionID=' + encodeURIComponent(selectedSessionId || '') + '&project=' + encodeURIComponent(selectedProject || '');
+        const res = await fetch('http://127.0.0.1:47420/hud' + qs);
+        const data = await res.json();
+        if (data && data.ok && data.hud) applyHudToDom(data.hud);
+      } catch (_) {}
+    }
+
+    function selectTarget(sid, proj) {
+      autoFollow = false;
+      selectedSessionId = sid || '';
+      selectedProject = proj || '';
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Pinned target -> ' + (proj || sid);
+      void pollHud();
+    }
+
+    function enableAutoFollow() {
+      autoFollow = true;
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = '🎯 Following active OpenCode tab';
+      void pollHud();
     }
 
     async function switchCrew(action, target) {
       const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = 'Switching -> ' + target + '...';
+      if (toast) toast.textContent = 'Switching ' + (selectedProject || 'active tab') + ' -> ' + target + '...';
       try {
         const res = await fetch('http://127.0.0.1:47420/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, target, sessionID: CURRENT_SESSION_ID, project: CURRENT_PROJECT })
+          body: JSON.stringify({ action, target, sessionID: selectedSessionId, project: selectedProject })
         });
         const data = await res.json();
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
-          if (toast) toast.textContent = '✓ Slotted ' + data.hud.emblem + ' ' + data.hud.romName;
+          if (toast) toast.textContent = '✓ Slotted ' + data.hud.emblem + ' ' + data.hud.romName + ' on ' + data.hud.project;
         } else if (toast) {
           toast.textContent = 'Updated: ' + target;
         }
@@ -2663,13 +2972,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
-    setInterval(async () => {
-      try {
-        const res = await fetch('http://127.0.0.1:47420/hud');
-        const data = await res.json();
-        if (data && data.ok && data.hud) applyHudToDom(data.hud);
-      } catch (_) {}
-    }, 2500);
+    setInterval(pollHud, 2500);
   </script>
 
   <h2>Open Verification Threads (${data.openFrames.length})</h2>

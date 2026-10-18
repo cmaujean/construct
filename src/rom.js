@@ -59,9 +59,25 @@ function initRomSchema(db) {
     CREATE TABLE IF NOT EXISTS session_roms (
       session_id TEXT PRIMARY KEY,
       rom_name   TEXT NOT NULL,
+      project    TEXT NOT NULL DEFAULT '',
+      directory  TEXT NOT NULL DEFAULT '',
       updated    TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS project_roms (
+      project  TEXT PRIMARY KEY,
+      rom_name TEXT NOT NULL,
+      updated  TEXT NOT NULL
+    );
   `);
+
+  const sessCols = db.prepare('PRAGMA table_info(session_roms)').all().map((c) => c.name);
+  if (!sessCols.includes('project')) {
+    db.exec("ALTER TABLE session_roms ADD COLUMN project TEXT NOT NULL DEFAULT '';");
+  }
+  if (!sessCols.includes('directory')) {
+    db.exec("ALTER TABLE session_roms ADD COLUMN directory TEXT NOT NULL DEFAULT '';");
+  }
 
   const romCols = db.prepare('PRAGMA table_info(roms)').all().map((c) => c.name);
   if (!romCols.includes('pack')) {

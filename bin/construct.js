@@ -377,7 +377,7 @@ function handleRomCommand(rest, o) {
       return 0;
     }
     case 'show': {
-      const rom = store.getRom(rest[1] || o.rom);
+      const rom = store.getRom(rest[1] || o.rom, { sessionId: o.session, project: o.project, dir: o.dir });
       if (o.json) {
         console.log(JSON.stringify(rom, null, 2));
       } else if (rom.isCrew) {
@@ -388,12 +388,18 @@ function handleRomCommand(rest, o) {
       return 0;
     }
     case 'use': {
-      const rom = store.useRom(rest[1], { sessionId: o.session });
+      const rom = store.useRom(rest[1], { sessionId: o.session, project: o.project, dir: o.dir });
       if (o.json) {
         console.log(JSON.stringify(rom, null, 2));
-      } else if (rom.sessionId) {
+      } else if (rom.sessionId || rom.project) {
+        const scopeDesc = [
+          rom.sessionId ? `session ${rom.sessionId}` : '',
+          rom.project ? `project ${rom.project}` : '',
+        ]
+          .filter(Boolean)
+          .join(' / ');
         console.log(
-          `slotted ROM "${rom.name}" (${rom.handle}) -> session ${rom.sessionId} (active in <construct-live-memory> on this and all subsequent turns)`
+          `slotted ROM "${rom.name}" (${rom.handle}) -> ${scopeDesc} (active in <construct-live-memory> on this and all subsequent turns)`
         );
       } else {
         console.log(`slotted ROM "${rom.name}" (${rom.handle}) -> default\n`);
@@ -402,11 +408,16 @@ function handleRomCommand(rest, o) {
       return 0;
     }
     case 'sub': {
-      const rom = store.subRom(rest[1], { sessionId: o.session });
+      const rom = store.subRom(rest[1], { sessionId: o.session, project: o.project, dir: o.dir });
       if (o.json) {
         console.log(JSON.stringify(rom, null, 2));
       } else {
-        const scopeLabel = rom.sessionId ? `session ${rom.sessionId}` : 'default';
+        const scopeLabel = [
+          rom.sessionId ? `session ${rom.sessionId}` : '',
+          rom.project ? `project ${rom.project}` : '',
+        ]
+          .filter(Boolean)
+          .join(' / ') || 'default';
         console.log(`substituted "${rest[1]}" into crew roster -> ${rom.name} (${scopeLabel})`);
       }
       return 0;
@@ -746,7 +757,7 @@ function main(argv) {
         throw new Error('usage: construct boot <project> (or construct boot --dir <directory>)');
       }
       const tapeLimit = o.limit ? Number(o.limit) : 25;
-      const data = store.bootProject(project, { tapeLimit, sessionId: o.session });
+      const data = store.bootProject(project, { tapeLimit, sessionId: o.session, dir: o.dir });
       if (o.json) console.log(JSON.stringify(data, null, 2));
       else printBoot(data);
       return 0;

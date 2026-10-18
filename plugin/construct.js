@@ -423,8 +423,9 @@ export function injectFrontierVoiceLock(messages, bootOutput = "") {
   return false
 }
 
-function fetchHudSnapshot(dir = "", sessionID = "") {
+function fetchHudSnapshot(dir = "", sessionID = "", project = "") {
   const args = ["hud", "--json"]
+  if (project) args.push("--project", String(project))
   if (dir) args.push("--dir", String(dir))
   if (sessionID) args.push("--session", String(sessionID))
   const raw = runConstruct(args)
@@ -446,10 +447,10 @@ export default {
     let lastActiveDir = ctx.location?.directory || ""
     let rpcRegistration = null
 
-    const syncSessionHud = async (sessionID, dirOverride = "") => {
-      const sid = String(sessionID || lastActiveSessionId || "")
+    const syncSessionHud = async (sessionID, dirOverride = "", projectOverride = "") => {
+      const sid = String(sessionID || "")
       if (sid) lastActiveSessionId = sid
-      let dir = dirOverride || lastActiveDir || ctx.location?.directory || ""
+      let dir = dirOverride || ""
       let sess = null
       if (sid && ctx.session?.get) {
         try {
@@ -457,15 +458,19 @@ export default {
           if (!dir && sess?.directory) dir = sess.directory
         } catch (_) {}
       }
+      if (!dir && !sid && !projectOverride) {
+        dir = lastActiveDir || ctx.location?.directory || ""
+      }
       if (dir) lastActiveDir = dir
-      const snap = fetchHudSnapshot(dir, sid)
+      const snap = fetchHudSnapshot(dir, sid, projectOverride)
       if (!snap) return null
 
       // Refresh `~/.config/opencode/construct-hud.html` on disk so the Review Pane HUD stays live
       try {
         const dashArgs = ["dashboard"]
-        if (dir) dashArgs.push("--dir", String(dir))
-        if (sid) dashArgs.push("--session", String(sid))
+        if (projectOverride || snap.project) dashArgs.push("--project", String(projectOverride || snap.project))
+        if (dir || snap.dir) dashArgs.push("--dir", String(dir || snap.dir))
+        if (sid || snap.sessionId) dashArgs.push("--session", String(sid || snap.sessionId))
         runConstruct(dashArgs)
       } catch (_) {}
 
@@ -475,17 +480,18 @@ export default {
         } catch (_) {}
       }
 
-      if (sid && snap.tabBadge && ctx.session?.update) {
-        const prevBadge = lastBadgeBySession.get(sid)
+      const targetSid = sid || snap.sessionId || ""
+      if (targetSid && snap.tabBadge && ctx.session?.update) {
+        const prevBadge = lastBadgeBySession.get(targetSid)
         if (prevBadge !== snap.tabBadge) {
-          lastBadgeBySession.set(sid, snap.tabBadge)
+          lastBadgeBySession.set(targetSid, snap.tabBadge)
           try {
-            if (!sess && ctx.session.get) sess = await ctx.session.get({ sessionID: sid })
+            if (!sess && ctx.session.get) sess = await ctx.session.get({ sessionID: targetSid })
             const curTitle = sess?.title || ""
             if (curTitle) {
               const nextTitle = formatTitleWithHudBadge(curTitle, snap.tabBadge)
               if (nextTitle !== curTitle) {
-                await ctx.session.update({ sessionID: sid, title: nextTitle })
+                await ctx.session.update({ sessionID: targetSid, title: nextTitle })
               }
             }
           } catch (_) {}
@@ -507,9 +513,10 @@ export default {
       const directive = detectPreSlotRomDirective(event.prompt?.text)
       if (!directive) return
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
+      if (ctx.location?.directory) sessionArgs.push("--dir", String(ctx.location.directory))
       runConstruct(["rom", directive.action, directive.target, ...sessionArgs])
       if (event.sessionID) {
-        void syncSessionHud(event.sessionID)
+        void syncSessionHud(event.sessionID, ctx.location?.directory || "")
       }
     })
 
@@ -808,8 +815,9 @@ export default {
           if (input.tagline) args.push("--tagline", String(input.tagline))
           if (input.voice) args.push("--voice", String(input.voice))
           if (context?.sessionID) args.push("--session", String(context.sessionID))
+          if (ctx.location?.directory) args.push("--dir", String(ctx.location.directory))
           const out = runConstruct(args)
-          if (context?.sessionID) void syncSessionHud(context.sessionID)
+          if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
           return { content: out }
         },
       })
@@ -1073,7 +1081,11 @@ export default {
           return
         }
         if (req.method === "GET" && req.url?.startsWith("/hud")) {
-          const snap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
+          const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
+          const qSid = parsedUrl.searchParams.get("sessionID") || ""
+          const qProj = parsedUrl.searchParams.get("project") || ""
+          const qDir = parsedUrl.searchParams.get("dir") || ""
+          const snap = fetchHudSnapshot(qDir, qSid, qProj)
           res.writeHead(200, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ ok: true, hud: snap }))
           return
@@ -1088,12 +1100,16 @@ export default {
               const payload = JSON.parse(body || "{}")
               const act = payload.action === "sub" ? "sub" : "use"
               const target = String(payload.target || "").trim().toLowerCase()
-              const sid = String(payload.sessionID || lastActiveSessionId || "")
+              const sid = String(payload.sessionID || "")
+              const proj = String(payload.project || "")
+              const dir = String(payload.dir || "")
               if (target && isValidRomTarget(target)) {
                 const args = ["rom", act, target]
                 if (sid) args.push("--session", sid)
+                if (proj && proj !== "workspace") args.push("--project", proj)
+                if (dir) args.push("--dir", dir)
                 runConstruct(args)
-                const snap = await syncSessionHud(sid, lastActiveDir)
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, hud: snap }))
                 return
