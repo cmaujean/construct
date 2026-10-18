@@ -194,6 +194,13 @@ Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
 
 > **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, and `shadowrun`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
 
+### Live OpenCode HUD & Interactive Review Pane Switcher (`construct hud` & `construct dashboard`)
+
+Construct surfaces live telemetry across both the **OpenCode Desktop/Web App** and the **OpenCode TUI**:
+- **Session Tab & Header Badges:** Automatically prefixes active session tab titles with the slotted Crew emblem, bank name, head frame `#seq`, and open thread count (for example, `🐉 [shadowrun #116 · 2 open]`).
+- **Interactive Review Pane Control Deck (`~/.config/opencode/construct-hud.html`):** Open `construct-hud.html` in the OpenCode Review pane (via `tools.browser.preview` or `/construct`) for a dark-mode HUD with one-click buttons to switch between all 6 Crew Banks or sub Bench specialists in place (`127.0.0.1:47420` loopback control server).
+- **TUI Slots & `/construct` Command (`plugin/tui.tsx`):** Mounts live status indicators into `prompt.footer.status`, `home.footer.status`, `sidebar.footer`, and `session.composer.top`, with `/construct` (and `Ctrl+Shift+G` in the TUI) for instant Crew switching.
+
 ### Multi-Tab Session Isolation & Resilience
 
 OpenCode and Claude Code let you run multiple sessions (tabs/conversations) at the same time. Construct isolates Crew Banks per session (`session_roms` keyed by `sessionID`, and `${session_id}:${agent_id}` for parallel subagents):
@@ -350,16 +357,16 @@ LLM providers (Anthropic, Google Gemini, OpenAI) cache the `system` prompt prefi
 - Construct deduplicates the 9-seat Crew Roster (`~2,300` tokens) and keeps `~/.config/opencode/active-rom.md` and `<construct-live-memory>` **100% deterministic across turns** until a new frame or gotcha is recorded. Turns `2..N` hit the provider's prompt cache across the entire system prefix.
 
 ### 2. Two-Resolution Memory (Headlines in Context, Full Detail on Demand)
-- **Sequential Tape:** `<construct-live-memory>` injects only the last 15 dense 1-line frame headlines (`~15` words each). Full evidence, logs, and causal chains are fetched only when needed via `tools.construct.zoom({ seq })`.
-- **Automatic Compact Gotcha Indexing:** When a project has `<= 12` gotchas, Construct injects the title and inline fix. When a project accumulates `> 12` gotchas (for example, a game-modding workspace with `80+` engine gotchas), `<construct-live-memory>` automatically switches to a compact 1-line title index (`[G#id] <title>`) and fetches full evidence on demand via `tools.construct.gotcha({ action: "search" })`, cutting `~6,500` tokens per turn while preserving full awareness of every trap.
+- **Sequential Tape & Open Threads:** `<construct-live-memory>` injects only the last 8 compact 1-line frame headlines and 1-line open-thread headlines (keeping multi-page GitHub issue bodies, verification logs, and file-ref lists in SQLite until fetched on demand via `tools.construct.zoom({ seq })` or `construct why`).
+- **Compact Global & Project Gotcha Indexing:** Global gotchas compile into `active-rom.md` as single-line `Title -> Do instead` rules (storing historical evidence in SQLite for `construct gotcha search`). When a project has `<= 12` gotchas, Construct injects the title and inline fix; when a project accumulates `> 12` gotchas (for example, a game-modding workspace with `80+` engine gotchas), `<construct-live-memory>` automatically switches to a compact 1-line title index (`[G#id] <title>`) and fetches full evidence on demand via `tools.construct.gotcha({ action: "search" })`.
 
-### 3. Four Zero-Token Mechanical Shell Guards (`ctx.shell.hook("create.before")` & Claude `PreToolUse`)
+### 3. Zero-Token Mechanical Shell Guards (`ctx.shell.hook("create.before")` & Claude `PreToolUse`)
 When an AI assistant runs a broken shell pattern, a normal session wastes an entire tool execution and model retry turn (`3,000` to `6,000` tokens) recovering from the error -- or worse, silently swallows a failing build exit code.
-Construct's OpenCode plugin (`ctx.shell.hook("create.before")`) and Claude Code hook (`PreToolUse` on `Bash|PowerShell`) mechanically block four high-frequency shell traps in `0` tokens before a process ever spawns:
-1. **Gotcha #1 (`<<EOF` Heredocs):** Blocks non-interactive shell heredocs and directs the model to use `Write`/`Edit` or scratchpad files.
-2. **Gotcha #3 (Piped Build/Test Exit-Code Swallowing):** Blocks piping `flutter build|test|analyze`, `npm test`, `dotnet build|test`, `cargo build|test`, `jest`, or `pytest` into `tail`, `head`, `grep`, or `Select-Object` without `pipefail`.
-3. **Gotcha #4 (PowerShell 5.1 Quote Stripping on `gh api graphql`):** Blocks inline `gh api graphql -f query=...` calls containing inner double quotes and directs the model to pass `--input <scratch>/payload.json`.
-4. **Gotcha #6 (`core.protectNTFS=false`):** Blocks disabling Git's NTFS path protection guard.
+Construct's OpenCode plugin (`ctx.shell.hook("create.before")`) and Claude Code hook (`PreToolUse` on `Bash|PowerShell`) mechanically block four built-in traps plus any custom `--guard "<regex>"` gotchas (scoped by `--guard-os all|win32|linux|darwin` and synced via CRDT) in `0` tokens before a process ever spawns:
+1. **Gotcha #1 (`<<EOF` Heredocs `[all]`):** Blocks non-interactive shell heredocs and directs the model to use `Write`/`Edit` or scratchpad files.
+2. **Gotcha #3 (Piped Build/Test Exit-Code Swallowing `[all]`):** Blocks piping `flutter build|test|analyze`, `npm test`, `dotnet build|test`, `cargo build|test`, `jest`, or `pytest` into `tail`, `head`, `grep`, or `Select-Object` without `pipefail`.
+3. **Gotcha #4 (PowerShell 5.1 Quote Stripping on `gh api graphql` `[win32]`):** Blocks inline `gh api graphql -f query=...` calls containing inner double quotes on Windows and directs the model to pass `--input <scratch>/payload.json`.
+4. **Gotcha #6 (`core.protectNTFS=false` & `:Zone.Identifier` Staging `[all]`):** Blocks disabling Git's NTFS path protection guard or staging `:Zone.Identifier` streams on any OS.
 
 ### 4. Recommended Operator Agreement Rule: Smart Model Routing
 The largest cost lever in OpenCode is routing mechanical exploration and bulk log/doc reading to fast, low-cost models while reserving your primary frontier model for architecture, debugging, and code changes.
@@ -420,6 +427,7 @@ construct zoom <seq> [-w 3]
 construct search "<fts5_query>" [--project <project>] [--open]
 construct why "<file_or_symbol>" [--project <project>] [--ask <user>]
 construct issues [sync <project> | publish <seq>] [--dir <repo_dir>]
+construct hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
 construct dashboard [--out <html_path>]
 construct edit <seq> [--summary ".."] [--detail ".."] [--verified ".."]
 
