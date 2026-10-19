@@ -1,5 +1,5 @@
 // Operator Agreements (`users`), Machine/Tool Gotchas (`gotchas`), and the
-// Core Engineering Protocol (formerly `llm-dev-kit` 01..05).
+// Core Engineering Protocol.
 //
 // The construct always knows who is at the keyboard:
 // - It checks `process.env.CONSTRUCT_USER` or `os.userInfo().username` against

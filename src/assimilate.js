@@ -1,17 +1,14 @@
-// Instruction & Dev-Docs Assimilator.
+// Repository Instruction File Assimilator.
 //
-// Scans a directory—either global (`~/.config/opencode/`) or project-local
-// (`<repo>/AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `docs/dev/`, `docs/`)—
-// and digests it directly into `~/.config/opencode/construct.db`:
-//   1. `agreements/<name>.md` (excluding `TEMPLATE.md`) -> `users` table
-//   2. `02-gotchas.md` / `gotchas.md`                   -> `gotchas` table (global or project scope)
-//   3. `03-verification.md` & `04-scripts.md`           -> project `frame` metadata in `construct.db`
-//   4. Optionally removes the digested files (`--remove-files`), or records their
-//      SHA-256 hashes in `assimilated_files` so shared-repo files are shadowed in memory.
+// Scans a directory for standard AI instruction files (`AGENTS.md`, `CLAUDE.md`,
+// `GEMINI.md`, `.cursorrules`, `.github/copilot-instructions.md`) and digests
+// structured gotchas (`### <Gotcha>`), operator profiles (`## Who you are working with`),
+// and script command tables (`| \`cmd\` | from | does |`) directly into `construct.db`.
+// Optionally removes the digested files (`--remove-files`), or records their SHA-256
+// hashes in `assimilated_files` so shared-repo files are shadowed in memory.
 //
 // Zero git pollution: Construct never writes any Construct-related files or
-// `AGENTS.md` headers into target project repositories. Everything lives in
-// `~/.config/opencode/construct.db` and fronts sessions via the global OpenCode plugin.
+// `AGENTS.md` headers into target project repositories.
 
 'use strict';
 
@@ -19,7 +16,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
-// Parse a markdown `02-gotchas.md` file into structured `{ title, status, evidence, fix, created }` entries
+// Parse markdown `### <Claim>` sections into structured `{ title, status, evidence, fix, created }` gotcha entries
 function parseGotchasMarkdown(mdText) {
   const entries = [];
   const lines = String(mdText || '').split(/\r?\n/);
@@ -33,7 +30,9 @@ function parseGotchasMarkdown(mdText) {
       if (current) entries.push(finalizeGotchaEntry(current));
       current = null;
       const sec = h2[1].trim();
-      inSkippedSection = /^(what goes in it|why it has to be|the format|format|rules|categories that tend|the instruction)/i.test(sec);
+      inSkippedSection = /^(what goes in it|why it has to be|the format|format|rules|categories that tend|the instruction|who you are working with|scratch files|model routing|verification expectations|development execution|issue creation)/i.test(
+        sec
+      );
       inBulletEntrySection = /^(dependencies and publishing)/i.test(sec);
       continue;
     }
@@ -48,7 +47,6 @@ function parseGotchasMarkdown(mdText) {
           heading
         )
       ) {
-        // Keep appending to current if it's a narrative sub-heading inside an existing entry
         if (current && !/^(the format|what goes in it|why it has to be|entries|categories|the instruction)/i.test(heading)) {
           current.bodyLines.push(`${heading}:`);
         } else {
@@ -66,7 +64,6 @@ function parseGotchasMarkdown(mdText) {
       continue;
     }
 
-    // Support top-level `- **<Bold claim>.** <rest>` gotcha entries in bullet-organized sections (e.g. vs-dev-tools)
     if (inBulletEntrySection) {
       const boldBullet = rawLine.match(/^-\s+\*\*([^*]+)\*\*\s*(.*)$/);
       if (boldBullet && boldBullet[1].length > 15) {
@@ -123,20 +120,21 @@ function finalizeGotchaEntry(raw) {
   };
 }
 
-// Parse an `agreements/<name>.md` file into `{ id, name, experience, platform, calibration }`
+// Extract an operator agreement block (`# Working with <Name>` + `## Who you are working with`) if present in an instruction file
 function parseAgreementMarkdown(filePath, mdText) {
-  const id = path.basename(filePath, '.md').toLowerCase();
-  if (id === 'template' || id === 'readme') return null;
+  const titleMatch = mdText.match(/^#\s+Working with\s+([A-Za-z0-9_-]+)$/m);
+  const whoMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*)$/i);
+  if (!titleMatch && !whoMatch) return null;
 
-  const titleMatch = mdText.match(/^#\s+Working with\s+(.+)$/m);
-  const name = titleMatch ? titleMatch[1].trim() : id.charAt(0).toUpperCase() + id.slice(1);
+  const rawName = titleMatch ? titleMatch[1].trim() : path.basename(filePath, '.md');
+  const id = rawName.toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (!id || id === 'template' || id === 'readme' || id === 'agents' || id === 'claude' || id === 'gemini') return null;
+  const name = titleMatch ? rawName : id.charAt(0).toUpperCase() + id.slice(1);
 
   const platformMatch = mdText.match(/\*\*Platform:\*\*\s*(.+)$/m);
   const platform = platformMatch ? platformMatch[1].trim() : '';
 
-  const whoMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*)$/i);
   const bodyAfterWho = whoMatch ? whoMatch[1].trim() : mdText.trim();
-
   const whoSectionOnlyMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*?)(?=\n##\s+|\s*$)/i);
   const whoSectionText = whoSectionOnlyMatch ? whoSectionOnlyMatch[1].trim() : bodyAfterWho;
 
@@ -158,7 +156,7 @@ function parseAgreementMarkdown(filePath, mdText) {
   };
 }
 
-// Extract script table or key commands from `04-scripts.md`
+// Extract script table (`| \`cmd\` | from | does |`) from markdown instruction files
 function parseScriptsMarkdown(mdText) {
   const rows = [];
   for (const line of String(mdText || '').split(/\r?\n/)) {
@@ -197,138 +195,93 @@ function sha256Text(text) {
   return crypto.createHash('sha256').update(String(text || ''), 'utf8').digest('hex');
 }
 
-function collectLdkMarkdownFiles(ldkDir, repoRoot) {
-  if (!fs.existsSync(ldkDir)) return [];
-  const out = [];
-  const walk = (dir) => {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const content = fs.readFileSync(full, 'utf8');
-        const rel = path.relative(repoRoot, full).replace(/\\/g, '/');
-        out.push({ relPath: rel, absPath: full, sha256: sha256Text(content) });
-      }
-    }
-  };
-  walk(ldkDir);
-  return out;
-}
-
 function assimilateDirectory(store, targetDir, options = {}) {
   const absDir = path.resolve(targetDir);
   if (!fs.existsSync(absDir)) {
     throw new Error(`directory does not exist: ${absDir}`);
   }
 
-  const isDirectLdk =
-    fs.existsSync(path.join(absDir, '02-gotchas.md')) ||
-    fs.existsSync(path.join(absDir, 'gotchas.md')) ||
-    fs.existsSync(path.join(absDir, '01-working-agreement.md')) ||
-    fs.existsSync(path.join(absDir, 'working-agreement.md'));
-
-  const ldkDir = isDirectLdk
-    ? absDir
-    : fs.existsSync(path.join(absDir, 'docs', 'dev'))
-      ? path.join(absDir, 'docs', 'dev')
-      : path.join(absDir, 'docs');
   const resolvedProj =
     options.project ||
-    (!isDirectLdk && typeof store.resolveProjectFromDir === 'function' ? store.resolveProjectFromDir(absDir) : '');
+    (typeof store.resolveProjectFromDir === 'function' ? store.resolveProjectFromDir(absDir) : '');
   const scope = resolvedProj && resolvedProj !== 'global' ? store.normalizeProject(resolvedProj) : 'global';
 
   const instructionFiles = discoverInstructionFiles(absDir);
-  const hasLdk = fs.existsSync(ldkDir);
+  const removeFiles = Boolean(options.removeFiles || options.removeLdk);
 
   const result = {
-    ldkDir,
     scope,
-    found: hasLdk || instructionFiles.length > 0,
+    found: instructionFiles.length > 0,
     usersImported: [],
     gotchasImported: 0,
     scriptsExtracted: 0,
-    instructionFiles: instructionFiles.map((f) => ({ file: f.file, path: f.path, bytes: Buffer.byteLength(f.content, 'utf8') })),
-    removedLdkDir: false,
+    instructionFiles: instructionFiles.map((f) => ({
+      file: f.file,
+      path: f.path,
+      bytes: Buffer.byteLength(f.content, 'utf8'),
+    })),
     removedInstructionFiles: [],
   };
 
   if (!result.found) return result;
 
-  if (hasLdk) {
-    // 1. Assimilate `agreements/*.md`
-    const agreementsDir = path.join(ldkDir, 'agreements');
-    if (fs.existsSync(agreementsDir)) {
-      const existingById = new Map(store.listUsers().map((u) => [u.id, u]));
-      for (const entry of fs.readdirSync(agreementsDir)) {
-        if (!entry.endsWith('.md')) continue;
-        const fullPath = path.join(agreementsDir, entry);
-        const parsed = parseAgreementMarkdown(fullPath, fs.readFileSync(fullPath, 'utf8'));
-        if (!parsed) continue;
-        const prev = existingById.get(parsed.id);
-        const shouldUpdate =
-          !prev ||
-          scope === 'global' ||
-          (!prev.active && parsed.calibration.length > (prev.calibration || '').length);
-        if (shouldUpdate) {
-          store.setUser(parsed.id, {
-            name: parsed.name,
-            osUsers: parsed.osUsers,
-            experience: parsed.experience,
-            platform: parsed.platform,
-            calibration: parsed.calibration,
-            active: existingById.size === 0 ? true : undefined,
-          });
-          result.usersImported.push(parsed.id);
-        }
-      }
-    }
+  const existingUsersById = new Map(store.listUsers().map((u) => [u.id, u]));
+  const existingGotchasByTitle = new Map(store.listGotchas(scope).map((g) => [g.title.toLowerCase(), g]));
+  const scriptLines = [];
 
-    // 2. Assimilate `02-gotchas.md` or `gotchas.md`
-    const gotchasFile = fs.existsSync(path.join(ldkDir, '02-gotchas.md'))
-      ? path.join(ldkDir, '02-gotchas.md')
-      : path.join(ldkDir, 'gotchas.md');
-    if (fs.existsSync(gotchasFile)) {
-      const parsedGotchas = parseGotchasMarkdown(fs.readFileSync(gotchasFile, 'utf8'));
-      const existingByTitle = new Map(store.listGotchas(scope).map((g) => [g.title.toLowerCase(), g]));
-      for (const g of parsedGotchas) {
-        const key = g.title.toLowerCase();
-        const prev = existingByTitle.get(key);
-        if (prev) {
-          if (/^Found\s+\d{4}-\d{2}-\d{2}\b/i.test(String(prev.fix || '').trim()) && typeof store.removeGotcha === 'function') {
-            store.removeGotcha(prev.id);
-          } else {
-            continue;
-          }
-        }
-        store.addGotcha({
-          scope,
-          title: g.title,
-          status: g.status,
-          evidence: g.evidence,
-          fix: g.fix,
-          created: g.created,
-        });
-        existingByTitle.set(key, g);
-        result.gotchasImported++;
-      }
-    }
-  }
-
-  // Also parse any `### <Gotcha>` sections or command tables inside discovered instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)
-  let scriptLines = [];
-  if (hasLdk) {
-    const scriptsFile = path.join(ldkDir, '04-scripts.md');
-    if (fs.existsSync(scriptsFile)) {
-      scriptLines = parseScriptsMarkdown(fs.readFileSync(scriptsFile, 'utf8'));
-    }
-  }
   for (const doc of instructionFiles) {
-    const extraScripts = parseScriptsMarkdown(doc.content);
-    for (const s of extraScripts) {
+    // 1. Extract optional `# Working with <Name>` operator profile
+    const parsedUser = parseAgreementMarkdown(doc.path, doc.content);
+    if (parsedUser) {
+      const prev = existingUsersById.get(parsedUser.id);
+      const shouldUpdate =
+        !prev ||
+        scope === 'global' ||
+        (!prev.active && parsedUser.calibration.length > (prev.calibration || '').length);
+      if (shouldUpdate) {
+        store.setUser(parsedUser.id, {
+          name: parsedUser.name,
+          osUsers: parsedUser.osUsers,
+          experience: parsedUser.experience,
+          platform: parsedUser.platform,
+          calibration: parsedUser.calibration,
+          active: existingUsersById.size === 0 ? true : undefined,
+        });
+        existingUsersById.set(parsedUser.id, parsedUser);
+        result.usersImported.push(parsedUser.id);
+      }
+    }
+
+    // 2. Extract structured `### <Gotcha>` entries
+    const parsedGotchas = parseGotchasMarkdown(doc.content);
+    for (const g of parsedGotchas) {
+      const key = g.title.toLowerCase();
+      const prev = existingGotchasByTitle.get(key);
+      if (prev) {
+        if (/^Found\s+\d{4}-\d{2}-\d{2}\b/i.test(String(prev.fix || '').trim()) && typeof store.removeGotcha === 'function') {
+          store.removeGotcha(prev.id);
+        } else {
+          continue;
+        }
+      }
+      store.addGotcha({
+        scope,
+        title: g.title,
+        status: g.status,
+        evidence: g.evidence,
+        fix: g.fix,
+        created: g.created,
+      });
+      existingGotchasByTitle.set(key, g);
+      result.gotchasImported++;
+    }
+
+    // 3. Extract `| \`cmd\` | from | does |` script tables
+    for (const s of parseScriptsMarkdown(doc.content)) {
       if (!scriptLines.includes(s)) scriptLines.push(s);
     }
   }
+
   result.scriptsExtracted = scriptLines.length;
 
   if (scope !== 'global') {
@@ -343,26 +296,17 @@ function assimilateDirectory(store, targetDir, options = {}) {
       });
     }
 
-    if (options.removeLdk) {
-      if (hasLdk) {
-        fs.rmSync(ldkDir, { recursive: true, force: true });
-        result.removedLdkDir = true;
-      }
+    if (removeFiles) {
       for (const doc of instructionFiles) {
         fs.rmSync(doc.path, { force: true });
         result.removedInstructionFiles.push(doc.file);
       }
     } else if (typeof store.recordAssimilatedFiles === 'function') {
-      // Shared repo mode: files remain on disk in git for non-Construct teammates;
-      // record their SHA-256 hashes so Construct shadows them in `event.system` and detects future edits.
-      const tracked = [
-        ...instructionFiles.map((f) => ({
-          relPath: f.file,
-          absPath: f.path,
-          sha256: sha256Text(f.content),
-        })),
-        ...(hasLdk ? collectLdkMarkdownFiles(ldkDir, absDir) : []),
-      ];
+      const tracked = instructionFiles.map((f) => ({
+        relPath: f.file,
+        absPath: f.path,
+        sha256: sha256Text(f.content),
+      }));
       store.recordAssimilatedFiles(scope, tracked);
       result.shadowedFiles = tracked.map((t) => t.relPath);
     }

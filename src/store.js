@@ -3631,8 +3631,9 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
   );
 
   let assimilated = null;
-  if (targetDir && fs.existsSync(path.join(targetDir, 'docs', 'dev'))) {
-    assimilated = assimilateLdk(targetDir, { project }, file);
+  if (targetDir && fs.existsSync(targetDir)) {
+    const candidate = assimilateLdk(targetDir, { project }, file);
+    if (candidate.found) assimilated = candidate;
   }
 
   return { ...res, assimilated };
@@ -3834,7 +3835,7 @@ function assimilateLdk(targetDir, options = {}, file = dbPath()) {
 // One-command plug-and-play setup for any new user (`construct init [--rom <name>] [--dir <opencode_config_dir>]`):
 //   1. Generates DID identity + initializes `construct.db`
 //   2. Selects initial ROM (if `--rom` given)
-//   3. Auto-discovers and eats any existing global `llm-dev-kit` (`~/.config/opencode/llm-dev-kit` or `~/.claude/llm-dev-kit`)
+//   3. Auto-discovers and assimilates any existing global `AGENTS.md` / `CLAUDE.md`
 //   4. Installs `~/.config/opencode/plugins/construct.js`
 //   5. Ensures `~/.config/opencode/active-rom.md` is in `~/.config/opencode/opencode.jsonc` instructions
 //   6. Compiles `active-rom.md` (with New Operator Onboarding active if no user agreement exists yet)
@@ -3876,11 +3877,8 @@ function initConstruct(options = {}, file = dbPath()) {
   }
 
   const assimilated = [];
-  const candidateLdkDirs = [
-    path.join(configDir, 'llm-dev-kit'),
-    path.join(os.homedir(), '.claude', 'llm-dev-kit'),
-  ];
-  for (const dir of candidateLdkDirs) {
+  const candidateGlobalDirs = [configDir, path.join(os.homedir(), '.claude')];
+  for (const dir of candidateGlobalDirs) {
     if (fs.existsSync(dir)) {
       const res = assimilateLdk(dir, { project: 'global', rewriteAgents: false }, file);
       if (res.found) assimilated.push(res);

@@ -25,7 +25,7 @@ Setup & Instruction Assimilation:
                               PreToolUse (Bash/PowerShell shell guard + Agent [ROM: x] routing).
   assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
                               Scan a directory for existing AI instruction files (AGENTS.md,
-                              CLAUDE.md, GEMINI.md, .cursorrules, docs/) and import agreements,
+                              CLAUDE.md, GEMINI.md, .cursorrules) and import agreements,
                               gotchas, and script commands into construct.db (never writes files
                               into the project repo).
 
@@ -160,7 +160,6 @@ const OPTIONS = {
   'git-url': { type: 'string' },
   branch: { type: 'string' },
   setup: { type: 'string' },
-  'remove-ldk': { type: 'boolean' },
   'remove-files': { type: 'boolean' },
   claude: { type: 'boolean' },
   port: { type: 'string' },
@@ -712,7 +711,7 @@ function main(argv) {
       const targetDir = rest[0] || process.cwd();
       const res = store.assimilateLdk(targetDir, {
         project: o.project,
-        removeLdk: Boolean(o['remove-ldk'] || o['remove-files']),
+        removeFiles: Boolean(o['remove-files']),
       });
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else if (!res.found) {

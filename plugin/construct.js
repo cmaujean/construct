@@ -110,7 +110,7 @@ function normPathForMatch(p) {
 
 // Strip already-assimilated repository instruction blocks (`Instructions from: <path>`)
 // from `event.system` in place so shared repos with non-Construct teammates do not
-// double-inject bloated `AGENTS.md` / `CLAUDE.md` / `docs/dev/*.md` files or override Construct rules.
+// double-inject bloated `AGENTS.md` / `CLAUDE.md` files or override Construct rules.
 export function stripShadowedInstructions(systemParts, shadowedPaths = []) {
   if (!Array.isArray(systemParts) || !shadowedPaths.length) return 0
   const shadowedSet = new Set(shadowedPaths.map(normPathForMatch).filter(Boolean))
@@ -996,7 +996,7 @@ export default {
               type: "string",
               description: "Optional local repository directory (target clone path for `join`, or source repo path for `invite`)",
             },
-            project: { type: "string", description: "Project key when assimilating a repository's docs/dev/" },
+            project: { type: "string", description: "Project key when assimilating a repository's instruction files" },
             relays: { type: "string", description: "Optional comma-separated WebSocket relay URLs" },
           },
           required: ["action"],

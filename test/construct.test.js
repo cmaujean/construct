@@ -577,20 +577,11 @@ module.exports = {
     delete process.env.CONSTRUCT_USER;
   });
 
-  it('assimilates existing repository instruction files and dev docs (agreements, 02-gotchas.md, 04-scripts.md)', () => {
-    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-ldk-repo-'));
+  it('assimilates existing repository instruction files (AGENTS.md, CLAUDE.md, GEMINI.md)', () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-assim-repo-'));
     try {
-      const ldkDir = path.join(repoDir, 'docs', 'dev');
-      const agreementsDir = path.join(ldkDir, 'agreements');
-      fs.mkdirSync(agreementsDir, { recursive: true });
-
       fs.writeFileSync(
-        path.join(agreementsDir, 'TEMPLATE.md'),
-        '# Working with <name>\nTemplate text that must be ignored.\n',
-        'utf8'
-      );
-      fs.writeFileSync(
-        path.join(agreementsDir, 'alice.md'),
+        path.join(repoDir, 'CLAUDE.md'),
         `# Working with Alice
 
 **Platform:** Linux (Ubuntu 24.04, bash).
@@ -611,8 +602,8 @@ Use \`/tmp/opencode\` outside the repository.
       );
 
       fs.writeFileSync(
-        path.join(ldkDir, '02-gotchas.md'),
-        `# The gotchas log
+        path.join(repoDir, 'AGENTS.md'),
+        `# Project Instructions & Gotchas
 
 ### <The claim>
 
@@ -635,13 +626,8 @@ Found 2026-10-01. See #75.
 Set NODE_OPTIONS=--max_old_space_size=4096.
 
 Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
-`,
-        'utf8'
-      );
 
-      fs.writeFileSync(
-        path.join(ldkDir, '04-scripts.md'),
-        `# Scripts
+## Scripts
 
 | Command | From | Does |
 |---|---|---|
@@ -651,15 +637,14 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         'utf8'
       );
 
-      const res = store.assimilateLdk(repoDir, { project: 'acme/alpha_app', removeLdk: true });
+      const res = store.assimilateLdk(repoDir, { project: 'acme/alpha_app', removeFiles: true });
       assert.equal(res.found, true);
       assert.deepEqual(res.usersImported, ['alice']);
       assert.equal(res.gotchasImported, 2);
       assert.equal(res.scriptsExtracted, 2);
-      assert.equal(res.removedLdkDir, true);
-      assert.equal(fs.existsSync(ldkDir), false);
-      // Verify construct never pollutes the target repository with an AGENTS.md or construct files
+      assert.deepEqual(res.removedInstructionFiles.sort(), ['AGENTS.md', 'CLAUDE.md']);
       assert.equal(fs.existsSync(path.join(repoDir, 'AGENTS.md')), false);
+      assert.equal(fs.existsSync(path.join(repoDir, 'CLAUDE.md')), false);
 
       const alice = store.getUser('alice').user;
       assert.equal(alice.name, 'Alice');
@@ -677,7 +662,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     }
   });
 
-  it('auto-clones a missing git repo on joinInvite, assimilates its LDK, and prevents cross-project bleed', async () => {
+  it('auto-clones a missing git repo on joinInvite, assimilates its instruction files, and prevents cross-project bleed', async () => {
     const relaySrv = await store.startLocalRelayServer(0);
     const aliceHome = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-alice-'));
     const bobHome = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-bob-'));
@@ -686,11 +671,11 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       const aliceSrc = path.join(aliceHome, 'src');
       const bobSrc = path.join(bobHome, 'src');
       const sharedRepoOrigin = path.join(aliceSrc, 'acme', 'shared_app');
-      fs.mkdirSync(path.join(sharedRepoOrigin, 'docs', 'dev'), { recursive: true });
+      fs.mkdirSync(sharedRepoOrigin, { recursive: true });
 
-      // Initialize a real git repository in Alice's ~/src/acme/shared_app with an LDK gotcha
+      // Initialize a real git repository in Alice's ~/src/acme/shared_app with an AGENTS.md gotcha
       fs.writeFileSync(
-        path.join(sharedRepoOrigin, 'docs', 'dev', '02-gotchas.md'),
+        path.join(sharedRepoOrigin, 'AGENTS.md'),
         `# Gotchas\n\n### StreamProvider must be watched, not read, inside build()\n\n**observed** -- frame 1 saw null.\n\nAlways call ref.watch on stream providers.\n\nFound 2026-10-16.\n`,
         'utf8'
       );
