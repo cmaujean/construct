@@ -380,18 +380,20 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
 
   const allPackMeta = packs.getAllPackMetadata();
   const seatOrder = packs.SEAT_ORDER;
+  const CAMEO_SEAT_INDICES = [0, 3, 5, 6]; // recon (🔵), blitz (🔴), velocity/courier (⚡), redteam (🛡️)
   const otherPackSummaries = Object.entries(allPackMeta)
     .filter(([pName]) => pName !== dominantPack)
     .map(([pName, pMeta]) => {
-      const starters = (pMeta.defaultStarters || [])
-        .map((sName, idx) => {
+      const starters = pMeta.defaultStarters || [];
+      const highlights = CAMEO_SEAT_INDICES.filter((idx) => starters[idx])
+        .map((idx) => {
           const seatId = seatOrder[idx] || 'recon';
           const g = SEAT_MAP[seatId]?.glyph || '🔹';
-          return `${g}\`${sName}\``;
+          return `${g}\`${starters[idx]}\``;
         })
         .join(' ');
       const bench = (pMeta.backups || []).length ? ` (+${pMeta.backups.join(',')})` : '';
-      return `\`${pName}\` [${starters}${bench}]`;
+      return `\`${pName}\` [${highlights}${bench}]`;
     });
   const cameoBlock = otherPackSummaries.length
     ? `\n- **Cross-Bank Cameo Roster (on explicit name or world-cue only):** ${otherPackSummaries.join(' | ')}`
@@ -402,7 +404,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "discworld" | "reamde" | "irondruid" | "prydain" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "discworld" | "reamde" | "irondruid" | "prydain" | "clockwork" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates',
     '1. **Run Banner, Color Tags & Voice:**',
@@ -477,11 +479,12 @@ function compileUnassignedBootloaderPrompt(razorRom) {
     '     - label: `"reamde (Corporation 9592, T\'Rain & Tactical Overwatch)"`, description: `"Neal Stephenson (REAMDE). Pioneer Square MMORPG engine, GIS packet forensics, and Spetsnaz overwatch: Richard Forthrast, Zula, D-Squared, Sokolov, Csongor, Yuxia, Olivia Halifax-Lin, Pluto, and Devin Skraelin."`',
     '     - label: `"irondruid (Third Eye Books, Tempe Pack & The World Tree)"`, description: `"Kevin Hearne (The Iron Druid Chronicles). Elemental bindings, telepathic wolfhound traces, and vampire contract law: Atticus, Oberon, The Morrigan, Owen Kennedy, Hal Hauk, Granuaile, Leif Helgarson, Brighid, and Ogma."`',
     '     - label: `"prydain (Caer Dallben, Caer Dathyl & The Free Commots)"`, description: `"Lloyd Alexander (The Chronicles of Prydain). The Book of Three, Fflewddur Fflam\'s truth-testing harp, and Free Commots craft: Dallben, Taran, Gwydion, Coll, Fflewddur, Gurgi, Doli, Eilonwy, and Taliesin."`',
+    '     - label: `"clockwork (The Korova Milkbar & Ludovico Center)"`, description: `"Anthony Burgess (A Clockwork Orange). Korova Milk-Plus, Ludwig van\'s Ninth, Nadsat droogs, and Brodsky Center forensics: Little Alex, Pete, Georgie, Dim, Dr. Brodsky, Dr. Branom, P.R. Deltoid, F. Alexander, and The Prison Chaplain."`',
     '     - label: `"generic (The Standard Engineering Crew)"`, description: `"Zero-fiction professional specialist pipeline. Pure engineering roles without literary personas: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger."`',
     '   - **Question 2** (`header: "Crew Scope"`, `question: "Use this Crew for this session only, or set as your default until further notice?"`):',
     '     - label: `"Default until further notice (Recommended)"`, description: `"Boot future sessions directly into this Crew without asking"`',
     '     - label: `"This session only"`, description: `"Bind to this session tab only; new sessions will ask again"`',
-    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
+    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, `clockwork`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
   ].join('\n');
 }
 

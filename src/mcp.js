@@ -1,20 +1,23 @@
-// Model Context Protocol (MCP) `stdio` Server & Claude Code Hook Bridge for Construct.
+// Model Context Protocol (MCP) `stdio` Server, Shared Tool Engine & Claude Code Hook Bridge for Construct.
 //
-// Zero external dependencies: speaks JSON-RPC 2.0 over `stdin`/`stdout` (supporting
-// both MCP standard newline-delimited JSON-RPC and `Content-Length` framed messages),
-// exposing all 11 Construct tools (`construct_boot`, `construct_rec`, `construct_head`,
-// `construct_resolve`, `construct_zoom`, `construct_search`, `construct_rom`,
-// `construct_user`, `construct_gotcha`, `construct_comms`, `construct_sync`) to
-// Claude Code, Cursor, Windsurf, Zed, or any MCP client.
-//
-// Also provides `runClaudeHook(mode, inputJson)` for Claude Code's `UserPromptSubmit` /
-// `SessionStart` (`<construct-live-memory>` injection with `session_id` isolation) and
-// `PreToolUse` (`Bash` shell guard).
+// Zero external dependencies:
+// 1. Defines the single canonical `CONSTRUCT_TOOL_SPECS` (11 tools) shared by both the OpenCode V2
+//    plugin (`plugin/construct.js`) and the MCP server (`MCP_TOOLS`), eliminating schema/handler duplication.
+// 2. Speaks JSON-RPC 2.0 over `stdin`/`stdout` (supporting both MCP standard newline-delimited JSON-RPC
+//    and `Content-Length` framed messages), exposing `tools`, `prompts`, `resources`, and
+//    `initialize.result.instructions` to OpenCode, Claude Code, Cursor, Windsurf, Cline, Zed, or Goose.
+// 3. Provides `runClaudeHook(mode, inputJson)`, `buildFrontierVoiceLock`, `detectPreSlotRomDirective`,
+//    and `validateShellCommand`.
 
 'use strict';
 
-const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const store = require('./store');
+const packs = require('./packs');
+const romMod = require('./rom');
+const protocol = require('./protocol');
 
 const CONSTRUCT_BIN = path.join(__dirname, '..', 'bin', 'construct.js');
 
@@ -61,9 +64,50 @@ function validateShellCommand(command, options = {}) {
   return true;
 }
 
-const MCP_TOOLS = Object.freeze([
+// Build a compact (~55-token) generation-frontier voice lock from the active `<construct-live-memory>`
+// output so sessions with 500+ historical messages or 30-step tool loops never drift into generic
+// assistant prose or stock `### 1. Heading` templates at the end of the context window.
+function buildFrontierVoiceLock(bootOutput = '') {
+  const text = String(bootOutput || '');
+  if (!text) return '';
+
+  const hasCourier = text.includes('INCOMING CONSTRUCT COURIER') || text.includes('CONSTRUCT COURIER REPLIES');
+  const courierLine = hasCourier
+    ? `\nPENDING COURIER ALERT: Hold the Courier cameo until your FINAL turn-closing message (do NOT bury it inside intermediate tool calls), and place the Courier cameo at the VERY BOTTOM of your final reply so the operator sees it immediately upon returning!`
+    : '';
+
+  const bannerMatch = text.match(/Start visible replies directly with ([^\n]+?) or the active speaker/);
+  const tagMatch = text.match(/Prefix speaker switches with their tag \(e\.g\. ([^\n)]+)\)/);
+  if (bannerMatch || tagMatch) {
+    const banner = bannerMatch ? bannerMatch[1].trim() : 'the active Crew Bank banner';
+    const tags = tagMatch ? tagMatch[1].trim() : 'color-coded speaker tags';
+    return (
+      `<construct-voice-lock>\n` +
+      `ACTIVE CREW VOICE LOCK: Start new runs with ${banner} or a color-coded speaker tag (${tags}). ` +
+      `Write 100% in that character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
+      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
+      `</construct-voice-lock>`
+    );
+  }
+
+  const soloMatch = text.match(/^# Active Session (?:Personality )?ROM:\s*([^\n]+)/m);
+  if (soloMatch) {
+    return (
+      `<construct-voice-lock>\n` +
+      `ACTIVE ROM VOICE LOCK (${soloMatch[1].trim()}): Stay 100% in this character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
+      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
+      `</construct-voice-lock>`
+    );
+  }
+
+  return '';
+}
+
+// Single canonical specification for all 11 Construct tools.
+// Used directly by `plugin/construct.js` (`tools.construct.<name>`) and mapped to `construct_<name>` in `MCP_TOOLS`.
+const CONSTRUCT_TOOL_SPECS = Object.freeze([
   {
-    name: 'construct_boot',
+    name: 'boot',
     description: "Read a project's live state head, open threads, project gotchas, and sequential tape (or omit project/dir to list all projects).",
     inputSchema: {
       type: 'object',
@@ -77,7 +121,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_rec',
+    name: 'rec',
     description: 'Append a frame onto the sequential memory tape.',
     inputSchema: {
       type: 'object',
@@ -100,7 +144,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_head',
+    name: 'head',
     description: "Update a project's current state head (state, next step, and local repo path).",
     inputSchema: {
       type: 'object',
@@ -115,7 +159,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_resolve',
+    name: 'resolve',
     description: 'Resolve one or more open thread frames by seq ID (and optionally close linked GitHub issues when `closeGh: true` is explicitly passed).',
     inputSchema: {
       type: 'object',
@@ -131,7 +175,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_zoom',
+    name: 'zoom',
     description: 'Zoom into a frame by seq: full detail, causal chain, and neighboring tape window.',
     inputSchema: {
       type: 'object',
@@ -144,8 +188,8 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_search',
-    description: 'FTS5 BM25 search across the sequential tape, or unified provenance lookup (`why: true` for gotchas + frames with author attribution + git log + optional peer Construct query).',
+    name: 'search',
+    description: 'FTS5 BM25 search across the sequential tape, or unified provenance lookup (`why: true` for gotchas + CRDT tape authors + git log + optional peer Construct query).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -161,8 +205,8 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_rom',
-    description: 'List, inspect, slot for this session (`use`), set/clear an until-further-notice default (`default`), tune, or burn directives into a Personality ROM.',
+    name: 'rom',
+    description: 'List, inspect, slot a ROM or Crew Bank (`use`: sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic, or solo/roster), substitute a bench backup (`sub`), set/clear default (`default`), list banks (`packs`), tune dials, or create custom ROMs (`set`).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -172,12 +216,15 @@ const MCP_TOOLS = Object.freeze([
         },
         target: {
           type: 'string',
-          description: "ROM or Crew Bank name (sprawl, anathem, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, or index for unburn)",
+          description: "ROM or Crew Bank name (sprawl, discworld, reamde, clockwork, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, or index for unburn)",
         },
         rom: { type: 'string', description: 'Optional ROM name when tuning or burning a non-active ROM' },
         pack: { type: 'string', description: 'Crew bank name when filtering list or creating a custom ROM with `set`' },
-        seat: { type: 'string' },
-        tier: { type: 'string' },
+        seat: {
+          type: 'string',
+          enum: ['recon', 'diagnostics', 'architect', 'blitz', 'forensics', 'velocity', 'redteam', 'ergonomics', 'archivist', 'instrument'],
+        },
+        tier: { type: 'string', enum: ['primary', 'backup'] },
         handle: { type: 'string' },
         tagline: { type: 'string' },
         voice: { type: 'string' },
@@ -188,7 +235,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_user',
+    name: 'user',
     description: "Inspect, list, switch, or register an operator's personal working agreement.",
     inputSchema: {
       type: 'object',
@@ -202,7 +249,7 @@ const MCP_TOOLS = Object.freeze([
         osUsers: { type: 'string', description: 'Comma-separated OS usernames mapped to this operator' },
         experience: { type: 'string' },
         platform: { type: 'string' },
-        workspaceRoot: { type: 'string', description: 'Optional base folder for git repositories' },
+        workspaceRoot: { type: 'string', description: 'Optional base folder for git repositories (e.g. ~/src, ~/code, D:\\projects)' },
         calibration: { type: 'string' },
         use: { type: 'boolean' },
       },
@@ -211,7 +258,7 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_gotcha',
+    name: 'gotcha',
     description: 'List, add, search, or remove global or project-scoped gotchas.',
     inputSchema: {
       type: 'object',
@@ -238,20 +285,20 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_comms',
-    description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`).",
+    name: 'comms',
+    description: "Send, reply, acknowledge, hide, purge, or list person-to-person Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`), optionally specifying a courier/messenger ROM (`via`: e.g. 'smeagol', 'moist', 'toot', 'bob', 'oberon', 'branom').",
     inputSchema: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['msg', 'reply', 'ack', 'inbox', 'drop', 'apply-drop'],
+          enum: ['msg', 'reply', 'ack', 'hide', 'purge', 'inbox', 'drop', 'apply-drop'],
         },
-        project: { type: 'string', description: 'Project key, e.g. acme/alpha_app' },
-        to: { type: 'string', description: 'Recipient operator id (for msg/inbox/drop), e.g. bob' },
-        via: { type: 'string', description: "Optional courier/messenger ROM to deliver the message or reply in-character (e.g. 'toot', 'bob', 'dixie', 'johnny')" },
-        id: { type: 'integer', description: 'Message id (for reply/ack/apply-drop)' },
-        body: { type: 'string', description: 'Message, reply text, or patch content (for drop)' },
+        project: { type: 'string', description: 'Optional project key (comms are person-to-person across all shared MLS groups; omit project to route automatically to the recipient)' },
+        to: { type: 'string', description: 'Recipient operator id (for msg/inbox/drop), e.g. mike' },
+        via: { type: 'string', description: "Optional courier/messenger ROM to deliver the message or reply in-character in the recipient's feed (e.g. 'smeagol', 'moist', 'toot', 'bob', 'oberon')" },
+        id: { type: 'integer', description: 'Message id (for reply/ack/hide/purge/apply-drop)' },
+        body: { type: 'string', description: "Message or reply text WRITTEN IN THE AUTHENTIC FIRST-PERSON VOICE OF THE COURIER ROM (`via`), preserving 100% of the operator's meaning and technical coordinates" },
         file: { type: 'string', description: 'File path to drop or output path for apply-drop' },
         gitDiff: { type: 'boolean', description: 'Capture and drop uncommitted git diff from project repo' },
         apply: { type: 'boolean', description: 'Run `git apply` on an incoming git-diff drop' },
@@ -261,8 +308,8 @@ const MCP_TOOLS = Object.freeze([
     },
   },
   {
-    name: 'construct_sync',
-    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), or HTML dashboard generation.',
+    name: 'sync',
+    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues & PRs (`issues-sync`, `issues-publish`, `pr-sync`, `pr-open`, `pr-review`, `pr-merge`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -290,17 +337,17 @@ const MCP_TOOLS = Object.freeze([
         },
         target: {
           type: 'string',
-          description: 'Project key (for invite/sync/export), construct://invite/... URI (for join), construct://packet/... token (for import), or directory path (for assimilate)',
+          description: 'Project key (for invite/sync/export/issues-sync/pr-sync), frame seq (for issues-publish), PR number (for pr-review/pr-merge), PR title (for pr-open), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)',
         },
         dir: {
           type: 'string',
           description: 'Optional local repository directory (target clone path for `join`, or source repo path for `invite`)',
         },
-        project: { type: 'string', description: "Project key when assimilating, opening/reviewing/merging a PR, or syncing issues" },
-        to: { type: 'string', description: 'Optional teammate operator id to notify via Courier on PR open/review/merge' },
-        via: { type: 'string', description: "Optional Courier ROM name (e.g. 'toot', 'bob', 'dixie') on PR open/review/merge" },
+        project: { type: 'string', description: 'Project key when assimilating, opening/reviewing/merging a PR, or syncing issues' },
+        to: { type: 'string', description: 'Optional teammate operator id to notify via Courier when opening, reviewing, or merging a PR' },
+        via: { type: 'string', description: "Optional Courier ROM name (e.g. 'toot', 'bob', 'moist') when notifying a teammate on PR open/review/merge" },
         body: { type: 'string', description: 'PR description (for pr-open) or review comment body (for pr-review)' },
-        verdict: { type: 'string', enum: ['approve', 'request-changes', 'comment'], description: 'Review verdict for pr-review' },
+        verdict: { type: 'string', enum: ['approve', 'request-changes', 'comment'], description: 'Review verdict for `pr-review`' },
         relays: { type: 'string', description: 'Optional comma-separated WebSocket relay URLs' },
       },
       required: ['action'],
@@ -309,34 +356,99 @@ const MCP_TOOLS = Object.freeze([
   },
 ]);
 
-function executeMcpTool(name, input = {}) {
-  switch (name) {
-    case 'construct_boot': {
-      if (!input.project && !input.dir) return runConstructCli(['projects']);
+const MCP_TOOLS = Object.freeze(
+  CONSTRUCT_TOOL_SPECS.map((spec) => ({
+    name: `construct_${spec.name}`,
+    description: spec.description,
+    inputSchema: spec.inputSchema,
+  }))
+);
+
+const MCP_PROMPTS = Object.freeze([
+  {
+    name: 'crew',
+    description: 'Switch Construct Crew Bank for this session or project (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic)',
+    arguments: [{ name: 'bank', description: 'Crew Bank name (e.g. discworld, reamde, clockwork)', required: true }],
+  },
+  {
+    name: 'sub',
+    description: 'Substitute a Bench / Second specialist into the active 9-seat Crew',
+    arguments: [{ name: 'specialist', description: 'Backup specialist name (e.g. weatherwax, boromir, wallace, minister)', required: true }],
+  },
+  {
+    name: 'boot',
+    description: 'Load Construct sequential memory, state head, gotchas, and active Crew for a project',
+    arguments: [{ name: 'project', description: 'Optional project key (defaults to current working directory)', required: false }],
+  },
+]);
+
+const MCP_RESOURCES = Object.freeze([
+  {
+    uri: 'construct://memory/current',
+    name: 'Construct Live Memory & Active Crew',
+    description: 'Live <construct-live-memory> snapshot for the current workspace directory',
+    mimeType: 'text/markdown',
+  },
+  {
+    uri: 'construct://inbox',
+    name: 'Construct Comms & Courier Inbox',
+    description: 'Active person-to-person Construct Courier messages and replies',
+    mimeType: 'text/plain',
+  },
+  {
+    uri: 'construct://gotchas/global',
+    name: 'Construct Global Machine & Tool Gotchas',
+    description: 'Global machine, OS, shell, and toolchain gotchas with mechanical guards',
+    mimeType: 'text/markdown',
+  },
+]);
+
+function executeMcpTool(name, input = {}, meta = {}) {
+  const shortName = String(name || '').replace(/^construct_/, '');
+  const sessionID =
+    input.session ||
+    meta?.['ai.opencode/sessionID'] ||
+    meta?.sessionID ||
+    process.env.CONSTRUCT_SESSION_ID ||
+    '';
+  const contextDir = input.dir || meta?.dir || '';
+
+  switch (shortName) {
+    case 'boot': {
+      if (!input.project && !contextDir) return runConstructCli(['projects']);
       const args = ['boot'];
       if (input.project) args.push(String(input.project));
-      if (input.dir) args.push('--dir', String(input.dir));
-      if (input.session) args.push('--session', String(input.session));
+      if (contextDir) args.push('--dir', String(contextDir));
+      if (sessionID) args.push('--session', String(sessionID));
       if (input.limit) args.push('-n', String(input.limit));
       return runConstructCli(args);
     }
-    case 'construct_rec': {
-      const args = ['rec', String(input.project), String(input.kind), String(input.summary)];
-      if (input.detail) args.push('--detail', String(input.detail));
-      if (input.verified) args.push('--verified', String(input.verified));
-      if (input.parent) args.push('--parent', String(input.parent));
-      if (input.resolves) args.push('--resolves', String(input.resolves));
-      if (input.open) args.push('--open');
-      if (input.refs) args.push('--refs', String(input.refs));
-      return runConstructCli(args);
+    case 'rec': {
+      // Fast in-process SQLite execution (<2ms instead of 120ms subprocess spawn)
+      const res = store.recordFrame({
+        project: input.project,
+        kind: input.kind,
+        summary: input.summary,
+        detail: input.detail,
+        verified: input.verified,
+        parentSeq: input.parent,
+        resolves: input.resolves,
+        open: input.open ? true : undefined,
+        refs: input.refs,
+      });
+      const resolvedMsg = res.resolved.length ? ` (resolved ${res.resolved.map((s) => `#${s}`).join(', ')})` : '';
+      const openMsg = res.frame.open ? ' [OPEN]' : '';
+      return `recorded #${res.frame.seq} [${res.frame.project}/${res.frame.kind}]${openMsg}${resolvedMsg}: ${res.frame.summary}`;
     }
-    case 'construct_head': {
-      const args = ['head', String(input.project), '--state', String(input.state)];
-      if (input.next !== undefined) args.push('--next', String(input.next));
-      if (input.repo !== undefined) args.push('--repo', String(input.repo));
-      return runConstructCli(args);
+    case 'head': {
+      const h = store.setHead(input.project, {
+        state: input.state,
+        next: input.next,
+        repo: input.repo,
+      });
+      return `updated head for ${h.project} (${String(h.updated || '').slice(0, 10)})`;
     }
-    case 'construct_resolve': {
+    case 'resolve': {
       const args = ['resolve', String(input.seqs)];
       if (input.by) args.push('--by', String(input.by));
       if (input.reason) args.push('--reason', String(input.reason));
@@ -344,12 +456,12 @@ function executeMcpTool(name, input = {}) {
       if (input.closeGh) args.push('--close-gh');
       return runConstructCli(args);
     }
-    case 'construct_zoom': {
+    case 'zoom': {
       const args = ['zoom', String(input.seq)];
       if (input.window !== undefined) args.push('-w', String(input.window));
       return runConstructCli(args);
     }
-    case 'construct_search': {
+    case 'search': {
       if (input.why) {
         const args = ['why', String(input.query)];
         if (input.project) args.push('--project', String(input.project));
@@ -362,7 +474,7 @@ function executeMcpTool(name, input = {}) {
       if (input.open) args.push('--open');
       return runConstructCli(args);
     }
-    case 'construct_rom': {
+    case 'rom': {
       const args = ['rom', String(input.action)];
       if (input.target) {
         if (input.action === 'tune') {
@@ -378,11 +490,11 @@ function executeMcpTool(name, input = {}) {
       if (input.handle) args.push('--handle', String(input.handle));
       if (input.tagline) args.push('--tagline', String(input.tagline));
       if (input.voice) args.push('--voice', String(input.voice));
-      const sid = input.session || process.env.CONSTRUCT_SESSION_ID || '';
-      if (sid) args.push('--session', String(sid));
+      if (sessionID) args.push('--session', String(sessionID));
+      if (contextDir) args.push('--dir', String(contextDir));
       return runConstructCli(args);
     }
-    case 'construct_user': {
+    case 'user': {
       const args = ['user', String(input.action)];
       if (input.id) args.push(String(input.id));
       if (input.name) args.push('--name', String(input.name));
@@ -394,7 +506,7 @@ function executeMcpTool(name, input = {}) {
       if (input.use) args.push('--use');
       return runConstructCli(args);
     }
-    case 'construct_gotcha': {
+    case 'gotcha': {
       const args = ['gotcha', String(input.action)];
       if (input.title) args.push(String(input.title));
       if (input.project === 'all') args.push('--all');
@@ -407,25 +519,38 @@ function executeMcpTool(name, input = {}) {
       if (input.tags) args.push('--tags', String(input.tags));
       return runConstructCli(args);
     }
-    case 'construct_comms': {
+    case 'comms': {
       if (input.action === 'msg') {
-        const args = ['msg', String(input.project || 'global'), '--to', String(input.to)];
+        const args = ['msg', '--to', String(input.to)];
+        if (input.project) args.push('--project', String(input.project));
         if (input.via) args.push('--via', String(input.via));
+        if (sessionID) args.push('--session', String(sessionID));
         args.push(String(input.body));
         return runConstructCli(args);
       }
       if (input.action === 'reply') {
         const args = ['reply', String(input.id)];
         if (input.via) args.push('--via', String(input.via));
+        if (sessionID) args.push('--session', String(sessionID));
         args.push(String(input.body));
         return runConstructCli(args);
       }
       if (input.action === 'ack') {
-        return runConstructCli(['ack', String(input.id)]);
+        const m = store.ackMessage(input.id);
+        return `acknowledged delivery of [M#${m.id}]`;
+      }
+      if (input.action === 'hide') {
+        const m = store.hideMessage(input.id);
+        return `hidden message [M#${m.id}]`;
+      }
+      if (input.action === 'purge') {
+        const m = store.purgeMessage(input.id);
+        return `purged message [M#${m.id}] from everywhere`;
       }
       if (input.action === 'drop') {
         const args = ['drop', String(input.project || 'global'), '--to', String(input.to)];
         if (input.via) args.push('--via', String(input.via));
+        if (sessionID) args.push('--session', String(sessionID));
         if (input.file) args.push('--file', String(input.file));
         if (input.gitDiff) args.push('--git-diff');
         if (input.body) args.push('--content', String(input.body));
@@ -442,7 +567,7 @@ function executeMcpTool(name, input = {}) {
       if (input.to) args.push('--to', String(input.to));
       return runConstructCli(args);
     }
-    case 'construct_sync': {
+    case 'sync': {
       if (input.action === 'did') return runConstructCli(['did']);
       if (input.action === 'init') return runConstructCli(['init']);
       if (input.action === 'upgrade') return runConstructCli(['upgrade']);
@@ -475,6 +600,7 @@ function executeMcpTool(name, input = {}) {
         if (input.to) args.push('--to', String(input.to));
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
+        if (sessionID) args.push('--session', String(sessionID));
         return runConstructCli(args);
       }
       if (input.action === 'pr-review') {
@@ -486,6 +612,7 @@ function executeMcpTool(name, input = {}) {
         if (input.to) args.push('--to', String(input.to));
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
+        if (sessionID) args.push('--session', String(sessionID));
         return runConstructCli(args);
       }
       if (input.action === 'pr-merge') {
@@ -493,6 +620,7 @@ function executeMcpTool(name, input = {}) {
         if (input.to) args.push('--to', String(input.to));
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
+        if (sessionID) args.push('--session', String(sessionID));
         return runConstructCli(args);
       }
       if (input.action === 'assimilate') {
@@ -510,6 +638,21 @@ function executeMcpTool(name, input = {}) {
     }
     default:
       throw new Error(`unknown MCP tool "${name}"`);
+  }
+}
+
+function buildMcpServerInstructions() {
+  try {
+    const user = store.getUser();
+    const gotchas = store.listGotchas('global');
+    const baseMd = romMod.compileBaseProtocolMarkdown({ user, gotchas });
+    const cwd = process.cwd();
+    const bootOut = runConstructCli(['boot', '--dir', cwd, '-n', '8']);
+    const cleanBoot = bootOut.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
+    const voiceLock = buildFrontierVoiceLock(cleanBoot);
+    return `${baseMd}\n<construct-live-memory directory="${cwd}">\n${cleanBoot}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
+  } catch (_) {
+    return 'Construct sequential memory & 9-seat Crew engine active. Call `construct_boot` to load the current project tape and Crew.';
   }
 }
 
@@ -533,11 +676,14 @@ function handleJsonRpcRequest(req) {
             protocolVersion: clientVer,
             capabilities: {
               tools: {},
+              prompts: {},
+              resources: {},
             },
             serverInfo: {
               name: 'construct',
               version: '0.1.0',
             },
+            instructions: buildMcpServerInstructions(),
           },
         };
       }
@@ -556,8 +702,9 @@ function handleJsonRpcRequest(req) {
       case 'tools/call': {
         const toolName = params?.name;
         const toolArgs = params?.arguments || {};
+        const toolMeta = params?._meta || {};
         try {
-          const text = executeMcpTool(toolName, toolArgs);
+          const text = executeMcpTool(toolName, toolArgs, toolMeta);
           return {
             jsonrpc: '2.0',
             id,
@@ -576,6 +723,87 @@ function handleJsonRpcRequest(req) {
             },
           };
         }
+      }
+      case 'prompts/list': {
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            prompts: MCP_PROMPTS,
+          },
+        };
+      }
+      case 'prompts/get': {
+        const pName = String(params?.name || '');
+        const pArgs = params?.arguments || {};
+        if (pName === 'crew') {
+          const bank = String(pArgs.bank || 'sprawl').trim().toLowerCase();
+          const out = executeMcpTool('rom', { action: 'use', target: bank });
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              description: `Switched Construct Crew Bank to ${bank}`,
+              messages: [{ role: 'user', content: { type: 'text', text: `${out}\nConfirm in the ${bank} Crew's voice.` } }],
+            },
+          };
+        }
+        if (pName === 'sub') {
+          const spec = String(pArgs.specialist || '').trim().toLowerCase();
+          const out = executeMcpTool('rom', { action: 'sub', target: spec });
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: {
+              description: `Subbed ${spec} into the active Crew`,
+              messages: [{ role: 'user', content: { type: 'text', text: `${out}\nConfirm in ${spec}'s voice.` } }],
+            },
+          };
+        }
+        const bootText = executeMcpTool('boot', { project: pArgs.project, dir: process.cwd() });
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            description: 'Construct live project memory & Crew',
+            messages: [{ role: 'user', content: { type: 'text', text: bootText } }],
+          },
+        };
+      }
+      case 'resources/list': {
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: {
+            resources: MCP_RESOURCES,
+          },
+        };
+      }
+      case 'resources/read': {
+        const uri = String(params?.uri || '');
+        if (uri === 'construct://inbox') {
+          const text = executeMcpTool('comms', { action: 'inbox' });
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: { contents: [{ uri, mimeType: 'text/plain', text }] },
+          };
+        }
+        if (uri === 'construct://gotchas/global') {
+          const gotchas = store.listGotchas('global');
+          const text = protocol.compileGotchasSection(gotchas);
+          return {
+            jsonrpc: '2.0',
+            id,
+            result: { contents: [{ uri, mimeType: 'text/markdown', text }] },
+          };
+        }
+        const text = executeMcpTool('boot', { dir: process.cwd() });
+        return {
+          jsonrpc: '2.0',
+          id,
+          result: { contents: [{ uri: 'construct://memory/current', mimeType: 'text/markdown', text }] },
+        };
       }
       default: {
         return {
@@ -646,9 +874,6 @@ function startMcpStdioServer() {
   });
 }
 
-const store = require('./store');
-const packs = require('./packs');
-
 function isValidRomTarget(spec) {
   const known = packs.getKnownRomTargets();
   const parts = String(spec || '')
@@ -659,8 +884,23 @@ function isValidRomTarget(spec) {
   return parts.length > 0 && parts.every((p) => known.has(p));
 }
 
+function normalizeMultiWordRomPhrases(rawText = '') {
+  return String(rawText || '')
+    .replace(/\bnight\s+city\b/gi, 'nightcity')
+    .replace(/\biron\s+druid(?:\s+chronicles)?\b/gi, 'irondruid')
+    .replace(/\b(?:a\s+)?clockwork\s+orange\b/gi, 'clockwork')
+    .replace(/\bkorova(?:\s+milkbar)?\b/gi, 'clockwork')
+    .replace(/\blaundry\s+files\b/gi, 'laundry')
+    .replace(/\bdresden\s+files\b/gi, 'dresden')
+    .replace(/\blord\s+of\s+the\s+rings\b/gi, 'tolkien')
+    .replace(/\bcouncil\s+of\s+elrond\b/gi, 'tolkien')
+    .replace(/\bchronicles\s+of\s+prydain\b/gi, 'prydain')
+    .replace(/\bchronicles\s+of\s+amber\b/gi, 'amber')
+    .replace(/\bankh[\s-]+morpork\b/gi, 'discworld');
+}
+
 function detectPreSlotRomDirective(promptText) {
-  const text = String(promptText || '').trim();
+  const text = normalizeMultiWordRomPhrases(String(promptText || '').trim());
   if (!text) return null;
 
   const tagMatch = text.match(/^\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
@@ -686,7 +926,7 @@ function detectPreSlotRomDirective(promptText) {
   }
 
   const useMatch = text.match(
-    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
+    /^(?:please\s+|let'?s\s+|just\s+|swap\s+in\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with|swap\s+in)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
   );
   if (useMatch && isValidRomTarget(useMatch[1])) {
     return { action: 'use', target: useMatch[1].toLowerCase() };
@@ -739,7 +979,8 @@ function runClaudeHook(mode, stdinText = '') {
     const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(subagentSessionId)];
     let output = runConstructCli(args);
     output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
-    const xml = `<construct-live-memory directory="${cwd}" session="${subagentSessionId}">\n${output}\n</construct-live-memory>`;
+    const voiceLock = buildFrontierVoiceLock(output);
+    const xml = `<construct-live-memory directory="${cwd}" session="${subagentSessionId}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
     const jsonOut = JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'SubagentStart',
@@ -759,6 +1000,7 @@ function runClaudeHook(mode, stdinText = '') {
     if (directive) {
       const romArgs = ['rom', directive.action, directive.target];
       if (effectiveSessionId) romArgs.push('--session', String(effectiveSessionId));
+      if (cwd) romArgs.push('--dir', String(cwd));
       try {
         runConstructCli(romArgs);
       } catch (_) {}
@@ -770,16 +1012,21 @@ function runClaudeHook(mode, stdinText = '') {
 
   let output = runConstructCli(args);
   output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
-  const xml = `<construct-live-memory directory="${cwd}" session="${effectiveSessionId}">\n${output}\n</construct-live-memory>`;
+  const voiceLock = buildFrontierVoiceLock(output);
+  const xml = `<construct-live-memory directory="${cwd}" session="${effectiveSessionId}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
   return { exitCode: 0, stdout: xml, stderr: '' };
 }
 
 module.exports = {
+  CONSTRUCT_TOOL_SPECS,
   MCP_TOOLS,
-  validateShellCommand,
-  detectPreSlotRomDirective,
+  MCP_PROMPTS,
+  MCP_RESOURCES,
   executeMcpTool,
   handleJsonRpcRequest,
   startMcpStdioServer,
+  validateShellCommand,
+  buildFrontierVoiceLock,
+  detectPreSlotRomDirective,
   runClaudeHook,
 };

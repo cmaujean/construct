@@ -499,6 +499,11 @@ function resolveSingleRomRowInDb(db, name) {
     siodhachan: 'atticus',
     brigid: 'brighid',
     fflam: 'fflewddur',
+    littlealex: 'alex',
+    georgieboy: 'georgie',
+    prisoncharlie: 'chaplain',
+    charlie: 'chaplain',
+    weathers: 'catlady',
   };
   const target = aliasMap[key] || key;
   return (
@@ -552,6 +557,10 @@ function getRomInDb(db, name) {
     prydain: 'prydain',
     caerdath: 'prydain',
     caerdallben: 'prydain',
+    clockwork: 'clockwork',
+    korova: 'clockwork',
+    droogs: 'clockwork',
+    nadsat: 'clockwork',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
@@ -2093,6 +2102,7 @@ const PACK_DEFAULT_COURIER_MAP = Object.freeze({
   reamde: 'yuxia',
   irondruid: 'oberon',
   prydain: 'gurgi',
+  clockwork: 'branom',
   generic: 'pulse',
 });
 
@@ -2666,6 +2676,7 @@ const PACK_EMBLEM_MAP = Object.freeze({
   reamde: '🏔️',
   irondruid: '🐺',
   prydain: '⚔️',
+  clockwork: '🥛',
   generic: '⚙️',
   core: '🔪',
 });
@@ -3348,6 +3359,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'reamde' ? 'active' : ''}" data-pack="reamde" onclick="switchCrew('use','reamde')">🏔️ REAMDE</button>
       <button class="crew-btn ${hud.pack === 'irondruid' ? 'active' : ''}" data-pack="irondruid" onclick="switchCrew('use','irondruid')">🐺 Iron Druid</button>
       <button class="crew-btn ${hud.pack === 'prydain' ? 'active' : ''}" data-pack="prydain" onclick="switchCrew('use','prydain')">⚔️ Prydain</button>
+      <button class="crew-btn ${hud.pack === 'clockwork' ? 'active' : ''}" data-pack="clockwork" onclick="switchCrew('use','clockwork')">🥛 Clockwork</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
@@ -3359,6 +3371,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn" data-sub="coyote" onclick="switchCrew('sub','coyote')">🛡️ Coyote</button>
       <button class="crew-btn" data-sub="hevydd" onclick="switchCrew('sub','hevydd')">🔴 Hevydd (Smith)</button>
       <button class="crew-btn" data-sub="kaw" onclick="switchCrew('sub','kaw')">⚡ Kaw (Crow)</button>
+      <button class="crew-btn" data-sub="minister" onclick="switchCrew('sub','minister')">🟣 Minister (Interior)</button>
+      <button class="crew-btn" data-sub="catlady" onclick="switchCrew('sub','catlady')">🛡️ Cat Lady</button>
       <button class="crew-btn" data-sub="toot" onclick="switchCrew('sub','toot')">⚡ Toot-Toot (Za-Lord)</button>
       <button class="crew-btn" data-sub="boromir" onclick="switchCrew('sub','boromir')">🛡️ Boromir (Gondor)</button>
       <button class="crew-btn" data-sub="celebrimbor" onclick="switchCrew('sub','celebrimbor')">🟣 Celebrimbor</button>
@@ -5378,6 +5392,21 @@ function upgradeConstruct(options = {}, file = dbPath()) {
 
   const pluginPath = installPluginFile(configDir);
 
+  // If Claude Code was previously configured (`~/.claude/agents` exists) or `options.claude` is set,
+  // automatically refresh `~/.claude/CLAUDE.md` and all specialist subagents on upgrade as well.
+  const claudeDir = options.claudeDir || path.join(os.homedir(), '.claude');
+  let claudeUpgraded = false;
+  if (options.claude || fs.existsSync(path.join(claudeDir, 'agents'))) {
+    try {
+      const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
+      if (syncRes?.path && fs.existsSync(syncRes.path)) {
+        fs.copyFileSync(syncRes.path, claudeMdPath);
+      }
+      withDb((db) => writeClaudeSubagentsInDb(db, claudeDir), file);
+      claudeUpgraded = true;
+    } catch (_) {}
+  }
+
   return {
     upgraded: previousSha !== currentSha || Boolean(pullOutput),
     previousSha,
@@ -5385,6 +5414,7 @@ function upgradeConstruct(options = {}, file = dbPath()) {
     pullOutput,
     romFile: syncRes.path,
     pluginPath,
+    claudeUpgraded,
   };
 }
 

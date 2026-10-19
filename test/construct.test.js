@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 167 ROMs across 14 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 179 ROMs across 15 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 167);
+    assert.equal(roms.length, 179);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'irondruid', 'laundry', 'nightcity', 'prydain', 'reamde', 'shadowrun', 'sprawl', 'tolkien']
+      ['amber', 'anathem', 'clockwork', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'irondruid', 'laundry', 'nightcity', 'prydain', 'reamde', 'shadowrun', 'sprawl', 'tolkien']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -559,6 +559,16 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.deepEqual(prydainCrew.roster, ['dallben', 'taran', 'gwydion', 'coll', 'fflewddur', 'gurgi', 'doli', 'eilonwy', 'taliesin']);
     assert.match(prydainCrew.voice, /═══ \[CAER DALLBEN \/\/ THE BOOK OF THREE & PRYDAIN\]/);
     assert.equal(store.getRom('fflam').name, 'fflewddur');
+
+    const clockworkCrew = store.useRom('clockwork', { sessionId: 'ses_clockwork' });
+    assert.equal(clockworkCrew.isCrew, true);
+    assert.deepEqual(clockworkCrew.roster, ['alex', 'pete', 'georgie', 'dim', 'brodsky', 'branom', 'deltoid', 'falexander', 'chaplain']);
+    assert.match(clockworkCrew.voice, /═══ \[KOROVA MILKBAR \/\/ NADSAT & LUDOVICO LAB\]/);
+    assert.equal(store.getRom('littlealex').name, 'alex');
+    assert.equal(store.getRom('weathers').name, 'catlady');
+    const subbedClockwork = store.subRom('minister', { sessionId: 'ses_clockwork' });
+    assert.ok(subbedClockwork.roster.includes('minister'));
+    assert.ok(!subbedClockwork.roster.includes('georgie'));
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1598,6 +1608,9 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       params: { protocolVersion: '2024-11-05' },
     });
     assert.equal(initRes.result.serverInfo.name, 'construct');
+    assert.ok(typeof initRes.result.instructions === 'string' && initRes.result.instructions.length > 100);
+    assert.ok(initRes.result.capabilities.prompts);
+    assert.ok(initRes.result.capabilities.resources);
 
     const listRes = mcp.handleJsonRpcRequest({
       jsonrpc: '2.0',
@@ -1605,7 +1618,22 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       method: 'tools/list',
     });
     assert.equal(listRes.result.tools.length, 11);
+    assert.equal(mcp.CONSTRUCT_TOOL_SPECS.length, 11);
     assert.ok(listRes.result.tools.some((t) => t.name === 'construct_rec'));
+
+    const promptsRes = mcp.handleJsonRpcRequest({
+      jsonrpc: '2.0',
+      id: 20,
+      method: 'prompts/list',
+    });
+    assert.equal(promptsRes.result.prompts.length, 3);
+
+    const resourcesRes = mcp.handleJsonRpcRequest({
+      jsonrpc: '2.0',
+      id: 21,
+      method: 'resources/list',
+    });
+    assert.equal(resourcesRes.result.resources.length, 3);
 
     // 2. JSON-RPC `tools/call` -> `construct_rec` and `construct_boot`
     const callRec = mcp.handleJsonRpcRequest({
@@ -1633,7 +1661,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 166);
+    assert.equal(initClaude.claudeAgentsCount, 178);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
@@ -1652,6 +1680,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'sokolov.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'oberon.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fflewddur.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'alex.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'deltoid.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);
@@ -1674,6 +1704,15 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(hookCtx.exitCode, 0);
     assert.match(hookCtx.stdout, /<construct-live-memory/);
     assert.match(hookCtx.stdout, /The Concent of Saunt Edhar Crew/);
+    assert.match(hookCtx.stdout, /<construct-voice-lock>/);
+    assert.deepEqual(mcp.detectPreSlotRomDirective('switch to a clockwork orange crew'), {
+      action: 'use',
+      target: 'clockwork',
+    });
+    assert.deepEqual(mcp.detectPreSlotRomDirective('use iron druid'), {
+      action: 'use',
+      target: 'irondruid',
+    });
 
     // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
     const subStartNamed = mcp.runClaudeHook(

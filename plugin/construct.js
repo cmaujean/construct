@@ -13,11 +13,32 @@ import fs from "node:fs"
 import http from "node:http"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { createRequire } from "node:module"
 import { execFileSync } from "node:child_process"
 
+const requireCjs = createRequire(import.meta.url)
 const STAMPED_BIN = "__CONSTRUCT_BIN_PATH__"
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
 const RELATIVE_BIN = path.resolve(PLUGIN_DIR, "..", "bin", "construct.js")
+
+function loadSharedMcpEngine() {
+  const candidates = []
+  if (process.env.CONSTRUCT_BIN) {
+    candidates.push(path.resolve(path.dirname(process.env.CONSTRUCT_BIN), "..", "src", "mcp.js"))
+  }
+  if (!STAMPED_BIN.startsWith("__")) {
+    candidates.push(path.resolve(path.dirname(STAMPED_BIN), "..", "src", "mcp.js"))
+  }
+  candidates.push(path.resolve(PLUGIN_DIR, "..", "src", "mcp.js"))
+  for (const p of candidates) {
+    if (fs.existsSync(p)) {
+      try {
+        return requireCjs(p)
+      } catch (_) {}
+    }
+  }
+  return null
+}
 
 function resolveConstructCommand() {
   if (process.env.CONSTRUCT_BIN && fs.existsSync(process.env.CONSTRUCT_BIN)) {
@@ -231,6 +252,28 @@ const KNOWN_ROM_NAMES = new Set([
   "adaon",
   "hevydd",
   "kaw",
+  // Clockwork Orange bank (9 starters + 3 backups)
+  "clockwork",
+  "korova",
+  "droogs",
+  "nadsat",
+  "alex",
+  "littlealex",
+  "pete",
+  "georgie",
+  "georgieboy",
+  "dim",
+  "brodsky",
+  "branom",
+  "deltoid",
+  "falexander",
+  "chaplain",
+  "prisoncharlie",
+  "charlie",
+  "minister",
+  "catlady",
+  "weathers",
+  "barnes",
   // Discworld bank (9 starters + 3 backups)
   "ponder",
   "stibbons",
@@ -409,11 +452,26 @@ function isValidRomTarget(spec) {
   return parts.length > 0 && parts.every((p) => KNOWN_ROM_NAMES.has(p))
 }
 
+function normalizeMultiWordRomPhrases(rawText = "") {
+  return String(rawText || "")
+    .replace(/\bnight\s+city\b/gi, "nightcity")
+    .replace(/\biron\s+druid(?:\s+chronicles)?\b/gi, "irondruid")
+    .replace(/\b(?:a\s+)?clockwork\s+orange\b/gi, "clockwork")
+    .replace(/\bkorova(?:\s+milkbar)?\b/gi, "clockwork")
+    .replace(/\blaundry\s+files\b/gi, "laundry")
+    .replace(/\bdresden\s+files\b/gi, "dresden")
+    .replace(/\blord\s+of\s+the\s+rings\b/gi, "tolkien")
+    .replace(/\bcouncil\s+of\s+elrond\b/gi, "tolkien")
+    .replace(/\bchronicles\s+of\s+prydain\b/gi, "prydain")
+    .replace(/\bchronicles\s+of\s+amber\b/gi, "amber")
+    .replace(/\bankh[\s-]+morpork\b/gi, "discworld")
+}
+
 // Detect explicit ROM-slot, bank-switch, backup-sub, or subagent `[ROM: <name>]` tags
 // at the start of a prompt so `ctx.session.hook("prompt")` can pre-slot the ROM in <4ms
 // BEFORE `context` assembles `event.system`.
 export function detectPreSlotRomDirective(promptText) {
-  const text = String(promptText || "").trim()
+  const text = normalizeMultiWordRomPhrases(String(promptText || "").trim())
   if (!text) return null
 
   // 1. Subagent tag: `[ROM: lupus]` or `[ROM: finn,case]` at the start of a subagent prompt
@@ -441,9 +499,9 @@ export function detectPreSlotRomDirective(promptText) {
     return { action: "sub", target: subMatch[1].toLowerCase() }
   }
 
-  // 4. Session ROM / Crew Bank switch: "slot anathem", "switch to generic crew", "use lio"
+  // 4. Session ROM / Crew Bank switch: "slot anathem", "switch to generic crew", "swap in discworld"
   const useMatch = text.match(
-    /^(?:please\s+|let'?s\s+|just\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
+    /^(?:please\s+|let'?s\s+|just\s+|swap\s+in\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with|swap\s+in)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
   )
   if (useMatch && isValidRomTarget(useMatch[1])) {
     return { action: "use", target: useMatch[1].toLowerCase() }
@@ -478,7 +536,7 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge
@@ -757,499 +815,40 @@ export default {
       }
     })
 
-    // 2. Register `tools.construct.*` in Code Mode
+    // 2. Register `tools.construct.*` in Code Mode from the shared `src/mcp.js` canonical tool engine
+    const mcpEngine = loadSharedMcpEngine()
     await ctx.tool.transform((editor) => {
       editor.namespace({
         name: "construct",
         description: "Sequential memory construct (Hosaka tape, project state heads, causal zoom, FTS5 search, and swappable Personality ROMs).",
       })
 
-      editor.add({
-        name: "boot",
-        description: "Read a project's live state head, open threads, and sequential tape (or omit project to list all projects).",
-        input: {
-          type: "object",
-          properties: {
-            project: { type: "string", description: "Project key, e.g. acme/alpha_app. Omit to list all projects." },
-            dir: { type: "string", description: "Optional directory path to resolve the project from." },
-            limit: { type: "integer", description: "Number of recent sequential frames (default 25)" },
-          },
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
-          if (!input.project && !input.dir) return { content: runConstruct(["projects"]) }
-          const args = ["boot"]
-          if (input.project) args.push(String(input.project))
-          if (input.dir) args.push("--dir", String(input.dir))
-          if (input.limit) args.push("-n", String(input.limit))
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "rec",
-        description: "Append a frame onto the sequential memory tape.",
-        input: {
-          type: "object",
-          properties: {
-            project: { type: "string" },
-            kind: {
-              type: "string",
-              enum: ["intent", "probe", "finding", "dead_end", "decision", "change", "commit", "release", "thread"],
+      if (mcpEngine && Array.isArray(mcpEngine.CONSTRUCT_TOOL_SPECS)) {
+        const hudMutatingTools = new Set(["rec", "head", "resolve", "rom", "comms"])
+        for (const spec of mcpEngine.CONSTRUCT_TOOL_SPECS) {
+          editor.add({
+            name: spec.name,
+            description: spec.description,
+            input: spec.inputSchema,
+            options: { namespace: "construct", codemode: true },
+            execute: async (input, context) => {
+              let out = ""
+              try {
+                out = mcpEngine.executeMcpTool(spec.name, input, {
+                  sessionID: context?.sessionID,
+                  dir: ctx.location?.directory || "",
+                })
+              } catch (err) {
+                out = `error: ${err.stderr || err.message}`
+              }
+              if (context?.sessionID && hudMutatingTools.has(spec.name)) {
+                void syncSessionHud(context.sessionID, ctx.location?.directory || "")
+              }
+              return { content: out }
             },
-            summary: { type: "string" },
-            detail: { type: "string" },
-            verified: { type: "string" },
-            parent: { type: "integer" },
-            resolves: { type: "string", description: "Comma-separated seq IDs resolved by this frame" },
-            open: { type: "boolean" },
-            refs: { type: "string", description: "Comma-separated refs, e.g. #98,commit:2fdd265" },
-          },
-          required: ["project", "kind", "summary"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          const args = ["rec", String(input.project), String(input.kind), String(input.summary)]
-          if (input.detail) args.push("--detail", String(input.detail))
-          if (input.verified) args.push("--verified", String(input.verified))
-          if (input.parent) args.push("--parent", String(input.parent))
-          if (input.resolves) args.push("--resolves", String(input.resolves))
-          if (input.open) args.push("--open")
-          if (input.refs) args.push("--refs", String(input.refs))
-          const out = runConstruct(args)
-          if (context?.sessionID) void syncSessionHud(context.sessionID)
-          return { content: out }
-        },
-      })
-
-      editor.add({
-        name: "head",
-        description: "Update a project's current state head (state, next step, and local repo path).",
-        input: {
-          type: "object",
-          properties: {
-            project: { type: "string" },
-            state: { type: "string" },
-            next: { type: "string" },
-            repo: { type: "string" },
-          },
-          required: ["project", "state"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          const args = ["head", String(input.project), "--state", String(input.state)]
-          if (input.next !== undefined) args.push("--next", String(input.next))
-          if (input.repo !== undefined) args.push("--repo", String(input.repo))
-          const out = runConstruct(args)
-          if (context?.sessionID) void syncSessionHud(context.sessionID)
-          return { content: out }
-        },
-      })
-
-      editor.add({
-        name: "resolve",
-        description: "Resolve one or more open thread frames by seq ID (and optionally close linked GitHub issues when `closeGh: true` is explicitly passed).",
-        input: {
-          type: "object",
-          properties: {
-            seqs: { type: "string", description: "Comma-separated frame seq IDs to resolve, e.g. '28,29'" },
-            by: { type: "integer", description: "Existing frame seq that resolved them" },
-            reason: { type: "string", description: "If given without `by`, records a new resolution frame with this summary" },
-            verified: { type: "string" },
-            closeGh: { type: "boolean", description: "When true, also closes any linked `gh:#N` GitHub issues on the repository" },
-          },
-          required: ["seqs"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          const args = ["resolve", String(input.seqs)]
-          if (input.by) args.push("--by", String(input.by))
-          if (input.reason) args.push("--reason", String(input.reason))
-          if (input.verified) args.push("--verified", String(input.verified))
-          if (input.closeGh) args.push("--close-gh")
-          const out = runConstruct(args)
-          if (context?.sessionID) void syncSessionHud(context.sessionID)
-          return { content: out }
-        },
-      })
-
-      editor.add({
-        name: "zoom",
-        description: "Zoom into a frame by seq: full detail, causal chain, and neighboring tape window.",
-        input: {
-          type: "object",
-          properties: {
-            seq: { type: "integer" },
-            window: { type: "integer", description: "Neighboring frames before/after (default 3)" },
-          },
-          required: ["seq"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
-          const args = ["zoom", String(input.seq)]
-          if (input.window !== undefined) args.push("-w", String(input.window))
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "search",
-        description: "FTS5 BM25 search across the sequential tape, or unified provenance lookup (`why: true` for gotchas + CRDT tape authors + git log + optional peer Construct query).",
-        input: {
-          type: "object",
-          properties: {
-            query: { type: "string" },
-            project: { type: "string" },
-            kind: { type: "string" },
-            open: { type: "boolean" },
-            why: { type: "boolean", description: "Run unified provenance lookup (`construct why`) across gotchas, CRDT tape authors, and git log" },
-            ask: { type: "string", description: "Optional teammate user id to query over MLS comms when `why: true`" },
-          },
-          required: ["query"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
-          if (input.why) {
-            const args = ["why", String(input.query)]
-            if (input.project) args.push("--project", String(input.project))
-            if (input.ask) args.push("--ask", String(input.ask))
-            return { content: runConstruct(args) }
-          }
-          const args = ["search", String(input.query)]
-          if (input.project) args.push("--project", String(input.project))
-          if (input.kind) args.push("--kind", String(input.kind))
-          if (input.open) args.push("--open")
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "rom",
-        description: "List, inspect, slot a ROM or Crew Bank (`use`: sprawl, anathem, generic, or solo/roster), substitute a bench backup (`sub`), set/clear default (`default`), list banks (`packs`), tune dials, or create custom ROMs (`set`).",
-        input: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["packs", "list", "show", "use", "sub", "default", "tune", "burn", "unburn", "set", "sync"],
-            },
-            target: {
-              type: "string",
-              description: "ROM or Crew Bank name (sprawl, anathem, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, index for unburn, or new ROM name for set)",
-            },
-            rom: { type: "string", description: "Optional ROM name when tuning or burning a non-active ROM" },
-            pack: { type: "string", description: "Crew bank name when filtering list or creating a custom ROM with `set`" },
-            seat: {
-              type: "string",
-              enum: ["recon", "diagnostics", "architect", "blitz", "forensics", "velocity", "redteam", "ergonomics", "archivist", "instrument"],
-            },
-            tier: { type: "string", enum: ["primary", "backup"] },
-            handle: { type: "string" },
-            tagline: { type: "string" },
-            voice: { type: "string" },
-          },
-          required: ["action"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          const args = ["rom", String(input.action)]
-          if (input.target) {
-            if (input.action === "tune") {
-              args.push(...String(input.target).trim().split(/\s+/))
-            } else {
-              args.push(String(input.target))
-            }
-          }
-          if (input.rom) args.push("--rom", String(input.rom))
-          if (input.pack) args.push("--pack", String(input.pack))
-          if (input.seat) args.push("--seat", String(input.seat))
-          if (input.tier) args.push("--tier", String(input.tier))
-          if (input.handle) args.push("--handle", String(input.handle))
-          if (input.tagline) args.push("--tagline", String(input.tagline))
-          if (input.voice) args.push("--voice", String(input.voice))
-          if (context?.sessionID) args.push("--session", String(context.sessionID))
-          if (ctx.location?.directory) args.push("--dir", String(ctx.location.directory))
-          const out = runConstruct(args)
-          if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
-          return { content: out }
-        },
-      })
-
-      editor.add({
-        name: "user",
-        description: "Inspect, list, switch, or register an operator's personal working agreement.",
-        input: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["show", "list", "use", "set"],
-            },
-            id: { type: "string", description: "Operator id, e.g. 'alice' or 'bob'" },
-            name: { type: "string" },
-            osUsers: { type: "string", description: "Comma-separated OS usernames mapped to this operator" },
-            experience: { type: "string" },
-            platform: { type: "string" },
-            workspaceRoot: { type: "string", description: "Optional base folder for git repositories (e.g. ~/src, ~/code, D:\\projects)" },
-            calibration: { type: "string" },
-            use: { type: "boolean" },
-          },
-          required: ["action"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
-          const args = ["user", String(input.action)]
-          if (input.id) args.push(String(input.id))
-          if (input.name) args.push("--name", String(input.name))
-          if (input.osUsers) args.push("--os-users", String(input.osUsers))
-          if (input.experience) args.push("--experience", String(input.experience))
-          if (input.platform) args.push("--platform", String(input.platform))
-          if (input.workspaceRoot !== undefined) args.push("--workspace-root", String(input.workspaceRoot))
-          if (input.calibration) args.push("--calibration", String(input.calibration))
-          if (input.use) args.push("--use")
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "gotcha",
-        description: "List, add, search, or remove global or project-scoped gotchas.",
-        input: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["list", "add", "search", "rm"],
-            },
-            project: { type: "string", description: "Scope: omit or 'global' for machine-wide, '<project>' for project-specific, or 'all'" },
-            title: { type: "string", description: "Gotcha title (for add), search query (for search), or id (for rm)" },
-            status: { type: "string", enum: ["observed", "from_source", "reported"] },
-            evidence: { type: "string" },
-            fix: { type: "string" },
-            guard: { type: "string", description: "Optional regular expression to enforce as a 0-token pre-execution shell guard" },
-            guardOs: {
-              type: "string",
-              enum: ["all", "win32", "linux", "darwin"],
-              description: "Target OS for the shell guard ('all' for repo-wide guards like :Zone.Identifier, or 'win32'/'linux'/'darwin' for OS-specific shell/path traps)",
-            },
-            tags: { type: "string", description: "Comma-separated tags" },
-          },
-          required: ["action"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
-          const args = ["gotcha", String(input.action)]
-          if (input.title) args.push(String(input.title))
-          if (input.project === "all") args.push("--all")
-          else if (input.project && input.project !== "global") args.push("--project", String(input.project))
-          if (input.status) args.push("--status", String(input.status))
-          if (input.evidence) args.push("--evidence", String(input.evidence))
-          if (input.fix) args.push("--fix", String(input.fix))
-          if (input.guard) args.push("--guard", String(input.guard))
-          if (input.guardOs) args.push("--guard-os", String(input.guardOs))
-          if (input.tags) args.push("--tags", String(input.tags))
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "comms",
-        description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`), optionally specifying a courier/messenger ROM (`via`: e.g. 'toot', 'bob', 'dixie', 'johnny').",
-        input: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["msg", "reply", "ack", "inbox", "drop", "apply-drop"],
-            },
-            project: { type: "string", description: "Optional project key (comms are person-to-person across all shared MLS groups; omit project to route automatically to the recipient)" },
-            to: { type: "string", description: "Recipient operator id (for msg/inbox/drop), e.g. mike" },
-            via: { type: "string", description: "Optional courier/messenger ROM to deliver the message or reply in-character in the recipient's feed (e.g. 'smeagol', 'moist', 'toot', 'bob', 'oberon')" },
-            id: { type: "integer", description: "Message id (for reply/ack/apply-drop)" },
-            body: { type: "string", description: "Message or reply text WRITTEN IN THE AUTHENTIC FIRST-PERSON VOICE OF THE COURIER ROM (`via`), preserving 100% of the operator's meaning and technical coordinates" },
-            file: { type: "string", description: "File path to drop or output path for apply-drop" },
-            gitDiff: { type: "boolean", description: "Capture and drop uncommitted git diff from project repo" },
-            apply: { type: "boolean", description: "Run `git apply` on an incoming git-diff drop" },
-          },
-          required: ["action"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          if (input.action === "msg") {
-            const args = ["msg", "--to", String(input.to)]
-            if (input.project) args.push("--project", String(input.project))
-            if (input.via) args.push("--via", String(input.via))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            args.push(String(input.body))
-            const out = runConstruct(args)
-            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
-            return { content: out }
-          }
-          if (input.action === "reply") {
-            const args = ["reply", String(input.id)]
-            if (input.via) args.push("--via", String(input.via))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            args.push(String(input.body))
-            const out = runConstruct(args)
-            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
-            return { content: out }
-          }
-          if (input.action === "ack") {
-            const out = runConstruct(["ack", String(input.id)])
-            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
-            return { content: out }
-          }
-          if (input.action === "drop") {
-            const args = ["drop", String(input.project || "global"), "--to", String(input.to)]
-            if (input.via) args.push("--via", String(input.via))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            if (input.file) args.push("--file", String(input.file))
-            if (input.gitDiff) args.push("--git-diff")
-            if (input.body) args.push("--content", String(input.body))
-            const out = runConstruct(args)
-            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
-            return { content: out }
-          }
-          if (input.action === "apply-drop") {
-            const args = ["apply-drop", String(input.id)]
-            if (input.file) args.push("--out", String(input.file))
-            if (input.apply) args.push("--apply")
-            return { content: runConstruct(args) }
-          }
-          const args = ["inbox"]
-          if (input.project) args.push("--project", String(input.project))
-          if (input.to) args.push("--to", String(input.to))
-          return { content: runConstruct(args) }
-        },
-      })
-
-      editor.add({
-        name: "sync",
-        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues & PRs (`issues-sync`, `issues-publish`, `pr-sync`, `pr-open`, `pr-review`, `pr-merge`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.",
-        input: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: [
-                "did",
-                "invite",
-                "join",
-                "sync",
-                "export",
-                "import",
-                "assimilate",
-                "init",
-                "upgrade",
-                "upgrade-check",
-                "dashboard",
-                "issues-sync",
-                "issues-publish",
-                "pr-sync",
-                "pr-open",
-                "pr-review",
-                "pr-merge",
-              ],
-            },
-            target: {
-              type: "string",
-              description: "Project key (for invite/sync/export/issues-sync/pr-sync), frame seq (for issues-publish), PR number (for pr-review/pr-merge),PR title (for pr-open), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
-            },
-            dir: {
-              type: "string",
-              description: "Optional local repository directory (target clone path for `join`, or source repo path for `invite`)",
-            },
-            project: { type: "string", description: "Project key when assimilating, opening/reviewing/merging a PR, or syncing issues" },
-            to: { type: "string", description: "Optional teammate operator id to notify via Courier when opening, reviewing, or merging a PR" },
-            via: { type: "string", description: "Optional Courier ROM name (e.g. 'toot', 'bob', 'dixie') when notifying a teammate on PR open/review/merge" },
-            body: { type: "string", description: "PR description (for pr-open) or review comment body (for pr-review)" },
-            verdict: { type: "string", enum: ["approve", "request-changes", "comment"], description: "Review verdict for `pr-review`" },
-            relays: { type: "string", description: "Optional comma-separated WebSocket relay URLs" },
-          },
-          required: ["action"],
-          additionalProperties: false,
-        },
-        options: { namespace: "construct", codemode: true },
-        execute: async (input, context) => {
-          if (input.action === "did") return { content: runConstruct(["did"]) }
-          if (input.action === "init") return { content: runConstruct(["init"]) }
-          if (input.action === "upgrade") return { content: runConstruct(["upgrade"]) }
-          if (input.action === "upgrade-check") return { content: runConstruct(["upgrade", "--check"]) }
-          if (input.action === "dashboard") {
-            const args = ["dashboard"]
-            if (input.target) args.push("--out", String(input.target))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "issues-sync") {
-            const args = ["issues", "sync"]
-            if (input.target || input.project) args.push(String(input.target || input.project))
-            if (input.dir) args.push("--dir", String(input.dir))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "issues-publish") {
-            const args = ["issues", "publish", String(input.target)]
-            if (input.dir) args.push("--dir", String(input.dir))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "pr-sync") {
-            const args = ["pr", "sync"]
-            if (input.target || input.project) args.push(String(input.target || input.project))
-            if (input.dir) args.push("--dir", String(input.dir))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "pr-open") {
-            const args = ["pr", "open", String(input.project || "construct"), "--title", String(input.target || "")]
-            if (input.body) args.push("--body", String(input.body))
-            if (input.to) args.push("--to", String(input.to))
-            if (input.via) args.push("--via", String(input.via))
-            if (input.dir) args.push("--dir", String(input.dir))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "pr-review") {
-            const args = ["pr", "review", String(input.project || "construct"), String(input.target || "")]
-            if (input.verdict === "approve") args.push("--approve")
-            else if (input.verdict === "request-changes") args.push("--request-changes")
-            else args.push("--comment")
-            if (input.body) args.push("--body", String(input.body))
-            if (input.to) args.push("--to", String(input.to))
-            if (input.via) args.push("--via", String(input.via))
-            if (input.dir) args.push("--dir", String(input.dir))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "pr-merge") {
-            const args = ["pr", "merge", String(input.project || "construct"), String(input.target || "")]
-            if (input.to) args.push("--to", String(input.to))
-            if (input.via) args.push("--via", String(input.via))
-            if (input.dir) args.push("--dir", String(input.dir))
-            if (context?.sessionID) args.push("--session", String(context.sessionID))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "assimilate") {
-            const args = ["assimilate"]
-            if (input.target) args.push(String(input.target))
-            if (input.project) args.push("--project", String(input.project))
-            return { content: runConstruct(args) }
-          }
-          if (input.action === "export") return { content: runConstruct(["packet", "export", String(input.target)]) }
-          if (input.action === "import") return { content: runConstruct(["packet", "import", String(input.target)]) }
-          const args = [String(input.action), String(input.target)]
-          if (input.dir) args.push("--dir", String(input.dir))
-          if (input.relays) args.push("--relays", String(input.relays))
-          return { content: runConstruct(args) }
-        },
-      })
+          })
+        }
+      }
     })
 
     // 3. Register `/construct` and `/hud` slash commands (`ctx.command.transform`) for Desktop, Web, and TUI

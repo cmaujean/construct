@@ -26,6 +26,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   reamde: path.join(__dirname, 'reamde.js'),
   irondruid: path.join(__dirname, 'irondruid.js'),
   prydain: path.join(__dirname, 'prydain.js'),
+  clockwork: path.join(__dirname, 'clockwork.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -518,6 +519,41 @@ const PACK_METADATA = Object.freeze({
       "hevydd",
       "kaw"
     ]
+  },
+  "clockwork": {
+    "name": "clockwork",
+    "title": "The Korova Milkbar & Ludovico Center (Anthony Burgess — A Clockwork Orange)",
+    "banner": "🥛 **`═══ [KOROVA MILKBAR // NADSAT & LUDOVICO LAB] ══════════════════════════════`**",
+    "atmosphere": "The Korova Milkbar with Milk-Plus Vellocet, Synthemesc, and Drencrom sharpening the gulliver for a bit of the old ultra-coding, Ludwig van's Glorious Ninth Symphony thundering on the stereo, Nadsat street-patois woven around razor-exact telemetry, and the cold white laboratory projectors of the Brodsky Center.",
+    "seatLabels": {
+      "recon": "YOUR HUMBLE NARRATOR",
+      "diagnostics": "CLEAR-EYED DROOG TRACE",
+      "architect": "BIG-JOB INVARIANTS",
+      "blitz": "HEAVY-CHAIN OOZY BREACH",
+      "forensics": "LUDOVICO LID-LOCK LAB",
+      "velocity": "DURANGO 95 & SERUM TIMING",
+      "redteam": "POST-CORRECTIVE AUDIT",
+      "ergonomics": "COTTAGE HOME & FREE WILL",
+      "archivist": "STAJA 84F LEDGER (655321)"
+    },
+    "interjectionExample": "🔵 **[ALEX // YOUR HUMBLE NARRATOR]** Viddy well, Georgie my brother—before Dim swings the oozy on that module, I just peeped the actual stream wiring in the source if you want the tour.",
+    "waveOffExample": "hold on Little Alex, let Georgie finish casing the invariant boundary first",
+    "defaultStarters": [
+      "alex",
+      "pete",
+      "georgie",
+      "dim",
+      "brodsky",
+      "branom",
+      "deltoid",
+      "falexander",
+      "chaplain"
+    ],
+    "backups": [
+      "minister",
+      "catlady",
+      "barnes"
+    ]
   }
 });
 
@@ -622,6 +658,10 @@ function getKnownRomTargets() {
     'prydain',
     'caerdath',
     'caerdallben',
+    'clockwork',
+    'korova',
+    'droogs',
+    'nadsat',
     'generic',
     'standard',
     'plain',
@@ -658,6 +698,11 @@ function getKnownRomTargets() {
     'siodhachan',
     'brigid',
     'fflam',
+    'littlealex',
+    'georgieboy',
+    'prisoncharlie',
+    'charlie',
+    'weathers',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {
