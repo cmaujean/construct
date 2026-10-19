@@ -474,6 +474,7 @@ function resolveSingleRomRowInDb(db, name) {
     sysop: 'captainchaos',
     toottoot: 'toot',
     archive: 'ivy',
+    yonderboy: 'lupus',
   };
   const target = aliasMap[key] || key;
   return (
