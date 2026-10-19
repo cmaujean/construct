@@ -2007,6 +2007,48 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     );
     assert.match(JSON.parse(ompCmd.stdout).message, /Subbed panam into active crew/);
 
+    // Verify `/construct` slash command supports every CLI command (`parseSlashArgs` + `executeConstructSlashCommand`)
+    assert.deepEqual(
+      mcp.parseSlashArgs('rec acme/slash finding "Verified slash CLI with quotes" --verified "unit test"'),
+      ['rec', 'acme/slash', 'finding', 'Verified slash CLI with quotes', '--verified', 'unit test']
+    );
+    const slashEmpty = mcp.executeConstructSlashCommand('', { sessionId: 'slash_ses_1', cwd: tmp.dir });
+    assert.equal(slashEmpty.kind, 'selector');
+    assert.equal(slashEmpty.openHud, true);
+    assert.match(slashEmpty.promptText, /call the `question` tool/);
+
+    const slashUpgradeCheck = mcp.executeConstructSlashCommand('upgrade --check', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashUpgradeCheck.kind, 'cli');
+    assert.equal(slashUpgradeCheck.reloadPlugin, true);
+    assert.doesNotMatch(slashUpgradeCheck.promptText, /call the `question` tool/);
+    assert.match(slashUpgradeCheck.output, /construct (?:is up to date|update available)/);
+
+    const slashRec = mcp.executeConstructSlashCommand(
+      'rec acme/slash finding "Slash command recorded frame" --verified "unit test"',
+      { sessionId: 'slash_ses_1', cwd: tmp.dir }
+    );
+    assert.equal(slashRec.kind, 'cli');
+    assert.equal(slashRec.isError, false);
+    assert.match(slashRec.output, /recorded #\d+ \[acme\/slash\/finding\]: Slash command recorded frame/);
+
+    const slashTape = mcp.executeConstructSlashCommand('tape acme/slash -n 5', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashTape.isError, false);
+    assert.match(slashTape.output, /Slash command recorded frame/);
+
+    const slashBank = mcp.executeConstructSlashCommand('tolkien', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashBank.kind, 'rom-use');
+    assert.equal(slashBank.reloadPlugin, true);
+    assert.match(slashBank.message, /Switched session to tolkien/);
+
     // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
     store.setHead('acme/alpha', {
       state: 'main at f4864f0. Merged PR #102 (90bdfd3) and fixed GH #114 (f4864f0: preserve full state line past column 70)',

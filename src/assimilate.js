@@ -16,9 +16,13 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
+function isGeneratedConstructFile(mdText = '') {
+  return /(^|\n)#\s+(Construct Base Cartridge|Global Construct Rules)\b/i.test(String(mdText || ''));
+}
+
 // Parse markdown `### <Claim>` sections into structured `{ title, status, evidence, fix, created }` gotcha entries
 function parseGotchasMarkdown(mdText) {
-  if (/(^|\n)#\s+(Construct Base Cartridge|Global Construct Rules)\b/i.test(String(mdText || ''))) {
+  if (isGeneratedConstructFile(mdText)) {
     return [];
   }
   const entries = [];
@@ -184,10 +188,12 @@ function discoverInstructionFiles(absDir) {
   for (const rel of INSTRUCTION_FILENAMES) {
     const full = path.join(absDir, ...rel.split('/'));
     if (fs.existsSync(full) && fs.statSync(full).isFile()) {
+      const content = fs.readFileSync(full, 'utf8');
+      if (isGeneratedConstructFile(content)) continue;
       found.push({
         file: rel,
         path: full,
-        content: fs.readFileSync(full, 'utf8'),
+        content,
       });
     }
   }

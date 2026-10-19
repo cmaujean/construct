@@ -951,7 +951,7 @@ async function main(argv) {
     }
 
     case 'head': {
-      const project = rest[0] || o.project;
+      const project = rest[0] || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
       if (!project) throw new Error('usage: construct head <project> --state "<text>" [--next "<text>"]');
       if (o.state === undefined && o.next === undefined && o.repo === undefined) {
         const b = store.bootProject(project, { tapeLimit: 5 });
@@ -1140,7 +1140,7 @@ async function main(argv) {
     }
 
     case 'tape': {
-      const project = rest[0] || o.project;
+      const project = rest[0] || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : undefined);
       const limit = o.limit ? Number(o.limit) : 30;
       const frames = store.getTape({
         project,
@@ -1527,7 +1527,7 @@ async function main(argv) {
     }
 
     case 'sync': {
-      const project = rest[0] || o.project;
+      const project = rest[0] || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '') || 'comms';
       if (!project) throw new Error('usage: construct sync <project> [--relays wss://...]');
       return store.syncProject(project, { relays: o.relays }).then((res) => {
         if (o.json) console.log(JSON.stringify(res, null, 2));

@@ -772,17 +772,31 @@ export default {
       return snap
     }
 
+    let mcpEngine = loadSharedMcpEngine()
+    const reloadConstructEngine = async () => {
+      const fresh = loadSharedMcpEngine()
+      if (fresh) mcpEngine = fresh
+      if (ctx.tool?.reload) {
+        try {
+          await ctx.tool.reload()
+        } catch (_) {}
+      }
+      return mcpEngine
+    }
+
     // 0a. Pre-execution Shell Guard: block known shell traps in 0 tokens before spawning a process
     if (ctx.shell?.hook) {
       await ctx.shell.hook("create.before", (event) => {
-        validateShellCommand(event.command)
+        const guardFn = mcpEngine?.validateShellCommand || validateShellCommand
+        guardFn(event.command)
       })
     }
 
     // 0b. Zero-Round-Trip ROM Pre-Slotting: intercept explicit "slot <rom>" / "switch to <rom>"
     //     prompts before `context` runs so the new ROM is already active on Turn 1 without a tool loop.
     await ctx.session.hook("prompt", (event) => {
-      const directive = detectPreSlotRomDirective(event.prompt?.text)
+      const detectFn = mcpEngine?.detectPreSlotRomDirective || detectPreSlotRomDirective
+      const directive = detectFn(event.prompt?.text)
       if (!directive) return
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
       if (ctx.location?.directory) sessionArgs.push("--dir", String(ctx.location.directory))
@@ -848,7 +862,8 @@ export default {
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
       if (event.sessionID && !contextPreSlottedSessions.has(String(event.sessionID))) {
         contextPreSlottedSessions.add(String(event.sessionID))
-        const subDirective = detectSubagentContextRom({ session: sess, messages: event.messages })
+        const subDetectFn = mcpEngine?.detectSubagentContextRom || detectSubagentContextRom
+        const subDirective = subDetectFn({ session: sess, messages: event.messages })
         if (subDirective) {
           const romArgs = ["rom", subDirective.action, subDirective.target, ...sessionArgs]
           if (dir) romArgs.push("--dir", String(dir))
@@ -869,7 +884,8 @@ export default {
             stripShadowedInstructions(event.system, shadowedPaths)
           } catch (_) {}
         }
-        const voiceLock = buildFrontierVoiceLock(output)
+        const voiceLockFn = mcpEngine?.buildFrontierVoiceLock || buildFrontierVoiceLock
+        const voiceLock = voiceLockFn(output)
         event.system.push({
           type: "text",
           text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ""}\n</construct-live-memory>`,
@@ -881,15 +897,16 @@ export default {
     })
 
     // 2. Register `tools.construct.*` in Code Mode from the shared `src/mcp.js` canonical tool engine
-    const mcpEngine = loadSharedMcpEngine()
     await ctx.tool.transform((editor) => {
+      const engine = loadSharedMcpEngine() || mcpEngine
+      if (engine) mcpEngine = engine
       editor.namespace({
         name: "construct",
         description: "Sequential memory construct (Hosaka tape, project state heads, causal zoom, FTS5 search, and swappable Personality ROMs).",
       })
 
       if (mcpEngine && Array.isArray(mcpEngine.CONSTRUCT_TOOL_SPECS)) {
-        const hudMutatingTools = new Set(["rec", "head", "resolve", "rom", "comms"])
+        const hudMutatingTools = new Set(["rec", "head", "resolve", "rom", "comms", "sync"])
         for (const spec of mcpEngine.CONSTRUCT_TOOL_SPECS) {
           editor.add({
             name: spec.name,
@@ -906,6 +923,9 @@ export default {
               } catch (err) {
                 out = `error: ${err.stderr || err.message}`
               }
+              if (spec.name === "sync" && (input?.action === "upgrade" || input?.action === "init")) {
+                await reloadConstructEngine()
+              }
               if (context?.sessionID && hudMutatingTools.has(spec.name)) {
                 void syncSessionHud(context.sessionID, ctx.location?.directory || "")
               }
@@ -916,20 +936,53 @@ export default {
       }
     })
 
-    // 3. Register `/construct` and `/hud` slash commands (`ctx.command.transform`) for Desktop, Web, and TUI
+    // 3. Register `/construct` slash command (`ctx.command.transform`) for Desktop, Web, and TUI
+    //    Supports every Construct CLI command (`/construct upgrade`, `/construct reload`, `/construct boot`,
+    //    `/construct rec ...`, `/construct tape`, `/construct rom ...`, `/construct inbox`, etc.) plus
+    //    shorthands (`/construct <bank>`, `/construct sub <specialist>`, or bare `/construct` for HUD + selector).
     if (ctx.command?.transform) {
       try {
         await ctx.command.transform((editor) => {
           editor.add({
             name: "construct",
-            description: "Switch Construct Crew Bank, sub a Bench specialist, or open the interactive Construct HUD (e.g. /construct, /construct anathem, /construct sub lodoghir)",
+            description: "Run any Construct CLI command, hot-reload (/construct upgrade | reload), switch Crew Bank (/construct nightcity), sub a Bench specialist (/construct sub panam), or open the HUD (/construct)",
             execute: async ({ sessionID, prompt, delivery }) => {
               const rawArg = String(prompt?.text || "").trim()
+              let sessDir = ctx.location?.directory || ""
+              if (sessionID && ctx.session?.get) {
+                try {
+                  const sess = await ctx.session.get({ sessionID })
+                  if (sess?.directory) sessDir = sess.directory
+                } catch (_) {}
+              }
+
+              const engine = loadSharedMcpEngine() || mcpEngine
+              if (engine) mcpEngine = engine
+
+              if (mcpEngine && typeof mcpEngine.executeConstructSlashCommand === "function") {
+                const res = mcpEngine.executeConstructSlashCommand(rawArg, {
+                  sessionId: sessionID,
+                  cwd: sessDir,
+                })
+                if (res.reloadPlugin) {
+                  await reloadConstructEngine()
+                }
+                await syncSessionHud(sessionID, sessDir)
+                await ctx.session.prompt({
+                  ...prompt,
+                  sessionID,
+                  text: res.promptText,
+                  delivery,
+                })
+                return
+              }
+
+              // Fallback if shared engine is unavailable
               const subMatch = rawArg.match(/^sub\s+([a-z0-9_]+)$/i)
               const directBank = isValidRomTarget(rawArg) ? rawArg.toLowerCase() : ""
               if (subMatch && isValidRomTarget(subMatch[1])) {
                 runConstruct(["rom", "sub", subMatch[1].toLowerCase(), "--session", String(sessionID)])
-                const snap = await syncSessionHud(sessionID)
+                const snap = await syncSessionHud(sessionID, sessDir)
                 await ctx.session.prompt({
                   ...prompt,
                   sessionID,
@@ -940,7 +993,7 @@ export default {
               }
               if (directBank) {
                 runConstruct(["rom", "use", directBank, "--session", String(sessionID)])
-                const snap = await syncSessionHud(sessionID)
+                const snap = await syncSessionHud(sessionID, sessDir)
                 await ctx.session.prompt({
                   ...prompt,
                   sessionID,
@@ -949,7 +1002,7 @@ export default {
                 })
                 return
               }
-              await syncSessionHud(sessionID)
+              await syncSessionHud(sessionID, sessDir)
               await ctx.session.prompt({
                 ...prompt,
                 sessionID,

@@ -25,12 +25,234 @@ function resolveNodeExecutable(execPath = process.execPath) {
   return /node(?:\.exe)?$/i.test(String(execPath || '')) ? execPath : 'node';
 }
 
-function runConstructCli(args) {
+function runConstructCli(args, options = {}) {
   return execFileSync(resolveNodeExecutable(), [CONSTRUCT_BIN, ...args], {
     encoding: 'utf8',
-    timeout: 10000,
+    timeout: Number(options.timeout || 15000),
     windowsHide: true,
   }).trim();
+}
+
+function parseSlashArgs(raw = '') {
+  const input = String(raw || '').trim();
+  if (!input) return [];
+  const tokens = [];
+  let cur = '';
+  let inQuotes = false;
+  let quoteChar = '';
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (inQuotes) {
+      if (ch === '\\' && quoteChar === '"' && i + 1 < input.length) {
+        cur += input[++i];
+      } else if (ch === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      } else {
+        cur += ch;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuotes = true;
+      quoteChar = ch;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (cur.length > 0) {
+        tokens.push(cur);
+        cur = '';
+      }
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.length > 0) tokens.push(cur);
+  return tokens;
+}
+
+const CONSTRUCT_CLI_COMMANDS = new Set([
+  'init',
+  'upgrade',
+  'self-update',
+  'mcp',
+  'claude-hook',
+  'cursor-hook',
+  'gemini-hook',
+  'omp-hook',
+  'assimilate',
+  'boot',
+  'rec',
+  'record',
+  'head',
+  'resolve',
+  'reopen',
+  'tape',
+  'zoom',
+  'search',
+  'find',
+  'why',
+  'issues',
+  'issue',
+  'pr',
+  'prs',
+  'hud',
+  'status',
+  'dashboard',
+  'view',
+  'hud-server',
+  'edit',
+  'projects',
+  'ls',
+  'rom',
+  'pack',
+  'packs',
+  'user',
+  'operator',
+  'gotcha',
+  'gotchas',
+  'msg',
+  'ask',
+  'drop',
+  'apply-drop',
+  'reply',
+  'ack',
+  'hide-msg',
+  'msg-hide',
+  'rm-msg',
+  'msg-rm',
+  'delete-msg',
+  'purge-msg',
+  'msg-purge',
+  'inbox',
+  'messages',
+  'did',
+  'identity',
+  'invite',
+  'join',
+  'sync',
+  'site',
+  'docs-site',
+  'relay',
+  'packet',
+  'help',
+  '--help',
+  '-h',
+]);
+
+function executeConstructSlashCommand(rawArgs = '', options = {}) {
+  const raw = String(rawArgs || '').trim();
+  const sessionId = String(options.sessionId || '');
+  const cwd = String(options.cwd || '');
+  const tokens = parseSlashArgs(raw);
+
+  if (tokens.length === 0) {
+    let snap = null;
+    try {
+      snap = store.getHudSnapshot({ dir: cwd, sessionId });
+    } catch (_) {}
+    return {
+      kind: 'selector',
+      cliArgs: [],
+      output: '',
+      isError: false,
+      reloadPlugin: false,
+      openHud: true,
+      statusText: snap?.tabBadge || snap?.pill || '',
+      message: `Construct active: ${snap?.pill || snap?.rom || 'crew'}`,
+      promptText:
+        'Open `~/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.',
+    };
+  }
+
+  const first = tokens[0].toLowerCase();
+  let cliArgs = [];
+  let kind = 'cli';
+
+  if (first === 'reload' || first === 'hot-reload') {
+    cliArgs = ['init', '--all', ...tokens.slice(1)];
+    kind = 'reload';
+  } else if (first === 'sub' && tokens[1] && isValidRomTarget(tokens[1])) {
+    cliArgs = ['rom', 'sub', tokens[1].toLowerCase(), ...tokens.slice(2)];
+    kind = 'rom-sub';
+  } else if (first === 'use' && tokens[1] && isValidRomTarget(tokens[1])) {
+    cliArgs = ['rom', 'use', tokens[1].toLowerCase(), ...tokens.slice(2)];
+    kind = 'rom-use';
+  } else if (!CONSTRUCT_CLI_COMMANDS.has(first) && isValidRomTarget(tokens.join(','))) {
+    cliArgs = ['rom', 'use', tokens.join(',').toLowerCase()];
+    kind = 'rom-use';
+  } else {
+    cliArgs = [...tokens];
+    kind = 'cli';
+  }
+
+  const cmd = String(cliArgs[0] || '').toLowerCase();
+  const isHelp =
+    cmd === 'help' ||
+    cmd === '--help' ||
+    cmd === '-h' ||
+    cliArgs.includes('--help') ||
+    cliArgs.includes('-h');
+  const noAutoDirCmds = new Set(['init', 'upgrade', 'self-update', 'site', 'docs-site', 'help', '--help', '-h']);
+
+  if (!isHelp && sessionId && !cliArgs.includes('--session')) {
+    cliArgs.push('--session', sessionId);
+  }
+  if (!isHelp && cwd && !noAutoDirCmds.has(cmd) && !cliArgs.includes('--dir')) {
+    cliArgs.push('--dir', cwd);
+  }
+
+  let output = '';
+  let isError = false;
+  try {
+    output = runConstructCli(cliArgs, { timeout: 30000 });
+  } catch (err) {
+    isError = true;
+    output = `error: ${(err.stderr && String(err.stderr).trim()) || err.message}`;
+  }
+
+  const romSubCmd = String(cliArgs[1] || '').toLowerCase();
+  const reloadPlugin =
+    kind === 'reload' ||
+    ['init', 'upgrade', 'self-update'].includes(cmd) ||
+    (cmd === 'rom' && ['use', 'sub', 'default', 'tune', 'burn', 'unburn', 'set', 'clone', 'sync'].includes(romSubCmd));
+  const openHud = kind === 'rom-use' || cmd === 'hud' || cmd === 'dashboard' || cmd === 'view';
+
+  let snap = null;
+  try {
+    snap = store.getHudSnapshot({ dir: cwd, sessionId });
+  } catch (_) {}
+  const statusText = snap?.tabBadge || snap?.pill || '';
+
+  let message = '';
+  let promptText = '';
+  if (!isError && (kind === 'rom-sub' || (cmd === 'rom' && romSubCmd === 'sub' && cliArgs[2]))) {
+    const subTarget = cliArgs[2];
+    message = `Subbed ${subTarget} into active crew${snap?.pill ? ` (${snap.pill})` : ''}`;
+    promptText = `Subbed \`${subTarget}\` into the active crew (${snap?.pill || ''}). Confirm in voice.`;
+  } else if (!isError && (kind === 'rom-use' || (cmd === 'rom' && romSubCmd === 'use' && cliArgs[2]))) {
+    const useTarget = cliArgs[2];
+    message = `Switched session to ${useTarget}${snap?.pill ? ` (${snap.pill})` : ''}`;
+    promptText = `Switched this session to \`${useTarget}\` (${snap?.pill || ''}). Confirm in the new Crew's voice and open \`~/.config/opencode/construct-hud.html\` with \`tools.browser.preview\`.`;
+  } else if (!isError && openHud) {
+    message = output ? output.split(/\r?\n/)[0] : `Construct HUD refreshed (${snap?.pill || ''})`;
+    promptText = `Executed \`/construct ${raw}\`:\n\`\`\`\n${output}\n\`\`\`\nOpen \`~/.config/opencode/construct-hud.html\` in the Review pane with \`tools.browser.preview\` and confirm in the active Crew's voice.`;
+  } else {
+    message = output ? output.split(/\r?\n/)[0] : `Executed /construct ${raw}`;
+    promptText = `Executed \`/construct ${raw}\`${reloadPlugin ? ' (and hot-reloaded Construct MCP/plugin engine in memory)' : ''}:\n\`\`\`\n${output || '(done)'}\n\`\`\`\nReport the result concisely in the active Crew's voice.`;
+  }
+
+  return {
+    kind,
+    cliArgs,
+    output,
+    isError,
+    reloadPlugin,
+    openHud,
+    statusText,
+    message,
+    promptText,
+  };
 }
 
 function validateShellCommand(command, options = {}) {
@@ -990,6 +1212,53 @@ function resolveSubagentRomFromHookPayload(payload, parentSessionId, effectiveSe
   );
 }
 
+function detectSubagentContextRom({ session = null, messages = [] } = {}) {
+  const title = String(session?.title || '').trim();
+  if (title) {
+    const titleTag = title.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
+    if (titleTag && isValidRomTarget(titleTag[1])) {
+      return { action: 'use', target: titleTag[1].toLowerCase() };
+    }
+  }
+
+  const firstMsg = Array.isArray(messages) && messages.length ? messages[0] : null;
+  if (firstMsg) {
+    const candidateTexts = [];
+    if (typeof firstMsg.text === 'string') candidateTexts.push(firstMsg.text);
+    if (typeof firstMsg.content === 'string') candidateTexts.push(firstMsg.content);
+    if (Array.isArray(firstMsg.content)) {
+      for (const item of firstMsg.content) {
+        if (item && typeof item.text === 'string') candidateTexts.push(item.text);
+      }
+    }
+    if (Array.isArray(firstMsg.parts)) {
+      for (const part of firstMsg.parts) {
+        if (part && typeof part.text === 'string') candidateTexts.push(part.text);
+      }
+    }
+    for (const raw of candidateTexts) {
+      const tagMatch = String(raw || '').match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
+      if (tagMatch && isValidRomTarget(tagMatch[1])) {
+        return { action: 'use', target: tagMatch[1].toLowerCase() };
+      }
+    }
+  }
+
+  const isChildSession = Boolean(session?.parentID || session?.parentId || /@\w+/.test(title));
+  if (isChildSession && title) {
+    const cleanLead = title
+      .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
+      .trim()
+      .split(/[\s(:@_-]/)[0]
+      .toLowerCase();
+    if (cleanLead && isValidRomTarget(cleanLead)) {
+      return { action: 'use', target: cleanLead };
+    }
+  }
+
+  return null;
+}
+
 // Claude Code Hook Runner (`construct claude-hook [context | pre-tool | subagent-start]`)
 function runClaudeHook(mode, stdinText = '') {
   let payload = {};
@@ -1254,37 +1523,13 @@ function runOmpHook(mode, stdinText = '') {
 
   if (mode === 'command') {
     const raw = String(payload?.args || '').trim();
-    const subMatch = raw.match(/^sub\s+([a-z0-9_]+)$/i);
-    const directBank = isValidRomTarget(raw) ? raw.toLowerCase() : '';
-    let actionMsg = '';
-    if (subMatch && isValidRomTarget(subMatch[1])) {
-      const romArgs = ['rom', 'sub', subMatch[1].toLowerCase(), '--session', String(effectiveSessionId)];
-      if (cwd) romArgs.push('--dir', String(cwd));
-      try {
-        runConstructCli(romArgs);
-      } catch (_) {}
-      actionMsg = `Subbed ${subMatch[1].toLowerCase()} into active crew`;
-    } else if (directBank) {
-      const romArgs = ['rom', 'use', directBank, '--session', String(effectiveSessionId)];
-      if (cwd) romArgs.push('--dir', String(cwd));
-      try {
-        runConstructCli(romArgs);
-      } catch (_) {}
-      actionMsg = `Switched session to ${directBank}`;
-    }
-    let snap = null;
-    try {
-      snap = store.getHudSnapshot({ dir: cwd, sessionId: effectiveSessionId });
-    } catch (_) {}
-    const statusText = snap?.tabBadge || snap?.pill || '';
+    const res = executeConstructSlashCommand(raw, {
+      sessionId: effectiveSessionId,
+      cwd,
+    });
     return {
       exitCode: 0,
-      stdout: JSON.stringify({
-        statusText,
-        message: actionMsg
-          ? `${actionMsg}${snap?.pill ? ` (${snap.pill})` : ''}`
-          : `Construct active: ${snap?.pill || snap?.rom || 'crew'}`,
-      }),
+      stdout: JSON.stringify(res),
       stderr: '',
     };
   }
@@ -1422,7 +1667,7 @@ export default function constructOmpExtension(pi) {
 
   if (typeof pi?.registerCommand === "function") {
     pi.registerCommand("construct", {
-      description: "Switch Construct Crew Bank or substitute a Bench specialist (e.g. /construct nightcity, /construct sub panam)",
+      description: "Run any Construct CLI command, switch Crew Bank, or sub a Bench specialist (e.g. /construct upgrade, /construct nightcity, /construct sub panam, /construct boot)",
       handler: async (args, ctx) => {
         const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
         const res = callOmpHook("command", {
@@ -1433,8 +1678,14 @@ export default function constructOmpExtension(pi) {
         if (res.statusText && ctx?.ui?.setStatus) {
           ctx.ui.setStatus("construct", res.statusText);
         }
-        if (res.message && ctx?.ui?.notify) {
-          ctx.ui.notify(res.message, "info");
+        if (res.output && typeof pi?.sendMessage === "function") {
+          pi.sendMessage({
+            customType: "construct.cli",
+            content: res.output,
+            display: true,
+          });
+        } else if (res.message && ctx?.ui?.notify) {
+          ctx.ui.notify(res.message, res.isError ? "error" : "info");
         }
       },
     });
@@ -1454,6 +1705,11 @@ module.exports = {
   validateShellCommand,
   buildFrontierVoiceLock,
   detectPreSlotRomDirective,
+  detectSubagentContextRom,
+  enqueueSubagentRomsFromToolInput,
+  resolveSubagentRomFromHookPayload,
+  parseSlashArgs,
+  executeConstructSlashCommand,
   resolveNodeExecutable,
   runClaudeHook,
   runCursorHook,
