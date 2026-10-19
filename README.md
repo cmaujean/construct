@@ -56,7 +56,7 @@ cd construct && npm link
 construct init
 ```
 
-*(Using **Claude Code** alongside or instead of OpenCode? Run `construct init --claude` to configure `~/.claude/CLAUDE.md`, the `construct mcp` stdio server, all 178 color-badged specialist subagents in `~/.claude/agents/*.md`, and Claude Code's `SessionStart`, `UserPromptSubmit`, `SubagentStart`, and `PreToolUse` hooks against the same `construct.db`. Using **Cursor, Windsurf, Cline, Zed, or Goose**? Point its MCP config at `construct mcp` to get all 11 tools, `initialize.result.instructions`, MCP prompts, and MCP resources out of the box.)*
+*(Using **Claude Code, Cursor, Gemini CLI / Antigravity, Windsurf, or Codex CLI** alongside or instead of OpenCode? Pass `--claude`, `--cursor`, `--gemini`, `--windsurf`, `--codex`, or `--all` to `construct init` to wire their native MCP configs, global rules, and JSON `stdin`/`stdout` lifecycle hooks (`SessionStart`, `UserPromptSubmit`/`BeforeAgent`/`beforeSubmitPrompt`, `SubagentStart`, and `PreToolUse`/`BeforeTool`/`beforeShellExecution`) against the same `construct.db`.)*
 
 ### What `construct init` Does Automatically
 1. Generates your local cryptographic identity (`~/.config/opencode/identity.json`, a W3C `did:key:z6Mk...` Ed25519 + X25519 keypair).
@@ -417,6 +417,7 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 | **Unified Tool & MCP Core** | `src/mcp.js` (`CONSTRUCT_TOOL_SPECS`, `executeMcpTool`, `initialize.result.instructions`, MCP `prompts` & `resources`) shared by OpenCode, Claude Code, Cursor, Windsurf, Cline, Zed, and Goose | `2.4 ms` in-process tool execution (`0.013 ms` `tools/list`); zero schema duplication |
 | **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, `<construct-voice-lock>`, per-project HUD server (`127.0.0.1:47420`), and `shell` guard (`0.083 ms`) | Zero round-trip ROM/Crew switching; tab- and project-scoped HUD |
 | **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 178 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) + `<construct-voice-lock>` |
+| **Cursor, Gemini CLI, Windsurf & Codex** | `construct init [--cursor] [--gemini] [--windsurf] [--codex] [--all]` (`runCursorHook`, `runGeminiHook`, `.mdc`/`GEMINI.md`/`global_rules.md`/`AGENTS.md`, and `mcpServers.construct`) | Zero-roundtrip Turn-1 Crew pre-slotting, `<construct-live-memory>` + `<construct-voice-lock>`, and `0`-token shell guards |
 | **Identity & Auth** | Self-certifying W3C `did:key:z6Mk...` (`Ed25519` signing + `X25519` ECDH via native OpenSSL `node:crypto`) | Stored in `~/.config/opencode/identity.json` (`0600`) |
 | **Group Encryption** | MLS-style Epoch Secret Tree (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`) | Relay sees only opaque ciphertext and a blinded HKDF `routeTag` |
 | **Conflict-Free Merge** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`, `message_tombstone`) + LWW-Element-Map (`heads`, `messages`) | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) |
@@ -429,8 +430,8 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 Everything above works conversationally inside OpenCode (`tools.construct.*`), Claude Code (`mcp__construct__*`), and any MCP coding agent (`construct mcp`). When you want to inspect or script Construct from a terminal:
 
 ```sh
-# One-command setup, self-update & assimilation
-construct init [--rom <name>] [--claude]
+# One-command setup (OpenCode + optional Claude Code, Cursor, Gemini CLI, Windsurf, Codex, or --all), self-update & assimilation
+construct init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--all]
 construct upgrade [--check]
 construct assimilate [<dir>] [--project <proj>] [--remove-files]
 construct mcp

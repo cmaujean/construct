@@ -1021,6 +1021,147 @@ function runClaudeHook(mode, stdinText = '') {
   return { exitCode: 0, stdout: xml, stderr: '' };
 }
 
+// Cursor IDE & Cloud Agent Hook Runner (`construct cursor-hook [session-start | before-prompt | before-shell | post-tool]`)
+// Spec: https://cursor.com/docs/hooks (JSON in on stdin, JSON out on stdout)
+function runCursorHook(mode, stdinText = '') {
+  let payload = {};
+  try {
+    if (stdinText && stdinText.trim()) {
+      payload = JSON.parse(stdinText);
+    }
+  } catch (_) {}
+
+  const effectiveSessionId =
+    payload?.conversation_id || payload?.session_id || process.env.CONSTRUCT_SESSION_ID || 'cursor';
+  const cwd =
+    (Array.isArray(payload?.workspace_roots) && payload.workspace_roots[0]) ||
+    payload?.cwd ||
+    process.env.CURSOR_PROJECT_DIR ||
+    process.cwd();
+
+  if (mode === 'before-shell' || payload?.hook_event_name === 'beforeShellExecution') {
+    const cmd = payload?.command || '';
+    try {
+      validateShellCommand(cmd, { project: cwd ? store.resolveProjectFromDir(cwd) : '' });
+      return { exitCode: 0, stdout: JSON.stringify({ continue: true, permission: 'allow' }), stderr: '' };
+    } catch (err) {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          continue: true,
+          permission: 'deny',
+          user_message: err.message,
+          agent_message: err.message,
+        }),
+        stderr: '',
+      };
+    }
+  }
+
+  if (mode === 'before-prompt' || payload?.hook_event_name === 'beforeSubmitPrompt') {
+    if (payload?.prompt) {
+      const directive = detectPreSlotRomDirective(payload.prompt);
+      if (directive) {
+        const romArgs = ['rom', directive.action, directive.target, '--session', String(effectiveSessionId)];
+        if (cwd) romArgs.push('--dir', String(cwd));
+        try {
+          runConstructCli(romArgs);
+        } catch (_) {}
+      }
+    }
+    return { exitCode: 0, stdout: JSON.stringify({ continue: true }), stderr: '' };
+  }
+
+  if (mode === 'post-tool' || payload?.hook_event_name === 'postToolUse') {
+    const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(effectiveSessionId)];
+    let output = '';
+    try {
+      output = runConstructCli(args);
+    } catch (_) {}
+    const voiceLock = buildFrontierVoiceLock(output);
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify(voiceLock ? { additional_context: voiceLock } : {}),
+      stderr: '',
+    };
+  }
+
+  // Default: `session-start` (`sessionStart`)
+  const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(effectiveSessionId)];
+  let output = '';
+  try {
+    output = runConstructCli(args);
+  } catch (_) {}
+  output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
+  const voiceLock = buildFrontierVoiceLock(output);
+  const xml = `<construct-live-memory directory="${cwd}" session="${effectiveSessionId}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
+  return {
+    exitCode: 0,
+    stdout: JSON.stringify({ additional_context: xml }),
+    stderr: '',
+  };
+}
+
+// Gemini CLI / Antigravity Hook Runner (`construct gemini-hook [before-agent | session-start | before-tool]`)
+// Spec: https://geminicli.com/docs/hooks/reference/ (strict JSON on stdout)
+function runGeminiHook(mode, stdinText = '') {
+  let payload = {};
+  try {
+    if (stdinText && stdinText.trim()) {
+      payload = JSON.parse(stdinText);
+    }
+  } catch (_) {}
+
+  const effectiveSessionId =
+    payload?.session_id || process.env.GEMINI_SESSION_ID || process.env.CONSTRUCT_SESSION_ID || 'gemini';
+  const cwd =
+    payload?.cwd || process.env.GEMINI_CWD || process.env.GEMINI_PROJECT_DIR || process.cwd();
+
+  if (mode === 'before-tool' || payload?.hook_event_name === 'BeforeTool') {
+    const cmd = payload?.tool_input?.command || payload?.tool_input?.cmd || '';
+    try {
+      validateShellCommand(cmd, { project: cwd ? store.resolveProjectFromDir(cwd) : '' });
+      return { exitCode: 0, stdout: JSON.stringify({ decision: 'allow' }), stderr: '' };
+    } catch (err) {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({ decision: 'deny', reason: err.message }),
+        stderr: '',
+      };
+    }
+  }
+
+  // Default: `before-agent` / `session-start` (`BeforeAgent` & `SessionStart`)
+  if (payload?.prompt) {
+    const directive = detectPreSlotRomDirective(payload.prompt);
+    if (directive) {
+      const romArgs = ['rom', directive.action, directive.target, '--session', String(effectiveSessionId)];
+      if (cwd) romArgs.push('--dir', String(cwd));
+      try {
+        runConstructCli(romArgs);
+      } catch (_) {}
+    }
+  }
+
+  const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(effectiveSessionId)];
+  let output = '';
+  try {
+    output = runConstructCli(args);
+  } catch (_) {}
+  output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
+  const voiceLock = buildFrontierVoiceLock(output);
+  const xml = `<construct-live-memory directory="${cwd}" session="${effectiveSessionId}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
+  return {
+    exitCode: 0,
+    stdout: JSON.stringify({
+      hookSpecificOutput: {
+        additionalContext: xml,
+      },
+    }),
+    stderr: '',
+  };
+}
+
 module.exports = {
   CONSTRUCT_TOOL_SPECS,
   MCP_TOOLS,
@@ -1034,4 +1175,6 @@ module.exports = {
   detectPreSlotRomDirective,
   resolveNodeExecutable,
   runClaudeHook,
+  runCursorHook,
+  runGeminiHook,
 };

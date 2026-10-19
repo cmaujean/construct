@@ -5199,14 +5199,15 @@ function initConstruct(options = {}, file = dbPath()) {
   }
 
   const syncRes = syncRom(file);
+  const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
 
-  // Optional Claude Code configuration (`construct init --claude`)
+  // Optional Claude Code configuration (`construct init --claude` or `--all`)
   let claudeConfigured = false;
   let claudeMdPath = '';
   let claudeSettingsPath = '';
   let claudeAgentsDir = '';
   let claudeAgentsCount = 0;
-  if (options.claude) {
+  if (options.claude || options.allAgents) {
     const claudeDir = options.claudeDir || path.join(os.homedir(), '.claude');
     fs.mkdirSync(claudeDir, { recursive: true });
     claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
@@ -5225,7 +5226,6 @@ function initConstruct(options = {}, file = dbPath()) {
         settings = {};
       }
     }
-    const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
     settings.mcpServers = settings.mcpServers || {};
     settings.mcpServers.construct = {
       command: 'node',
@@ -5257,6 +5257,147 @@ function initConstruct(options = {}, file = dbPath()) {
     claudeConfigured = true;
   }
 
+  // Optional Cursor IDE & Cloud Agent configuration (`construct init --cursor` or `--all`)
+  let cursorConfigured = false;
+  let cursorMcpPath = '';
+  let cursorHooksPath = '';
+  let cursorRulePath = '';
+  if (options.cursor || options.allAgents) {
+    const cursorDir = options.cursorDir || path.join(os.homedir(), '.cursor');
+    fs.mkdirSync(path.join(cursorDir, 'rules'), { recursive: true });
+
+    cursorMcpPath = path.join(cursorDir, 'mcp.json');
+    let cursorMcp = {};
+    if (fs.existsSync(cursorMcpPath)) {
+      try {
+        cursorMcp = JSON.parse(fs.readFileSync(cursorMcpPath, 'utf8'));
+      } catch (_) {
+        cursorMcp = {};
+      }
+    }
+    cursorMcp.mcpServers = cursorMcp.mcpServers || {};
+    cursorMcp.mcpServers.construct = {
+      command: 'node',
+      args: [binPath, 'mcp'],
+    };
+    fs.writeFileSync(cursorMcpPath, JSON.stringify(cursorMcp, null, 2) + '\n', 'utf8');
+
+    cursorHooksPath = path.join(cursorDir, 'hooks.json');
+    let cursorHooks = { version: 1, hooks: {} };
+    if (fs.existsSync(cursorHooksPath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(cursorHooksPath, 'utf8'));
+        if (parsed && typeof parsed === 'object') cursorHooks = parsed;
+      } catch (_) {}
+    }
+    cursorHooks.version = 1;
+    cursorHooks.hooks = cursorHooks.hooks || {};
+    cursorHooks.hooks.sessionStart = [{ command: `node "${binPath}" cursor-hook session-start` }];
+    cursorHooks.hooks.beforeSubmitPrompt = [{ command: `node "${binPath}" cursor-hook before-prompt` }];
+    cursorHooks.hooks.beforeShellExecution = [{ command: `node "${binPath}" cursor-hook before-shell` }];
+    cursorHooks.hooks.postToolUse = [{ command: `node "${binPath}" cursor-hook post-tool` }];
+    fs.writeFileSync(cursorHooksPath, JSON.stringify(cursorHooks, null, 2) + '\n', 'utf8');
+
+    cursorRulePath = path.join(cursorDir, 'rules', 'construct.mdc');
+    const baseRomMd = fs.existsSync(syncRes.path) ? fs.readFileSync(syncRes.path, 'utf8') : '';
+    const mdcContent = `---\ndescription: Construct Base Cartridge (Operator Agreement, Core Protocol & Global Gotchas)\nalwaysApply: true\n---\n\n${baseRomMd}`;
+    fs.writeFileSync(cursorRulePath, mdcContent, 'utf8');
+    cursorConfigured = true;
+  }
+
+  // Optional Gemini CLI / Antigravity configuration (`construct init --gemini` or `--all`)
+  let geminiConfigured = false;
+  let geminiMdPath = '';
+  let geminiSettingsPath = '';
+  if (options.gemini || options.allAgents) {
+    const geminiDir = options.geminiDir || path.join(os.homedir(), '.gemini');
+    fs.mkdirSync(geminiDir, { recursive: true });
+    geminiMdPath = path.join(geminiDir, 'GEMINI.md');
+    fs.copyFileSync(syncRes.path, geminiMdPath);
+
+    geminiSettingsPath = path.join(geminiDir, 'settings.json');
+    let gemSettings = {};
+    if (fs.existsSync(geminiSettingsPath)) {
+      try {
+        gemSettings = JSON.parse(fs.readFileSync(geminiSettingsPath, 'utf8'));
+      } catch (_) {
+        gemSettings = {};
+      }
+    }
+    gemSettings.mcpServers = gemSettings.mcpServers || {};
+    gemSettings.mcpServers.construct = {
+      command: 'node',
+      args: [binPath, 'mcp'],
+    };
+    gemSettings.hooks = gemSettings.hooks || {};
+    gemSettings.hooks.SessionStart = [
+      {
+        hooks: [{ name: 'construct-session-start', type: 'command', command: `node "${binPath}" gemini-hook session-start` }],
+      },
+    ];
+    gemSettings.hooks.BeforeAgent = [
+      {
+        hooks: [{ name: 'construct-before-agent', type: 'command', command: `node "${binPath}" gemini-hook before-agent` }],
+      },
+    ];
+    gemSettings.hooks.BeforeTool = [
+      {
+        matcher: 'run_shell_command|shell|bash',
+        hooks: [{ name: 'construct-shell-guard', type: 'command', command: `node "${binPath}" gemini-hook before-tool` }],
+      },
+    ];
+    fs.writeFileSync(geminiSettingsPath, JSON.stringify(gemSettings, null, 2) + '\n', 'utf8');
+    geminiConfigured = true;
+  }
+
+  // Optional Windsurf (Cascade) configuration (`construct init --windsurf` or `--all`)
+  let windsurfConfigured = false;
+  let windsurfMcpPath = '';
+  let windsurfRulesPath = '';
+  if (options.windsurf || options.allAgents) {
+    const windsurfDir = options.windsurfDir || path.join(os.homedir(), '.codeium', 'windsurf');
+    fs.mkdirSync(path.join(windsurfDir, 'memories'), { recursive: true });
+
+    windsurfMcpPath = path.join(windsurfDir, 'mcp_config.json');
+    let wsMcp = {};
+    if (fs.existsSync(windsurfMcpPath)) {
+      try {
+        wsMcp = JSON.parse(fs.readFileSync(windsurfMcpPath, 'utf8'));
+      } catch (_) {
+        wsMcp = {};
+      }
+    }
+    wsMcp.mcpServers = wsMcp.mcpServers || {};
+    wsMcp.mcpServers.construct = {
+      command: 'node',
+      args: [binPath, 'mcp'],
+    };
+    fs.writeFileSync(windsurfMcpPath, JSON.stringify(wsMcp, null, 2) + '\n', 'utf8');
+
+    windsurfRulesPath = path.join(windsurfDir, 'memories', 'global_rules.md');
+    fs.copyFileSync(syncRes.path, windsurfRulesPath);
+    windsurfConfigured = true;
+  }
+
+  // Optional Codex CLI configuration (`construct init --codex` or `--all`)
+  let codexConfigured = false;
+  let codexMdPath = '';
+  let codexConfigPath = '';
+  if (options.codex || options.allAgents) {
+    const codexDir = options.codexDir || path.join(os.homedir(), '.codex');
+    fs.mkdirSync(codexDir, { recursive: true });
+    codexMdPath = path.join(codexDir, 'AGENTS.md');
+    fs.copyFileSync(syncRes.path, codexMdPath);
+
+    codexConfigPath = path.join(codexDir, 'config.toml');
+    const existingToml = fs.existsSync(codexConfigPath) ? fs.readFileSync(codexConfigPath, 'utf8') : '';
+    const tomlBlock = `[mcp_servers.construct]\ncommand = "node"\nargs = ["${binPath}", "mcp"]\n`;
+    if (!existingToml.includes('[mcp_servers.construct]')) {
+      fs.writeFileSync(codexConfigPath, (existingToml ? existingToml.trimEnd() + '\n\n' : '') + tomlBlock, 'utf8');
+    }
+    codexConfigured = true;
+  }
+
   return {
     did: identity.did,
     rom: syncRes.rom.name,
@@ -5270,6 +5411,19 @@ function initConstruct(options = {}, file = dbPath()) {
     claudeSettingsPath,
     claudeAgentsDir,
     claudeAgentsCount,
+    cursorConfigured,
+    cursorMcpPath,
+    cursorHooksPath,
+    cursorRulePath,
+    geminiConfigured,
+    geminiMdPath,
+    geminiSettingsPath,
+    windsurfConfigured,
+    windsurfMcpPath,
+    windsurfRulesPath,
+    codexConfigured,
+    codexMdPath,
+    codexConfigPath,
     assimilated,
   };
 }
@@ -5395,8 +5549,8 @@ function upgradeConstruct(options = {}, file = dbPath()) {
 
   const pluginPath = installPluginFile(configDir);
 
-  // If Claude Code was previously configured (`~/.claude/agents` exists) or `options.claude` is set,
-  // automatically refresh `~/.claude/CLAUDE.md` and all specialist subagents on upgrade as well.
+  // If Claude Code, Cursor, Gemini CLI, Windsurf, or Codex were previously configured on this machine,
+  // automatically refresh their base cartridge files and subagents on upgrade as well.
   const claudeDir = options.claudeDir || path.join(os.homedir(), '.claude');
   let claudeUpgraded = false;
   if (options.claude || fs.existsSync(path.join(claudeDir, 'agents'))) {
@@ -5409,6 +5563,24 @@ function upgradeConstruct(options = {}, file = dbPath()) {
       claudeUpgraded = true;
     } catch (_) {}
   }
+
+  try {
+    const cursorRule = path.join(os.homedir(), '.cursor', 'rules', 'construct.mdc');
+    if (syncRes?.path && fs.existsSync(cursorRule)) {
+      const baseRomMd = fs.readFileSync(syncRes.path, 'utf8');
+      fs.writeFileSync(
+        cursorRule,
+        `---\ndescription: Construct Base Cartridge (Operator Agreement, Core Protocol & Global Gotchas)\nalwaysApply: true\n---\n\n${baseRomMd}`,
+        'utf8'
+      );
+    }
+    const geminiMd = path.join(os.homedir(), '.gemini', 'GEMINI.md');
+    if (syncRes?.path && fs.existsSync(geminiMd)) fs.copyFileSync(syncRes.path, geminiMd);
+    const windsurfRules = path.join(os.homedir(), '.codeium', 'windsurf', 'memories', 'global_rules.md');
+    if (syncRes?.path && fs.existsSync(windsurfRules)) fs.copyFileSync(syncRes.path, windsurfRules);
+    const codexMd = path.join(os.homedir(), '.codex', 'AGENTS.md');
+    if (syncRes?.path && fs.existsSync(codexMd)) fs.copyFileSync(syncRes.path, codexMd);
+  } catch (_) {}
 
   return {
     upgraded: previousSha !== currentSha || Boolean(pullOutput),

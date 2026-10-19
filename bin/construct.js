@@ -163,6 +163,10 @@ const OPTIONS = {
   setup: { type: 'string' },
   'remove-files': { type: 'boolean' },
   claude: { type: 'boolean' },
+  cursor: { type: 'boolean' },
+  gemini: { type: 'boolean' },
+  windsurf: { type: 'boolean' },
+  codex: { type: 'boolean' },
   check: { type: 'boolean' },
   title: { type: 'string' },
   body: { type: 'string' },
@@ -710,7 +714,16 @@ async function main(argv) {
 
   switch (cmd) {
     case 'init': {
-      const res = store.initConstruct({ rom: o.rom || rest[0], configDir: o.dir, claude: Boolean(o.claude) });
+      const res = store.initConstruct({
+        rom: o.rom || rest[0],
+        configDir: o.dir,
+        claude: Boolean(o.claude),
+        cursor: Boolean(o.cursor),
+        gemini: Boolean(o.gemini),
+        windsurf: Boolean(o.windsurf),
+        codex: Boolean(o.codex),
+        allAgents: Boolean(o.all),
+      });
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else {
         console.log(`construct initialized (DID: ${res.did}, ROM: ${res.rom})`);
@@ -720,6 +733,18 @@ async function main(argv) {
           console.log(
             `  claude:   ${res.claudeMdPath} (+ MCP, hooks in ${res.claudeSettingsPath}, & ${res.claudeAgentsCount} subagents in ${res.claudeAgentsDir})`
           );
+        }
+        if (res.cursorConfigured) {
+          console.log(`  cursor:   ${res.cursorMcpPath} (+ hooks in ${res.cursorHooksPath} & rules in ${res.cursorRulePath})`);
+        }
+        if (res.geminiConfigured) {
+          console.log(`  gemini:   ${res.geminiMdPath} (+ MCP & hooks in ${res.geminiSettingsPath})`);
+        }
+        if (res.windsurfConfigured) {
+          console.log(`  windsurf: ${res.windsurfMcpPath} (+ rules in ${res.windsurfRulesPath})`);
+        }
+        if (res.codexConfigured) {
+          console.log(`  codex:    ${res.codexMdPath} (+ MCP in ${res.codexConfigPath})`);
         }
         console.log(
           `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first turn`}`
@@ -770,6 +795,38 @@ async function main(argv) {
       } catch (err) {
         console.error(err.message);
         return 2; // Exit code 2 blocks PreToolUse in Claude Code and surfaces stderr to the model
+      }
+    }
+
+    case 'cursor-hook': {
+      const mode = rest[0] || 'session-start';
+      let stdinText = '';
+      try {
+        stdinText = fs.readFileSync(0, 'utf8');
+      } catch (_) {}
+      try {
+        const res = mcp.runCursorHook(mode, stdinText);
+        if (res.stdout) console.log(res.stdout);
+        return res.exitCode || 0;
+      } catch (err) {
+        console.error(err.message);
+        return 2;
+      }
+    }
+
+    case 'gemini-hook': {
+      const mode = rest[0] || 'before-agent';
+      let stdinText = '';
+      try {
+        stdinText = fs.readFileSync(0, 'utf8');
+      } catch (_) {}
+      try {
+        const res = mcp.runGeminiHook(mode, stdinText);
+        if (res.stdout) console.log(res.stdout);
+        return res.exitCode || 0;
+      } catch (err) {
+        console.error(err.message);
+        return 2;
       }
     }
 

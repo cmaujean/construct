@@ -1716,6 +1716,77 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(mcp.resolveNodeExecutable('C:\\Users\\user\\AppData\\Local\\OpenCode\\opencode.exe'), 'node');
     assert.equal(mcp.resolveNodeExecutable('/usr/local/bin/node'), '/usr/local/bin/node');
 
+    // 4. Thin lifecycle integrations for Cursor (`--cursor`), Gemini CLI (`--gemini`), Windsurf (`--windsurf`), and Codex (`--codex`)
+    const cursorDir = path.join(tmp.dir, 'cursor-home');
+    const geminiDir = path.join(tmp.dir, 'gemini-home');
+    const windsurfDir = path.join(tmp.dir, 'windsurf-home');
+    const codexDir = path.join(tmp.dir, 'codex-home');
+    const initMulti = store.initConstruct({
+      configDir: path.join(tmp.dir, 'opencode-cfg'),
+      cursor: true,
+      cursorDir,
+      gemini: true,
+      geminiDir,
+      windsurf: true,
+      windsurfDir,
+      codex: true,
+      codexDir,
+    });
+    assert.equal(initMulti.cursorConfigured, true);
+    assert.equal(initMulti.geminiConfigured, true);
+    assert.equal(initMulti.windsurfConfigured, true);
+    assert.equal(initMulti.codexConfigured, true);
+    assert.ok(fs.existsSync(path.join(cursorDir, 'mcp.json')));
+    assert.ok(fs.existsSync(path.join(cursorDir, 'hooks.json')));
+    assert.ok(fs.existsSync(path.join(cursorDir, 'rules', 'construct.mdc')));
+    assert.ok(fs.existsSync(path.join(geminiDir, 'GEMINI.md')));
+    assert.ok(fs.existsSync(path.join(geminiDir, 'settings.json')));
+    assert.ok(fs.existsSync(path.join(windsurfDir, 'mcp_config.json')));
+    assert.ok(fs.existsSync(path.join(windsurfDir, 'memories', 'global_rules.md')));
+    assert.ok(fs.existsSync(path.join(codexDir, 'AGENTS.md')));
+    assert.ok(fs.existsSync(path.join(codexDir, 'config.toml')));
+
+    // Cursor lifecycle hooks (`session-start`, `before-prompt`, `before-shell` allow & deny, `post-tool`)
+    const curPrompt = mcp.runCursorHook(
+      'before-prompt',
+      JSON.stringify({ conversation_id: 'cur_ses_1', workspace_roots: [tmp.dir], prompt: 'switch to prydain crew' })
+    );
+    assert.deepEqual(JSON.parse(curPrompt.stdout), { continue: true });
+    const curStart = mcp.runCursorHook(
+      'session-start',
+      JSON.stringify({ session_id: 'cur_ses_1', workspace_roots: [tmp.dir] })
+    );
+    const curStartJson = JSON.parse(curStart.stdout);
+    assert.match(curStartJson.additional_context, /CAER DALLBEN \/\/ THE BOOK OF THREE & PRYDAIN/);
+    assert.match(curStartJson.additional_context, /<construct-voice-lock>/);
+
+    const curShellOk = mcp.runCursorHook('before-shell', JSON.stringify({ command: 'git status -sb', cwd: tmp.dir }));
+    assert.equal(JSON.parse(curShellOk.stdout).permission, 'allow');
+    const curShellDeny = mcp.runCursorHook('before-shell', JSON.stringify({ command: 'cat <<EOF\nhello\nEOF', cwd: tmp.dir }));
+    assert.equal(JSON.parse(curShellDeny.stdout).permission, 'deny');
+    assert.match(JSON.parse(curShellDeny.stdout).agent_message, /Gotcha #1/);
+
+    // Gemini CLI lifecycle hooks (`before-agent` pre-slot + context injection, `before-tool` allow & deny)
+    const gemAgent = mcp.runGeminiHook(
+      'before-agent',
+      JSON.stringify({ session_id: 'gem_ses_1', cwd: tmp.dir, prompt: 'switch to discworld crew' })
+    );
+    const gemAgentJson = JSON.parse(gemAgent.stdout);
+    assert.match(gemAgentJson.hookSpecificOutput.additionalContext, /ANKH-MORPORK \/\/ PSEUDOPOLIS YARD/);
+    assert.match(gemAgentJson.hookSpecificOutput.additionalContext, /<construct-voice-lock>/);
+
+    const gemToolOk = mcp.runGeminiHook(
+      'before-tool',
+      JSON.stringify({ tool_name: 'run_shell_command', tool_input: { command: 'npm test' }, cwd: tmp.dir })
+    );
+    assert.equal(JSON.parse(gemToolOk.stdout).decision, 'allow');
+    const gemToolDeny = mcp.runGeminiHook(
+      'before-tool',
+      JSON.stringify({ tool_name: 'run_shell_command', tool_input: { command: 'npm test | tail -n 5' }, cwd: tmp.dir })
+    );
+    assert.equal(JSON.parse(gemToolDeny.stdout).decision, 'deny');
+    assert.match(JSON.parse(gemToolDeny.stdout).reason, /Gotcha #3/);
+
     // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
     const subStartNamed = mcp.runClaudeHook(
       'subagent-start',
