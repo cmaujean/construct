@@ -19,6 +19,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   cryptonomicon: path.join(__dirname, 'cryptonomicon.js'),
   shadowrun: path.join(__dirname, 'shadowrun.js'),
   dresden: path.join(__dirname, 'dresden.js'),
+  amber: path.join(__dirname, 'amber.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -265,6 +266,41 @@ const PACK_METADATA = Object.freeze({
       "michael",
       "toot"
     ]
+  },
+  "amber": {
+    "name": "amber",
+    "title": "The Royal House of Amber (Roger Zelazny — The Chronicles of Amber)",
+    "banner": "🦄 **`═══ [AMBER // THE PRIMAL PATTERN] ═══════════════════════════════════════════`**",
+    "atmosphere": "Castle Amber atop Kolvir, the glowing labyrinth of the Primal Pattern, cold-touched Trump decks, and high-speed hellrides through Shadow. Aristocratic, sardonic, hyper-observant, and ruthlessly competent—immortal princes, Pattern initiates, and a sentient Shadow-construct weighing every imperfect reflection against the one true city.",
+    "seatLabels": {
+      "recon": "SHADOW WALK & RECON",
+      "diagnostics": "LOGRUS & TRUMP TRACE",
+      "architect": "THE PRIMAL PATTERN",
+      "blitz": "MASTER OF ARMS",
+      "forensics": "WARDEN OF ARDEN",
+      "velocity": "HELLRIDE VELOCITY",
+      "redteam": "LIVING TRUMP SABOTAGE",
+      "ergonomics": "TRUMP ARTISTRY & FEEL",
+      "archivist": "THE GHOSTWHEEL"
+    },
+    "interjectionExample": "🔵 **[CORWIN // SHADOW WALK & RECON]** Hold a moment, Fiona—I just walked the Shadow-path through that module if you want the lay of the land before we draw blades.",
+    "waveOffExample": "not now Corwin, let Fiona finish tracing the Pattern invariant first",
+    "defaultStarters": [
+      "corwin",
+      "merlin",
+      "fiona",
+      "benedict",
+      "julian",
+      "random",
+      "brand",
+      "dworkin",
+      "ghostwheel"
+    ],
+    "backups": [
+      "caine",
+      "eric",
+      "flora"
+    ]
   }
 });
 
@@ -345,6 +381,9 @@ function getKnownRomTargets() {
     'shadowland',
     'dresden',
     'paranet',
+    'amber',
+    'kolvir',
+    'pattern',
     'generic',
     'standard',
     'plain',
@@ -358,6 +397,9 @@ function getKnownRomTargets() {
     'sysop',
     'toottoot',
     'archive',
+    'yonderboy',
+    'florimel',
+    'ghost',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 82 ROMs across 7 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 94 ROMs across 8 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 82);
+    assert.equal(roms.length, 94);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['anathem', 'cryptonomicon', 'dresden', 'generic', 'nightcity', 'shadowrun', 'sprawl']
+      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'nightcity', 'shadowrun', 'sprawl']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -445,6 +445,28 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const subbedDresden = store.subRom('toot', { sessionId: 'ses_dresden' });
     assert.ok(subbedDresden.roster.includes('toot'));
     assert.ok(!subbedDresden.roster.includes('thomas'));
+
+    const amberCrew = store.useRom('amber', { sessionId: 'ses_amber' });
+    assert.equal(amberCrew.isCrew, true);
+    assert.deepEqual(amberCrew.roster, [
+      'corwin',
+      'merlin',
+      'fiona',
+      'benedict',
+      'julian',
+      'random',
+      'brand',
+      'dworkin',
+      'ghostwheel',
+    ]);
+    assert.match(amberCrew.voice, /═══ \[AMBER \/\/ THE PRIMAL PATTERN\]/);
+    assert.match(amberCrew.voice, /🔵 \*\*\[CORWIN \/\/ SHADOW WALK & RECON\]\*\*/);
+    assert.match(amberCrew.voice, /🟠 \*\*\[MERLIN \/\/ LOGRUS & TRUMP TRACE\]\*\*/);
+    assert.match(amberCrew.voice, /🔴 \*\*\[BENEDICT \/\/ MASTER OF ARMS\]\*\*/);
+    assert.match(amberCrew.voice, /📓 \*\*\[GHOSTWHEEL \/\/ THE GHOSTWHEEL\]\*\*/);
+    const subbedAmber = store.subRom('caine', { sessionId: 'ses_amber' });
+    assert.ok(subbedAmber.roster.includes('caine'));
+    assert.ok(!subbedAmber.roster.includes('merlin'));
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1491,12 +1513,14 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 81);
+    assert.equal(initClaude.claudeAgentsCount, 93);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'enoch.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fastjack.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'corwin.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'ghostwheel.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);
