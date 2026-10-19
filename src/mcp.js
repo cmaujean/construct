@@ -907,7 +907,7 @@ function detectPreSlotRomDirective(promptText) {
   const text = normalizeMultiWordRomPhrases(String(promptText || '').trim());
   if (!text) return null;
 
-  const tagMatch = text.match(/^\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
+  const tagMatch = text.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
   if (tagMatch && isValidRomTarget(tagMatch[1])) {
     return { action: 'use', target: tagMatch[1].toLowerCase() };
   }
@@ -939,6 +939,57 @@ function detectPreSlotRomDirective(promptText) {
   return null;
 }
 
+// Shared across Claude Code, Cursor, Gemini CLI, and Oh My Pi (`omp`):
+// Queue any specialist ROMs requested in a `Task` / `Agent` tool call (single item or `tasks[]` batch).
+function enqueueSubagentRomsFromToolInput(toolInput, sessionId) {
+  const items = Array.isArray(toolInput?.tasks) ? toolInput.tasks : [toolInput || {}];
+  for (const item of items) {
+    const promptDirective = detectPreSlotRomDirective(
+      item?.task || item?.prompt || item?.description || toolInput?.context || ''
+    );
+    const explicitAgent = String(
+      item?.subagent_type || item?.agent_type || item?.agent || item?.name || ''
+    )
+      .trim()
+      .replace(/[-_]\d+$/, '')
+      .toLowerCase();
+    const targetRom =
+      promptDirective?.target || (isValidRomTarget(explicitAgent) ? explicitAgent : '');
+    if (targetRom) {
+      store.enqueuePendingSubagentRom(sessionId, targetRom);
+    }
+  }
+}
+
+// Shared across Claude Code, Cursor, Gemini CLI, and Oh My Pi (`omp`):
+// Resolve a subagent's specialist ROM from `[ROM: <name>]` in prompt/task, `agent_id` (stripped of `-2` suffixes),
+// `agent_type`/`agent_name`, or the parent session's pending subagent queue.
+function resolveSubagentRomFromHookPayload(payload, parentSessionId, effectiveSessionId) {
+  const promptDirective = detectPreSlotRomDirective(
+    payload?.prompt || payload?.task || payload?.description || ''
+  );
+  const agentIdBase = String(payload?.agent_id || '')
+    .trim()
+    .replace(/[-_]\d+$/, '')
+    .toLowerCase();
+  const agentTypeBase = String(
+    payload?.agent_type || payload?.subagent_type || payload?.agent_name || ''
+  )
+    .trim()
+    .replace(/[-_]\d+$/, '')
+    .toLowerCase();
+  const queuedRom =
+    store.consumePendingSubagentRom(parentSessionId, agentIdBase || agentTypeBase) ||
+    store.consumePendingSubagentRom(effectiveSessionId, agentIdBase || agentTypeBase);
+  return (
+    promptDirective?.target ||
+    (isValidRomTarget(agentIdBase) ? agentIdBase : '') ||
+    (isValidRomTarget(agentTypeBase) ? agentTypeBase : '') ||
+    queuedRom ||
+    ''
+  );
+}
+
 // Claude Code Hook Runner (`construct claude-hook [context | pre-tool | subagent-start]`)
 function runClaudeHook(mode, stdinText = '') {
   let payload = {};
@@ -952,14 +1003,8 @@ function runClaudeHook(mode, stdinText = '') {
 
   if (mode === 'pre-tool') {
     const toolName = String(payload?.tool_name || '');
-    if (toolName === 'Agent' || toolName === 'Task') {
-      const promptDirective = detectPreSlotRomDirective(payload?.tool_input?.prompt);
-      const explicitAgentType = String(payload?.tool_input?.subagent_type || '').trim().toLowerCase();
-      const targetRom =
-        promptDirective?.target || (isValidRomTarget(explicitAgentType) ? explicitAgentType : '');
-      if (targetRom) {
-        store.enqueuePendingSubagentRom(sessionId || 'claude', targetRom);
-      }
+    if (toolName === 'Agent' || toolName === 'Task' || toolName === 'task') {
+      enqueueSubagentRomsFromToolInput(payload?.tool_input, sessionId || 'claude');
       return { exitCode: 0, stdout: '', stderr: '' };
     }
 
@@ -974,8 +1019,11 @@ function runClaudeHook(mode, stdinText = '') {
     const agentType = String(payload?.agent_type || '').trim().toLowerCase();
     const subagentSessionId = agentId ? `${sessionId || 'claude'}:${agentId}` : sessionId || 'claude:subagent';
 
-    const queuedRom = store.consumePendingSubagentRom(sessionId || 'claude', agentType);
-    const resolvedRom = isValidRomTarget(agentType) ? agentType : queuedRom;
+    const resolvedRom = resolveSubagentRomFromHookPayload(
+      payload,
+      sessionId || 'claude',
+      subagentSessionId
+    );
     if (resolvedRom) {
       store.useRom(resolvedRom, { sessionId: subagentSessionId });
     }
@@ -1178,23 +1226,8 @@ function runOmpHook(mode, stdinText = '') {
 
   if (mode === 'before-tool' || payload?.hook_event_name === 'tool_call') {
     const toolName = String(payload?.tool_name || '');
-    if (toolName === 'task') {
-      const taskItems = Array.isArray(payload?.tool_input?.tasks)
-        ? payload.tool_input.tasks
-        : [payload?.tool_input || {}];
-      for (const item of taskItems) {
-        const promptDirective = detectPreSlotRomDirective(
-          item?.task || item?.prompt || item?.description || payload?.tool_input?.context || ''
-        );
-        const explicitAgent = String(item?.agent || item?.name || '')
-          .trim()
-          .toLowerCase();
-        const targetRom =
-          promptDirective?.target || (isValidRomTarget(explicitAgent) ? explicitAgent : '');
-        if (targetRom) {
-          store.enqueuePendingSubagentRom(effectiveSessionId, targetRom);
-        }
-      }
+    if (toolName === 'task' || toolName === 'Task' || toolName === 'Agent') {
+      enqueueSubagentRomsFromToolInput(payload?.tool_input, effectiveSessionId);
       return { exitCode: 0, stdout: JSON.stringify({ block: false }), stderr: '' };
     }
 
@@ -1212,15 +1245,9 @@ function runOmpHook(mode, stdinText = '') {
   }
 
   if (mode === 'after-tool' || payload?.hook_event_name === 'tool_result') {
-    const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(effectiveSessionId)];
-    let output = '';
-    try {
-      output = runConstructCli(args);
-    } catch (_) {}
-    const voiceLock = buildFrontierVoiceLock(output);
     return {
       exitCode: 0,
-      stdout: JSON.stringify(voiceLock ? { additionalContext: voiceLock } : {}),
+      stdout: '{}',
       stderr: '',
     };
   }
@@ -1266,16 +1293,19 @@ function runOmpHook(mode, stdinText = '') {
   const agentKind = String(payload?.agent_kind || 'main');
   const agentName = String(payload?.agent_name || '').trim().toLowerCase();
   const agentId = String(payload?.agent_id || '').trim();
+  const agentIdBase = agentId.replace(/[-_]\d+$/, '').toLowerCase();
+  const parentSessionId = String(payload?.parent_session_id || effectiveSessionId).trim();
   const targetSessionId =
     agentKind === 'sub'
       ? `${effectiveSessionId}:${agentId || agentName || 'sub'}`
       : effectiveSessionId;
 
   if (agentKind === 'sub') {
-    const promptDirective = detectPreSlotRomDirective(payload?.prompt || '');
-    const queuedRom = store.consumePendingSubagentRom(effectiveSessionId, agentName);
-    const resolvedRom =
-      promptDirective?.target || (isValidRomTarget(agentName) ? agentName : queuedRom);
+    const resolvedRom = resolveSubagentRomFromHookPayload(
+      payload,
+      parentSessionId,
+      effectiveSessionId
+    );
     if (resolvedRom) {
       try {
         store.useRom(resolvedRom, { sessionId: targetSessionId });
@@ -1345,17 +1375,23 @@ function callOmpHook(mode, payload) {
 }
 
 export default function constructOmpExtension(pi) {
+  let mainSessionId = "";
   if (typeof pi?.setLabel === "function") {
     pi.setLabel("Construct Memory & Crew Engine");
   }
 
   pi.on("before_agent_start", async (event, ctx) => {
     const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
+    const agentKind = ctx?.agent?.kind || "main";
+    if (agentKind === "main" && sessionId) {
+      mainSessionId = sessionId;
+    }
     const res = callOmpHook("before-agent", {
       session_id: sessionId,
+      parent_session_id: mainSessionId || sessionId,
       cwd: ctx?.cwd || process.cwd(),
       prompt: event?.prompt || "",
-      agent_kind: ctx?.agent?.kind || "main",
+      agent_kind: agentKind,
       agent_name: ctx?.agent?.name || "",
       agent_id: ctx?.agent?.id || "",
     });

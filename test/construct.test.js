@@ -1497,6 +1497,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       validateShellCommand,
       stripShadowedInstructions,
       detectPreSlotRomDirective,
+      detectSubagentContextRom,
       resolveBootWithFallback,
       formatTitleWithHudBadge,
       buildFrontierVoiceLock,
@@ -1588,6 +1589,24 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       action: 'use',
       target: 'lupus',
     });
+    assert.deepEqual(
+      detectPreSlotRomDirective('Complete assignment thoroughly:\n\n[ROM: mitch] Inspect built archive'),
+      { action: 'use', target: 'mitch' }
+    );
+    assert.deepEqual(
+      detectSubagentContextRom({
+        session: { parentID: 'ses_parent', title: 'Panam-2 (@general)' },
+        messages: [],
+      }),
+      { action: 'use', target: 'panam' }
+    );
+    assert.deepEqual(
+      detectSubagentContextRom({
+        session: { parentID: 'ses_parent', title: 'Subagent audit' },
+        messages: [{ role: 'user', text: 'Context preamble\n[ROM: johnny] Check auth boundary' }],
+      }),
+      { action: 'use', target: 'johnny' }
+    );
     assert.deepEqual(detectPreSlotRomDirective('switch to the anathem crew'), {
       action: 'use',
       target: 'anathem',
@@ -1933,17 +1952,35 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const ompSubAgent = mcp.runOmpHook(
       'before-agent',
       JSON.stringify({
-        session_id: 'omp_ses_1',
+        session_id: 'omp_ses_child_1',
+        parent_session_id: 'omp_ses_1',
         cwd: tmp.dir,
-        prompt: 'Audit the auth gate',
+        prompt: 'Complete assignment thoroughly:\n\n[ROM: johnny] Audit the auth gate',
         agent_kind: 'sub',
-        agent_name: 'explore',
-        agent_id: '0-Explore',
+        agent_name: 'scout',
+        agent_id: 'Johnny',
       })
     );
     const ompSubJson = JSON.parse(ompSubAgent.stdout);
-    assert.equal(ompSubJson.sessionId, 'omp_ses_1:0-Explore');
-    assert.match(ompSubJson.additionalSystemPrompt, /Johnny Silverhand \/\/ Relic Engram Saboteur/);
+    assert.equal(ompSubJson.sessionId, 'omp_ses_child_1:Johnny');
+    assert.match(ompSubJson.additionalSystemPrompt, /Active Session Personality ROM: Johnny Silverhand \/\/ Relic Engram Saboteur/);
+    assert.match(ompSubJson.additionalSystemPrompt, /ACTIVE ROM VOICE LOCK \(Johnny Silverhand/);
+
+    const ompSubByName = mcp.runOmpHook(
+      'before-agent',
+      JSON.stringify({
+        session_id: 'omp_ses_child_2',
+        parent_session_id: 'omp_ses_1',
+        cwd: tmp.dir,
+        prompt: 'Complete assignment thoroughly:\n\nAudit the CLI ergonomics',
+        agent_kind: 'sub',
+        agent_name: 'scout',
+        agent_id: 'Panam-2',
+      })
+    );
+    const ompSubByNameJson = JSON.parse(ompSubByName.stdout);
+    assert.match(ompSubByNameJson.additionalSystemPrompt, /Active Session Personality ROM: Panam Palmer/);
+    assert.match(ompSubByNameJson.additionalSystemPrompt, /ACTIVE ROM VOICE LOCK \(Panam Palmer/);
 
     const ompBashOk = mcp.runOmpHook(
       'before-tool',
@@ -1962,7 +1999,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       'after-tool',
       JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', is_error: false })
     );
-    assert.match(JSON.parse(ompAfterTool.stdout).additionalContext, /<construct-voice-lock>/);
+    assert.deepEqual(JSON.parse(ompAfterTool.stdout), {});
 
     const ompCmd = mcp.runOmpHook(
       'command',
@@ -2014,6 +2051,19 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /session="claude_ses_1:agent-01"/);
     assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /Active Session Personality ROM: Fraa Lio/);
 
+
+    // Subagent Path A2: Generic `Explore` subagent with specialist `agent_id: "Mitch-2"` resolves `mitch` without needing queue
+    const subStartById = mcp.runClaudeHook(
+      'subagent-start',
+      JSON.stringify({
+        session_id: 'claude_ses_1',
+        cwd: tmp.dir,
+        hook_event_name: 'SubagentStart',
+        agent_id: 'Mitch-2',
+        agent_type: 'Explore',
+      })
+    );
+    assert.match(JSON.parse(subStartById.stdout).hookSpecificOutput.additionalContext, /Active Session Personality ROM: Mitch Anderson/);
     // Subagent Path B: Generic `Explore` subagent spawned with `[ROM: orolo]` in `Agent` tool prompt
     const preToolAgent = mcp.runClaudeHook(
       'pre-tool',

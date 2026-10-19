@@ -478,8 +478,8 @@ export function detectPreSlotRomDirective(promptText) {
   const text = normalizeMultiWordRomPhrases(String(promptText || "").trim())
   if (!text) return null
 
-  // 1. Subagent tag: `[ROM: lupus]` or `[ROM: finn,case]` at the start of a subagent prompt
-  const tagMatch = text.match(/^\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
+  // 1. Subagent tag: `[ROM: lupus]` or `[ROM: finn,case]` at the start or after a task preamble
+  const tagMatch = text.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
   if (tagMatch && isValidRomTarget(tagMatch[1])) {
     return { action: "use", target: tagMatch[1].toLowerCase() }
   }
@@ -509,6 +509,56 @@ export function detectPreSlotRomDirective(promptText) {
   )
   if (useMatch && isValidRomTarget(useMatch[1])) {
     return { action: "use", target: useMatch[1].toLowerCase() }
+  }
+
+  return null
+}
+
+// Resolve a subagent's specialist ROM on Turn 1 inside `ctx.session.hook("context")` when a host
+// spawns a child subagent session programmatically (bypassing interactive `prompt` hooks) or names
+// the subagent session after the specialist (`Panam-2 (@general)`, `[ROM: johnny] Audit auth`).
+export function detectSubagentContextRom({ session = null, messages = [] } = {}) {
+  const title = String(session?.title || "").trim()
+  if (title) {
+    const titleTag = title.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
+    if (titleTag && isValidRomTarget(titleTag[1])) {
+      return { action: "use", target: titleTag[1].toLowerCase() }
+    }
+  }
+
+  const firstMsg = Array.isArray(messages) && messages.length ? messages[0] : null
+  if (firstMsg) {
+    const candidateTexts = []
+    if (typeof firstMsg.text === "string") candidateTexts.push(firstMsg.text)
+    if (typeof firstMsg.content === "string") candidateTexts.push(firstMsg.content)
+    if (Array.isArray(firstMsg.content)) {
+      for (const item of firstMsg.content) {
+        if (item && typeof item.text === "string") candidateTexts.push(item.text)
+      }
+    }
+    if (Array.isArray(firstMsg.parts)) {
+      for (const part of firstMsg.parts) {
+        if (part && typeof part.text === "string") candidateTexts.push(part.text)
+      }
+    }
+    for (const raw of candidateTexts) {
+      const tagMatch = String(raw || "").match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
+      if (tagMatch && isValidRomTarget(tagMatch[1])) {
+        return { action: "use", target: tagMatch[1].toLowerCase() }
+      }
+    }
+  }
+
+  const isChildSession = Boolean(session?.parentID || session?.parentId || /@\w+/.test(title))
+  if (isChildSession && title) {
+    const cleanLead = title
+      .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+      .trim()
+      .split(/[\s(:@_-]/)[0]
+      .toLowerCase()
+    if (cleanLead && isValidRomTarget(cleanLead)) {
+      return { action: "use", target: cleanLead }
+    }
   }
 
   return null
@@ -784,16 +834,27 @@ export default {
   }
 
     // 1. Inject live sequential memory construct + session-scoped ROM into every primary model turn
+    const contextPreSlottedSessions = new Set()
     await ctx.session.hook("context", async (event) => {
       if (event.sessionID) promptedSessions.add(String(event.sessionID))
       let dir = ctx.location?.directory
+      let sess = null
       if (event.sessionID) {
         try {
-          const sess = await ctx.session.get({ sessionID: event.sessionID })
+          sess = await ctx.session.get({ sessionID: event.sessionID })
           if (sess?.directory) dir = sess.directory
         } catch (_) {}
       }
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
+      if (event.sessionID && !contextPreSlottedSessions.has(String(event.sessionID))) {
+        contextPreSlottedSessions.add(String(event.sessionID))
+        const subDirective = detectSubagentContextRom({ session: sess, messages: event.messages })
+        if (subDirective) {
+          const romArgs = ["rom", subDirective.action, subDirective.target, ...sessionArgs]
+          if (dir) romArgs.push("--dir", String(dir))
+          runConstruct(romArgs)
+        }
+      }
       const rawOutput = dir
         ? runConstruct(["boot", "--dir", String(dir), "-n", "8", ...sessionArgs])
         : runConstruct(["projects", ...sessionArgs])
