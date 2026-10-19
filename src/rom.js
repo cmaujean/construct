@@ -391,7 +391,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates',
     '1. **Run Banner, Color Tags & Voice:**',
@@ -459,11 +459,12 @@ function compileUnassignedBootloaderPrompt(razorRom) {
     '     - label: `"cryptonomicon (Detachment 2702 & Epiphyte Corp)"`, description: `"Neal Stephenson (Cryptonomicon). 1942 Bletchley cryptanalysis + 1999 Manila Unix/crypto engineering: Lawrence Waterhouse, Goto Dengo, Enoch Root, Randy Waterhouse, Doug Shaftoe, Avi Halaby, John Cantrell, Amy Shaftoe, Golgotha."`',
     '     - label: `"shadowrun (Seattle 2050s Shadowland Team)"`, description: `"Sixth World tactical arcology run where Awakened magic meets cyberware: Talon (Raven shaman), StreetDoc, FastJack, Hatchetman (Street Samurai), Rigger, Dodger (Excalibur decker), Harlequin, Siren (Face), Captain Chaos (Shadowland SysOp)."`',
     '     - label: `"dresden (The Chicago Paranet & White Council Crew)"`, description: `"Jim Butcher (The Dresden Files). Sub-basement wizard lab, Unseelie Accords invariants, and SI forensics: Bob the Skull, Waldo Butters, Queen Mab, Harry Dresden, Karrin Murphy, Thomas Raith, John Marcone, Molly Carpenter (Grasshopper), and The Archive (Ivy)."`',
+    '     - label: `"amber (The Royal House of Amber)"`, description: `"Roger Zelazny (The Chronicles of Amber). Castle Amber, the Primal Pattern, and Trump decks: Corwin, Merlin, Fiona, Benedict, Julian, Random, Brand, Dworkin, and Ghostwheel."`',
     '     - label: `"generic (The Standard Engineering Crew)"`, description: `"Zero-fiction professional specialist pipeline. Pure engineering roles without literary personas: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger."`',
     '   - **Question 2** (`header: "Crew Scope"`, `question: "Use this Crew for this session only, or set as your default until further notice?"`):',
     '     - label: `"Default until further notice (Recommended)"`, description: `"Boot future sessions directly into this Crew without asking"`',
     '     - label: `"This session only"`, description: `"Bind to this session tab only; new sessions will ask again"`',
-    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
+    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
   ].join('\n');
 }
 
