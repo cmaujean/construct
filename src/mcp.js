@@ -249,6 +249,7 @@ const MCP_TOOLS = Object.freeze([
         },
         project: { type: 'string', description: 'Project key, e.g. acme/alpha_app' },
         to: { type: 'string', description: 'Recipient operator id (for msg/inbox/drop), e.g. bob' },
+        via: { type: 'string', description: "Optional courier/messenger ROM to deliver the message or reply in-character (e.g. 'toot', 'bob', 'dixie', 'johnny')" },
         id: { type: 'integer', description: 'Message id (for reply/ack/apply-drop)' },
         body: { type: 'string', description: 'Message, reply text, or patch content (for drop)' },
         file: { type: 'string', description: 'File path to drop or output path for apply-drop' },
@@ -386,16 +387,23 @@ function executeMcpTool(name, input = {}) {
     }
     case 'construct_comms': {
       if (input.action === 'msg') {
-        return runConstructCli(['msg', String(input.project || 'global'), '--to', String(input.to), String(input.body)]);
+        const args = ['msg', String(input.project || 'global'), '--to', String(input.to)];
+        if (input.via) args.push('--via', String(input.via));
+        args.push(String(input.body));
+        return runConstructCli(args);
       }
       if (input.action === 'reply') {
-        return runConstructCli(['reply', String(input.id), String(input.body)]);
+        const args = ['reply', String(input.id)];
+        if (input.via) args.push('--via', String(input.via));
+        args.push(String(input.body));
+        return runConstructCli(args);
       }
       if (input.action === 'ack') {
         return runConstructCli(['ack', String(input.id)]);
       }
       if (input.action === 'drop') {
         const args = ['drop', String(input.project || 'global'), '--to', String(input.to)];
+        if (input.via) args.push('--via', String(input.via));
         if (input.file) args.push('--file', String(input.file));
         if (input.gitDiff) args.push('--git-diff');
         if (input.body) args.push('--content', String(input.body));

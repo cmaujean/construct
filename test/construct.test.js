@@ -1081,11 +1081,43 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         summary: 'Other project open thread that must not leak into shared_app HUD',
       });
 
+      // Dispatch a Courier message (`via: 'toot'`) to Bob on `acme/shared_app` and verify:
+      //   1. `bootProject` attaches Toot-Toot's courier profile (`⚡ **[TOOT // COURIER FROM ALICE]**`) without changing Bob's slotted Crew (`shadowrun`)
+      //   2. `construct boot` outputs `INCOMING CONSTRUCT COURIER` with `COURIER CAMEO RULE`
+      //   3. `getHudSnapshot` and `generateDashboardHtml` include the message in `Construct Comms & Courier Log`
+      const tootMsg = store.sendMessage({
+        project: 'acme/shared_app',
+        fromUser: 'alice',
+        to: 'bob',
+        via: 'toot',
+        body: 'Za-Lord says #111 is merged and ready for review!',
+      });
+      assert.equal(tootMsg.fromRom, 'toot');
+
+      const bootWithCourier = store.bootProject('acme/shared_app', { sessionId: 'ses_tab_a', autoSync: false });
+      assert.equal(bootWithCourier.rom.name, 'shadowrun');
+      const incomingToot = bootWithCourier.inboxPending.find((m) => m.id === tootMsg.id);
+      assert.ok(incomingToot);
+      assert.equal(incomingToot.courier.name, 'toot');
+      assert.match(incomingToot.courier.badge, /⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\*/);
+      assert.match(incomingToot.courier.voiceCue, /Za-Lord/);
+
+      const cliCourierBoot = execFileSync(process.execPath, [CLI, 'boot', 'acme/shared_app', '--session', 'ses_tab_a'], {
+        env: { ...process.env, CONSTRUCT_NO_AUTOSYNC: '1' },
+        encoding: 'utf8',
+      });
+      assert.match(cliCourierBoot, /INCOMING CONSTRUCT COURIER FOR BOB/);
+      assert.match(cliCourierBoot, /⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\*/);
+      assert.match(cliCourierBoot, /COURIER CAMEO RULE: Open your reply by having ⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\* pop directly into the feed/);
+
       const dashFile = path.join(bobHome, 'dashboard.html');
       const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
+      assert.match(dash.html, /Construct Comms &amp; Courier Log — acme\/shared_app/);
+      assert.match(dash.html, /⚡ toot/);
+      assert.match(dash.html, /Za-Lord says #111 is merged and ready for review!/);
       assert.match(dash.html, /acme\/shared_app/);
       assert.match(dash.html, /acme\/other_app/);
       assert.doesNotMatch(dash.html, /Other project open thread that must not leak into shared_app HUD/);

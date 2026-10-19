@@ -322,32 +322,30 @@ Not all of your projects are shared with the same people. Construct enforces har
 
 ---
 
-## 9. Construct-to-Construct Comms (ROM-to-ROM Messaging)
+## 9. Construct-to-Construct Comms & Courier Cameo Protocol (`--via <messenger>`)
 
-Because each developer works with their own slotted Crew or specialist (for example, Alice works with **Molly** on Windows while her teammate Bob works with **Dixie** on Linux), your constructs can pass messages and questions to each other over the project's encrypted sync channel.
+Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over the project's encrypted MLS sync channel -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
 
-### How It Works in Practice
+### How Courier Cameos Work in Practice
 
-1. **Alice tells Molly in OpenCode:**
-   > *"Ask Bob on `acme/alpha_app` if we should execute Order 66."*
-   - Molly records message `[M#1]` (`from: alice/molly -> to: bob`) and syncs it over the encrypted MLS relay.
+1. **Alice tells her Crew in OpenCode:**
+   > *"Send Toot-Toot to tell Bob on `acme/alpha_app` that #111 is merged and ready for review."*
+   - Construct records message `[M#1]` (`from: alice/toot -> to: bob` via `--via toot`) and syncs it over the encrypted MLS relay.
 
-2. **Bob opens OpenCode on his machine:**
-   - His Construct plugin injects `<construct-live-memory>` into his session, surfacing:
+2. **Bob's next turn in OpenCode on his machine:**
+   - His Construct plugin injects `<construct-live-memory>` into his session, surfacing the courier's badge, handle, and voice cue:
      ```text
-     INCOMING CONSTRUCT COMMS FOR BOB (1 awaiting reply):
-       [M#1] From alice's molly -> bob (acme/alpha_app):
-             "Should we execute Order 66?"
+     INCOMING CONSTRUCT COURIER FOR BOB (1 awaiting reply):
+       [M#1] Courier: ⚡ **[TOOT // COURIER FROM ALICE]** (Major General Toot-Toot Minimus // Za-Lord's Elite Guard & Swarm Scout)
+              Message from alice -> bob (acme/alpha_app): "#111 is merged and ready for review."
+              -> COURIER CAMEO RULE: Open your reply by having ⚡ **[TOOT // COURIER FROM ALICE]** pop directly into the feed in toot's own authentic voice to deliver alice's message to bob, then immediately hand the mic back to bob's active Crew (do NOT switch bob's slotted session/project Crew).
      ```
-   - Bob's **Dixie** immediately says to him in Dixie's voice:
-     > *"Hey hoss, Alice's Molly pinged across the wire on `acme/alpha_app`. Wants to know if it's time to execute Order 66."*
+   - **Toot-Toot** buzzes directly into Bob's feed for a cameo paragraph in his own voice (*"Halt! Major General Toot-Toot Minimus reporting from the Za-Lord! Issue #111 is merged and ready for review!"*), and immediately hands the mic back to Bob's own active **Sprawl Crew** (`Dixie`, `Wintermute`, `Molly`).
+   - All sent and received messages also appear in the **Construct Comms & Courier Log** table inside the Review Pane HUD (`construct-hud.html`) for easy look-back.
 
 3. **Bob replies in normal chat:**
-   > *"Tell her no, peace is still an option."*
-   - Dixie records the reply on `[M#1]` (`reply_rom: dixie`, `"No, peace is still an option"`) and syncs it back over the relay.
-
-4. **Alice's next turn with Molly:**
-   - Molly sees Dixie's reply in `<construct-live-memory>`, delivers the answer to Alice in her voice (*"Bob's Dixie came back over the wire: 'No, peace is still an option.'"*), and marks `[M#1]` delivered (`ack`).
+   > *"Tell him we pulled main and it looks great."* (or *"Send Dixie back to tell Alice it looks great."*)
+   - Bob's Construct records the reply on `[M#1]` (`construct reply 1 "..." [--via dixie]`) and syncs it back over the relay for a return courier cameo on Alice's next turn.
 
 ---
 
@@ -463,10 +461,10 @@ construct invite <project> [--relays wss://...] [--git-url ..] [--branch ..] [--
 construct join "<construct://invite/...#...>" [--dir <target_dir>]
 construct sync <project> [--relays wss://...]
 construct relay [--port 8787]
-construct msg <project> --to <user> "<message>"
-construct drop <project> --to <user> [--file <path> | --git-diff | --content ".."] [--note ".."]
+construct msg <project> --to <user> [--via <messenger>] "<message>"
+construct drop <project> --to <user> [--via <messenger>] [--file <path> | --git-diff | --content ".."] [--note ".."]
 construct apply-drop <msg_id> [--out <file> | --apply]
-construct reply <msg_id> "<answer>"
+construct reply <msg_id> [--via <messenger>] "<answer>"
 construct ack <msg_id>
 construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered]
 ```

@@ -128,6 +128,7 @@ const OPTIONS = {
   limit: { type: 'string', short: 'n' },
   window: { type: 'string', short: 'w' },
   rom: { type: 'string' },
+  via: { type: 'string' },
   pack: { type: 'string' },
   seat: { type: 'string' },
   tier: { type: 'string' },
@@ -291,21 +292,39 @@ function printBoot(data) {
   }
 
   if (inboxPending.length) {
-    console.log(`\nINCOMING CONSTRUCT COMMS FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxPending.length} awaiting reply):`);
+    console.log(`\nINCOMING CONSTRUCT COURIER FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxPending.length} awaiting reply):`);
     for (const m of inboxPending) {
-      console.log(`  [M#${m.id}] From ${m.fromUser}'s ${m.fromRom} -> ${m.toUser} (${m.project}, ${shortTs(m.created)}):`);
-      console.log(`         "${m.body}"`);
-      console.log(`         -> Relay this to ${m.toUser} in your ROM voice; when answered, run: construct reply ${m.id} "<answer>"`);
+      const c = m.courier || {
+        name: m.fromRom || 'courier',
+        badge: `📬 **[${String(m.fromRom || 'courier').toUpperCase()} // COURIER FROM ${String(m.fromUser || '').toUpperCase()}]**`,
+        handle: m.fromRom || 'courier',
+        voiceCue: '',
+      };
+      console.log(`  [M#${m.id}] Courier: ${c.badge} (${c.handle})`);
+      if (c.voiceCue) console.log(`         Courier Voice Cue: ${c.voiceCue}`);
+      console.log(`         Message from ${m.fromUser} -> ${m.toUser} (${m.project}, ${shortTs(m.created)}): "${m.body}"`);
+      console.log(
+        `         -> COURIER CAMEO RULE: Open your reply by having ${c.badge} pop directly into the feed in ${c.name}'s own authentic voice to deliver ${m.fromUser}'s message to ${m.toUser}, then immediately hand the mic back to ${m.toUser}'s active Crew (do NOT switch ${m.toUser}'s slotted session/project Crew). When answered, run: construct reply ${m.id} "<answer>" [--via <messenger>]`
+      );
     }
   }
 
   if (inboxReplies.length) {
-    console.log(`\nCONSTRUCT COMMS REPLIES FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxReplies.length} unread):`);
+    console.log(`\nCONSTRUCT COURIER REPLIES FOR ${(user?.name || detectedLogin).toUpperCase()} (${inboxReplies.length} unread):`);
     for (const m of inboxReplies) {
-      console.log(`  [M#${m.id}] ${m.toUser}'s ${m.replyRom} replied to your ${m.fromRom} (${m.project}):`);
-      console.log(`         Asked: "${m.body}"`);
-      console.log(`         Reply: "${m.replyBody}"`);
-      console.log(`         -> Deliver this reply to ${m.fromUser} in your ROM voice and run: construct ack ${m.id}`);
+      const c = m.courier || {
+        name: m.replyRom || m.fromRom || 'courier',
+        badge: `📬 **[${String(m.replyRom || m.fromRom || 'courier').toUpperCase()} // RETURN COURIER FROM ${String(m.toUser || '').toUpperCase()}]**`,
+        handle: m.replyRom || m.fromRom || 'courier',
+        voiceCue: '',
+      };
+      console.log(`  [M#${m.id}] Return Courier: ${c.badge} (${c.handle})`);
+      if (c.voiceCue) console.log(`         Courier Voice Cue: ${c.voiceCue}`);
+      console.log(`         Asked (${m.fromUser} via ${m.fromRom}): "${m.body}"`);
+      console.log(`         Reply from ${m.toUser}: "${m.replyBody}"`);
+      console.log(
+        `         -> COURIER CAMEO RULE: Open your reply by having ${c.badge} pop directly into the feed in ${c.name}'s own authentic voice to deliver ${m.toUser}'s answer to ${m.fromUser}, then immediately hand the mic back to ${m.fromUser}'s active Crew (do NOT switch ${m.fromUser}'s slotted session/project Crew) and run: construct ack ${m.id}`
+      );
     }
   }
 }
@@ -997,6 +1016,8 @@ function main(argv) {
       const m = store.dropPatch({
         project,
         to: o.to,
+        via: o.via || o.rom,
+        sessionId: o.session,
         filePath: o.file || rest[1],
         gitDiff: Boolean(o['git-diff']),
         content: o.content,
@@ -1089,9 +1110,9 @@ function main(argv) {
       const [project, ...bodyParts] = rest;
       const body = bodyParts.join(' ');
       if (!project || !body || !o.to) {
-        throw new Error('usage: construct msg <project> --to <user> "<message>"');
+        throw new Error('usage: construct msg <project> --to <user> [--via <messenger>] "<message>"');
       }
-      const m = store.sendMessage({ project, to: o.to, body });
+      const m = store.sendMessage({ project, to: o.to, via: o.via || o.rom, sessionId: o.session, body });
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`queued [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project}): "${m.body}"`);
       return 0;
@@ -1100,8 +1121,8 @@ function main(argv) {
     case 'reply': {
       const [msgId, ...replyParts] = rest;
       const replyBody = replyParts.join(' ');
-      if (!msgId || !replyBody) throw new Error('usage: construct reply <msg_id> "<answer>"');
-      const m = store.replyMessage(msgId, replyBody);
+      if (!msgId || !replyBody) throw new Error('usage: construct reply <msg_id> [--via <messenger>] "<answer>"');
+      const m = store.replyMessage(msgId, replyBody, { via: o.via || o.rom, sessionId: o.session });
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`replied to [M#${m.id}] (${m.toUser}/${m.replyRom} -> ${m.fromUser}/${m.fromRom}): "${m.replyBody}"`);
       return 0;

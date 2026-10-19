@@ -1020,14 +1020,22 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
         "SELECT * FROM messages WHERE to_user = ? AND status = 'pending' AND (project = ? OR project = 'global') ORDER BY hlc ASC"
       )
       .all(activeUserId, project)
-      .map(crdt.hydrateMessage);
+      .map((row) => {
+        const m = crdt.hydrateMessage(row);
+        m.courier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
+        return m;
+      });
 
     const inboxReplies = db
       .prepare(
         "SELECT * FROM messages WHERE from_user = ? AND status = 'replied' AND (project = ? OR project = 'global') ORDER BY reply_hlc ASC"
       )
       .all(activeUserId, project)
-      .map(crdt.hydrateMessage);
+      .map((row) => {
+        const m = crdt.hydrateMessage(row);
+        m.courier = buildCourierProfileInDb(db, m.replyRom || m.fromRom, m.toUser, 'RETURN COURIER');
+        return m;
+      });
 
     const sessionRomPrompt = romSlotted
       ? rom.isCrew
@@ -1965,7 +1973,69 @@ function removeGotcha(idInput, file = dbPath()) {
   );
 }
 
-// --- Construct-to-Construct Comms (Molly <-> Dixie) ---
+// --- Construct-to-Construct Comms & Courier Protocol ---
+
+const PACK_DEFAULT_COURIER_MAP = Object.freeze({
+  dresden: 'toot',
+  sprawl: 'case',
+  nightcity: 'songbird',
+  anathem: 'jules',
+  cryptonomicon: 'avi',
+  shadowrun: 'dodger',
+  generic: 'pulse',
+});
+
+function resolveCourierRomNameInDb(db, explicitVia = '', sessionId = '', project = '') {
+  const raw = String(explicitVia || '').trim().toLowerCase();
+  if (raw) {
+    const singleRow = resolveSingleRomRowInDb(db, raw);
+    if (singleRow && singleRow.name) return singleRow.name;
+    if (PACK_DEFAULT_COURIER_MAP[raw]) return PACK_DEFAULT_COURIER_MAP[raw];
+    return raw;
+  }
+  const activeRom = getActiveRomInDb(db, sessionId, project);
+  if (activeRom && !activeRom.isCrew && activeRom.name) {
+    return activeRom.name;
+  }
+  const pack = activeRom?.pack || (activeRom?.name === 'crew' ? 'sprawl' : activeRom?.name || '');
+  return PACK_DEFAULT_COURIER_MAP[pack] || activeRom?.roster?.[0] || 'dixie';
+}
+
+function buildCourierProfileInDb(db, romNameInput = '', senderUser = '', roleLabel = 'COURIER') {
+  const raw = String(romNameInput || 'dixie').trim().toLowerCase();
+  const mappedName = PACK_DEFAULT_COURIER_MAP[raw] || raw;
+  const row = resolveSingleRomRowInDb(db, mappedName);
+  const senderSuffix = senderUser ? ` FROM ${String(senderUser).toUpperCase()}` : '';
+
+  if (!row) {
+    return {
+      name: raw,
+      glyph: '📬',
+      badge: `📬 **[${raw.toUpperCase()} // ${roleLabel}${senderSuffix}]**`,
+      handle: raw,
+      voiceCue: '',
+    };
+  }
+
+  const rom = romMod.hydrateRom(row);
+  const seatMeta = romMod.SEAT_MAP[rom.seat] || { glyph: '📬' };
+  const glyph = seatMeta.glyph || '📬';
+  const badge = `${glyph} **[${rom.name.toUpperCase()} // ${roleLabel}${senderSuffix}]**`;
+
+  const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
+  const syntaxText = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
+  const rightMatch = rom.voice.match(/\(RIGHT\):\*\s*"([^"\n]+)"/);
+  const sampleText = rightMatch ? ` Sample: "${rightMatch[1].trim()}"` : '';
+  const voiceCue = [rom.tagline, syntaxText].filter(Boolean).join(' ') + sampleText;
+
+  return {
+    name: rom.name,
+    glyph,
+    badge,
+    handle: rom.handle,
+    voiceCue: voiceCue.trim(),
+  };
+}
 
 function sendMessage(fields = {}, file = dbPath()) {
   const project = normalizeProject(fields.project || 'global');
@@ -1978,12 +2048,16 @@ function sendMessage(fields = {}, file = dbPath()) {
     (db) =>
       tx(db, () => {
         const identity = crdt.loadOrCreateIdentity();
-        const rom = getActiveRomInDb(db);
         const user = protocol.getCurrentUserInDb(db);
         const fromUser = fields.fromUser
           ? String(fields.fromUser).trim().toLowerCase()
           : user?.id || protocol.detectOsUsername();
-        const fromRom = fields.fromRom ? String(fields.fromRom).trim().toLowerCase() : rom?.name || 'dixie';
+        const fromRom = resolveCourierRomNameInDb(
+          db,
+          fields.via || fields.fromRom || '',
+          fields.sessionId || process.env.CONSTRUCT_SESSION_ID || '',
+          project === 'global' ? '' : project
+        );
         const uid = fields.uid || `msg-${project}-${crypto.randomUUID()}`;
         const hlc = crdt.nextHlc(identity.did);
         const created = fields.created || nowIso();
@@ -2024,9 +2098,11 @@ function sendMessage(fields = {}, file = dbPath()) {
   );
 }
 
-function replyMessage(idOrUid, replyBodyInput, file = dbPath()) {
+function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = dbPath()) {
   const replyBody = String(replyBodyInput || '').trim();
   if (!replyBody) throw new Error('reply text cannot be empty');
+  const options = typeof optionsOrFile === 'string' ? {} : optionsOrFile || {};
+  const file = typeof optionsOrFile === 'string' ? optionsOrFile : maybeFile;
 
   return withDb(
     (db) =>
@@ -2038,8 +2114,12 @@ function replyMessage(idOrUid, replyBodyInput, file = dbPath()) {
         if (!row) throw new Error(`no construct message matching "${idOrUid}"`);
 
         const identity = crdt.loadOrCreateIdentity();
-        const rom = getActiveRomInDb(db);
-        const replyRom = rom?.name || 'dixie';
+        const replyRom = resolveCourierRomNameInDb(
+          db,
+          options.via || options.replyRom || '',
+          options.sessionId || process.env.CONSTRUCT_SESSION_ID || '',
+          row.project === 'global' ? '' : row.project
+        );
         const replyHlc = crdt.nextHlc(identity.did, row.hlc);
 
         db.prepare(
@@ -2168,7 +2248,7 @@ function dropPatch(fields = {}, file = dbPath()) {
   const body = `[DROP:${relPath || (isGitDiff ? 'git-diff' : 'snippet')}] ${label || 'Encrypted patch/snippet drop'}\n` +
     `\`\`\`construct-drop\n${Buffer.from(JSON.stringify(dropEnvelope), 'utf8').toString('base64')}\n\`\`\``;
 
-  return sendMessage({ project, to: toUser, body }, file);
+  return sendMessage({ project, to: toUser, body, via: fields.via, fromRom: fields.fromRom, sessionId: fields.sessionId }, file);
 }
 
 function applyDrop(idOrUid, options = {}, file = dbPath()) {
@@ -2653,6 +2733,33 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       fix: g.fix || '',
     }));
 
+    const msgRows = project
+      ? db
+          .prepare("SELECT * FROM messages WHERE project = ? OR project = 'global' ORDER BY id DESC LIMIT 20")
+          .all(project)
+          .map(crdt.hydrateMessage)
+      : db.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 20').all().map(crdt.hydrateMessage);
+
+    const commsItems = msgRows.map((m) => {
+      const fromCourier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
+      const replyCourier = m.replyRom ? buildCourierProfileInDb(db, m.replyRom, m.toUser, 'RETURN COURIER') : null;
+      return {
+        id: m.id,
+        project: m.project,
+        fromUser: m.fromUser,
+        fromRom: fromCourier.name,
+        fromGlyph: fromCourier.glyph,
+        fromHandle: fromCourier.handle,
+        toUser: m.toUser,
+        body: m.body,
+        status: m.status,
+        replyBody: m.replyBody || '',
+        replyRom: replyCourier ? replyCourier.name : m.replyRom || '',
+        replyGlyph: replyCourier ? replyCourier.glyph : '📬',
+        created: String(m.created || '').slice(0, 10),
+      };
+    });
+
     const pillParts = [
       `${emblem} ${displayRom}`,
       project ? `${project}` : null,
@@ -2703,6 +2810,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       openThreads,
       recentTape,
       gotchas: gotchaItems,
+      comms: commsItems,
       gotchaCount: projectGotchas.length,
       guardCount,
       inboxPendingCount,
@@ -2782,6 +2890,22 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         }</td>
       </tr>`
     )
+    .join('');
+
+  const commsList = Array.isArray(hud.comms) ? hud.comms : [];
+  const commsRows = commsList
+    .map((m) => {
+      const stClass = m.status === 'pending' ? 'warn' : 'ok';
+      const replyBlock = m.replyBody
+        ? `<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ${escapeHtml(m.replyGlyph || '📬')} ${escapeHtml(m.replyRom)} (${escapeHtml(m.toUser)}):</strong> "${escapeHtml(m.replyBody)}"</div>`
+        : '';
+      return `
+      <tr>
+        <td><code>M#${m.id}</code><div style="margin-top:3px;"><span class="badge ${stClass}">${escapeHtml(m.status)}</span></div><div class="sub">${escapeHtml(m.created || '')}</div></td>
+        <td><strong>${escapeHtml(m.fromGlyph || '📬')} ${escapeHtml(m.fromRom)}</strong><div class="sub">${escapeHtml(m.fromUser)} -&gt; ${escapeHtml(m.toUser)}</div></td>
+        <td>"${escapeHtml(m.body)}"${replyBlock}</td>
+      </tr>`;
+    })
     .join('');
 
   const shortSidInit = hud.sessionId ? hud.sessionId.replace(/^ses_/, '').slice(0, 6) : '';
@@ -2949,6 +3073,12 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     <div style="margin-top:4px;"><strong>NEXT:</strong> <span id="hud-head-next">${escapeHtml(hud.next || '(unset)')}</span></div>
   </div>
 
+  <h2 id="hud-comms-heading">Construct Comms &amp; Courier Log — ${escapeHtml(hud.project)} (${commsList.length})</h2>
+  <table>
+    <thead><tr><th style="width:95px;">ID / Status</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply</th></tr></thead>
+    <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
+  </table>
+
   <h2 id="hud-open-heading">Open Verification Threads — ${escapeHtml(hud.project)} (${openThreads.length})</h2>
   <table>
     <thead><tr><th style="width:90px;">Seq</th><th>Summary &amp; Detail</th></tr></thead>
@@ -3076,6 +3206,26 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       if (headStateEl) headStateEl.textContent = h.state || '(unset)';
       const headNextEl = document.getElementById('hud-head-next');
       if (headNextEl) headNextEl.textContent = h.next || '(unset)';
+
+      const commsHeading = document.getElementById('hud-comms-heading');
+      const commsTbody = document.getElementById('hud-comms-tbody');
+      const commsArr = Array.isArray(h.comms) ? h.comms : [];
+      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log — ' + (h.project || 'workspace') + ' (' + commsArr.length + ')';
+      if (commsTbody) {
+        if (!commsArr.length) {
+          commsTbody.innerHTML = '<tr><td colspan="3">(no messages in construct comms log)</td></tr>';
+        } else {
+          commsTbody.innerHTML = commsArr.map((m) => {
+            const stClass = m.status === 'pending' ? 'warn' : 'ok';
+            const replyHtml = m.replyBody
+              ? '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
+              : '';
+            return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
+              '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div></td>' +
+              '<td>"' + esc(m.body) + '"' + replyHtml + '</td></tr>';
+          }).join('');
+        }
+      }
 
       const openHeading = document.getElementById('hud-open-heading');
       const openTbody = document.getElementById('hud-open-tbody');

@@ -920,7 +920,7 @@ export default {
 
       editor.add({
         name: "comms",
-        description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`).",
+        description: "Send, reply, acknowledge, list Construct-to-Construct messages, or drop/apply encrypted patches & snippets (`drop` / `apply-drop`), optionally specifying a courier/messenger ROM (`via`: e.g. 'toot', 'bob', 'dixie', 'johnny').",
         input: {
           type: "object",
           properties: {
@@ -930,6 +930,7 @@ export default {
             },
             project: { type: "string", description: "Project key, e.g. acme/alpha_app" },
             to: { type: "string", description: "Recipient operator id (for msg/inbox/drop), e.g. bob" },
+            via: { type: "string", description: "Optional courier/messenger ROM to deliver the message or reply in-character in the recipient's feed (e.g. 'toot', 'bob', 'dixie', 'johnny')" },
             id: { type: "integer", description: "Message id (for reply/ack/apply-drop)" },
             body: { type: "string", description: "Message, reply text, or patch content (for drop)" },
             file: { type: "string", description: "File path to drop or output path for apply-drop" },
@@ -940,30 +941,40 @@ export default {
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
+        execute: async (input, context) => {
           if (input.action === "msg") {
-            return {
-              content: runConstruct([
-                "msg",
-                String(input.project || "global"),
-                "--to",
-                String(input.to),
-                String(input.body),
-              ]),
-            }
+            const args = ["msg", String(input.project || "global"), "--to", String(input.to)]
+            if (input.via) args.push("--via", String(input.via))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
+            args.push(String(input.body))
+            const out = runConstruct(args)
+            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
+            return { content: out }
           }
           if (input.action === "reply") {
-            return { content: runConstruct(["reply", String(input.id), String(input.body)]) }
+            const args = ["reply", String(input.id)]
+            if (input.via) args.push("--via", String(input.via))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
+            args.push(String(input.body))
+            const out = runConstruct(args)
+            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
+            return { content: out }
           }
           if (input.action === "ack") {
-            return { content: runConstruct(["ack", String(input.id)]) }
+            const out = runConstruct(["ack", String(input.id)])
+            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
+            return { content: out }
           }
           if (input.action === "drop") {
             const args = ["drop", String(input.project || "global"), "--to", String(input.to)]
+            if (input.via) args.push("--via", String(input.via))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
             if (input.file) args.push("--file", String(input.file))
             if (input.gitDiff) args.push("--git-diff")
             if (input.body) args.push("--content", String(input.body))
-            return { content: runConstruct(args) }
+            const out = runConstruct(args)
+            if (context?.sessionID) void syncSessionHud(context.sessionID, ctx.location?.directory || "")
+            return { content: out }
           }
           if (input.action === "apply-drop") {
             const args = ["apply-drop", String(input.id)]
