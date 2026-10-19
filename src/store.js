@@ -3566,7 +3566,7 @@ function syncGithubIssues(projectInput, options = {}, file = dbPath()) {
           if (state === 'OPEN') {
             if (matchingFrames.length === 0) {
               const identity = crdt.loadOrCreateIdentity();
-              const uid = `frame-${project}-gh-${num}-${crypto.randomUUID()}`;
+              const uid = `frame-${project}-gh-${num}`;
               const hlc = crdt.nextHlc(identity.did);
               const ts = issue.updatedAt ? String(issue.updatedAt).trim() : nowIso();
               const refs = [ghRef, shortRef, ...labelNames];
@@ -3958,7 +3958,9 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           .prepare('SELECT * FROM crdt_log WHERE project = ? AND hlc > ? ORDER BY hlc ASC')
           .all(project, sinceHlc);
 
+        const identity = crdt.loadOrCreateIdentity();
         const ops = rows
+          .filter((r) => !options.onlyLocal || r.author_did === identity.did)
           .map((r) => ({
             opId: r.op_id,
             hlc: r.hlc,
@@ -3970,7 +3972,29 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           }))
           .filter((op) => op.project === project && (op.entity !== 'gotcha' || op.payload.scope === project));
 
-        const identity = crdt.loadOrCreateIdentity();
+        const MAX_CHUNK_BYTES = 20000;
+        const chunks = [];
+        let curChunk = [];
+        let curBytes = 0;
+        for (const op of ops) {
+          const opBytes = Buffer.byteLength(JSON.stringify(op), 'utf8');
+          if (curChunk.length > 0 && curBytes + opBytes > MAX_CHUNK_BYTES) {
+            chunks.push(curChunk);
+            curChunk = [];
+            curBytes = 0;
+          }
+          curChunk.push(op);
+          curBytes += opBytes;
+        }
+        if (curChunk.length > 0) chunks.push(curChunk);
+
+        const envelopes = (chunks.length ? chunks : [[]]).map((chunkOps) =>
+          crdt.sealMlsApplicationMessage(group, identity, {
+            project,
+            opCount: chunkOps.length,
+            ops: chunkOps,
+          })
+        );
         const envelope = crdt.sealMlsApplicationMessage(group, identity, {
           project,
           opCount: ops.length,
@@ -3979,6 +4003,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
 
         return {
           envelope,
+          envelopes,
           token: `construct://packet/${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`,
           opCount: ops.length,
           maxHlc: ops.length ? ops[ops.length - 1].hlc : sinceHlc,
@@ -4065,16 +4090,20 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     }
   }
 
-  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays
+  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays (chunked <= 20 KB per Nostr EVENT)
   const exported = exportEncryptedPacket(
     project,
-    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '' },
+    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '', onlyLocal: true },
     file
   );
   let pushedOk = 0;
   if (exported.opCount > 0) {
-    const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, exported.envelope, options.timeoutMs || 4000);
-    pushedOk = pubRes.results.filter((r) => r.ok).length;
+    const envelopesToPush = Array.isArray(exported.envelopes) && exported.envelopes.length ? exported.envelopes : [exported.envelope];
+    for (const envChunk of envelopesToPush) {
+      const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, envChunk, options.timeoutMs || 4000);
+      const acked = pubRes.results.filter((r) => r.ok).length;
+      if (acked > pushedOk) pushedOk = acked;
+    }
     if (pushedOk > 0 && exported.maxHlc) {
       withDb((db) => {
         db.prepare('UPDATE mls_groups SET last_sync_hlc = ?, updated = ? WHERE project = ?').run(
