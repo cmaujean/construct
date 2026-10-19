@@ -570,6 +570,17 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.ok(subbedClockwork.roster.includes('minister'));
     assert.ok(!subbedClockwork.roster.includes('georgie'));
 
+    // Every non-generic Crew Bank must define `cameoTriggers` (world-cue -> specialist cameo mappings)
+    const allPackMeta = require('../src/packs').getAllPackMetadata();
+    for (const [pName, pMeta] of Object.entries(allPackMeta)) {
+      if (pName === 'generic') continue;
+      assert.ok(
+        Array.isArray(pMeta.cameoTriggers) && pMeta.cameoTriggers.length >= 2,
+        `Crew Bank "${pName}" must define at least 2 cameoTriggers for cross-bank world cues`
+      );
+    }
+    assert.match(clockworkCrew.voice, /crunchings and munchings.*gurgi|out of cheese error.*ponder|my precious.*smeagol/i);
+
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
     fs.mkdirSync(customPacksDir, { recursive: true });

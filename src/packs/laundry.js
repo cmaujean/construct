@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "bridget",
     "iris",
     "fred"
+  ],
+  "cameoTriggers": [
+    "\"case nightmare green\" / \"bofh\" -> 🔵bobhoward",
+    "\"bone violin\" / \"erich zann\" -> 🔴mo",
+    "\"mahogany row\" / \"teapot\" -> 🟣angleton"
   ]
 });
 

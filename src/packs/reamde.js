@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "wallace",
     "ivanov",
     "marlon"
+  ],
+  "cameoTriggers": [
+    "\"apostrophocalypse\" -> 🎨pluto / 📓skraelin",
+    "\"t'rain\" / \"gold farming\" -> 🔵richard",
+    "\"spetsnaz\" -> 🔴sokolov"
   ]
 });
 

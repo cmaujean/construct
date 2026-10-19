@@ -35,6 +35,12 @@ const metadata = Object.freeze({
     "adaon",
     "hevydd",
     "kaw"
+  ],
+  "cameoTriggers": [
+    "\"crunchings and munchings\" / \"smackings and whackings\" -> ⚡gurgi",
+    "\"great fflam\" / \"twang\" -> 🟢fflewddur",
+    "\"golden bauble\" -> 🎨eilonwy",
+    "\"hen wen\" / \"book of three\" -> 🟠taran / 🔵dallben"
   ]
 });
 

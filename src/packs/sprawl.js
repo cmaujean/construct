@@ -35,6 +35,12 @@ const metadata = Object.freeze({
     "armitage",
     "marly",
     "3jane"
+  ],
+  "cameoTriggers": [
+    "\"flatline\" / \"black ice\" -> 🟠dixie",
+    "\"razorgirl\" / \"mirrorshades\" -> 🔴molly",
+    "\"straylight\" / \"turing\" -> 🟣wintermute",
+    "\"panther moderns\" -> 🛡️lupus"
   ]
 });
 

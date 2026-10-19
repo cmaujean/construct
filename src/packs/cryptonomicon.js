@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "turing",
     "bobby",
     "rudy"
+  ],
+  "cameoTriggers": [
+    "\"enigma\" / \"bletchley\" -> 🔵lawrence",
+    "\"societas eruditorum\" -> 🟣enoch",
+    "\"solitaire\" / \"pontifex\" -> 🔴randy"
   ]
 });
 

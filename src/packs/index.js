@@ -64,6 +64,12 @@ const PACK_METADATA = Object.freeze({
       "armitage",
       "marly",
       "3jane"
+    ],
+    "cameoTriggers": [
+      "\"flatline\" / \"black ice\" -> 🟠dixie",
+      "\"razorgirl\" / \"mirrorshades\" -> 🔴molly",
+      "\"straylight\" / \"turing\" -> 🟣wintermute",
+      "\"panther moderns\" -> 🛡️lupus"
     ]
   },
   "anathem": {
@@ -99,6 +105,11 @@ const PACK_METADATA = Object.freeze({
       "paphlagon",
       "jules",
       "lodoghir"
+    ],
+    "cameoTriggers": [
+      "\"calca\" / \"avout\" -> 🔵erasmus",
+      "\"incanter\" / \"polycosmic\" -> 🟣jad",
+      "\"procian\" / \"inquisitor\" -> 🟣lodoghir"
     ]
   },
   "generic": {
@@ -167,6 +178,12 @@ const PACK_METADATA = Object.freeze({
       "takemura",
       "panam",
       "reed"
+    ],
+    "cameoTriggers": [
+      "\"burn corpo shit\" / \"arasaka\" -> 🛡️johnny",
+      "\"braindance\" -> 🔵judy",
+      "\"sandevistan\" / \"mikoshi\" -> 🔴v",
+      "\"blackwall\" -> ⚡songbird"
     ]
   },
   "cryptonomicon": {
@@ -202,6 +219,11 @@ const PACK_METADATA = Object.freeze({
       "turing",
       "bobby",
       "rudy"
+    ],
+    "cameoTriggers": [
+      "\"enigma\" / \"bletchley\" -> 🔵lawrence",
+      "\"societas eruditorum\" -> 🟣enoch",
+      "\"solitaire\" / \"pontifex\" -> 🔴randy"
     ]
   },
   "shadowrun": {
@@ -237,6 +259,11 @@ const PACK_METADATA = Object.freeze({
       "decker",
       "adept",
       "johnson"
+    ],
+    "cameoTriggers": [
+      "\"drek\" / \"chummer\" -> 🟣fastjack",
+      "\"never deal with a dragon\" -> 🛡️harlequin",
+      "\"wired reflexes\" -> 🔴hatchetman"
     ]
   },
   "dresden": {
@@ -272,6 +299,11 @@ const PACK_METADATA = Object.freeze({
       "ebenezar",
       "michael",
       "toot"
+    ],
+    "cameoTriggers": [
+      "\"fuego\" / \"hell's bells\" / \"parkour\" -> 🔴harry",
+      "\"za-lord\" / \"pizza\" -> ⚡toot",
+      "\"polka will never die\" -> 🟠butters"
     ]
   },
   "amber": {
@@ -307,6 +339,11 @@ const PACK_METADATA = Object.freeze({
       "caine",
       "eric",
       "flora"
+    ],
+    "cameoTriggers": [
+      "\"walk the pattern\" / \"grayswandir\" -> 🔵corwin",
+      "\"trump\" / \"logrus\" -> 🟠merlin",
+      "\"courts of chaos\" -> 🛡️brand"
     ]
   },
   "laundry": {
@@ -342,6 +379,11 @@ const PACK_METADATA = Object.freeze({
       "bridget",
       "iris",
       "fred"
+    ],
+    "cameoTriggers": [
+      "\"case nightmare green\" / \"bofh\" -> 🔵bobhoward",
+      "\"bone violin\" / \"erich zann\" -> 🔴mo",
+      "\"mahogany row\" / \"teapot\" -> 🟣angleton"
     ]
   },
   "tolkien": {
@@ -378,6 +420,12 @@ const PACK_METADATA = Object.freeze({
       "celebrimbor",
       "frodo",
       "smeagol"
+    ],
+    "cameoTriggers": [
+      "\"you shall not pass\" / \"speak friend and enter\" -> 🔵gandalf",
+      "\"my precious\" / \"gollum\" -> ⚡smeagol",
+      "\"no living man am i\" -> 🛡️eowyn",
+      "\"and my axe\" / \"baruk khazad\" -> 🔴gimli"
     ]
   },
   "discworld": {
@@ -413,6 +461,13 @@ const PACK_METADATA = Object.freeze({
       "weatherwax",
       "angua",
       "death"
+    ],
+    "cameoTriggers": [
+      "\"out of cheese error\" / \"anthill inside\" -> 🔵ponder",
+      "\"gnu terry pratchett\" / \"going postal\" -> ⚡moist",
+      "\"ook\" / \"l-space\" -> 📓librarian",
+      "\"headology\" -> 🟣weatherwax",
+      "\"there is no justice\" -> 🛡️death"
     ]
   },
   "reamde": {
@@ -448,6 +503,11 @@ const PACK_METADATA = Object.freeze({
       "wallace",
       "ivanov",
       "marlon"
+    ],
+    "cameoTriggers": [
+      "\"apostrophocalypse\" -> 🎨pluto / 📓skraelin",
+      "\"t'rain\" / \"gold farming\" -> 🔵richard",
+      "\"spetsnaz\" -> 🔴sokolov"
     ]
   },
   "irondruid": {
@@ -483,6 +543,11 @@ const PACK_METADATA = Object.freeze({
       "coyote",
       "perun",
       "starbuck"
+    ],
+    "cameoTriggers": [
+      "\"sausages\" / \"poodles\" / \"bangers and mash\" -> 🟠oberon",
+      "\"fragarach\" / \"cold iron\" -> 🔵atticus",
+      "\"chooser of the slain\" -> 🟣morrigan"
     ]
   },
   "prydain": {
@@ -518,6 +583,12 @@ const PACK_METADATA = Object.freeze({
       "adaon",
       "hevydd",
       "kaw"
+    ],
+    "cameoTriggers": [
+      "\"crunchings and munchings\" / \"smackings and whackings\" -> ⚡gurgi",
+      "\"great fflam\" / \"twang\" -> 🟢fflewddur",
+      "\"golden bauble\" -> 🎨eilonwy",
+      "\"hen wen\" / \"book of three\" -> 🟠taran / 🔵dallben"
     ]
   },
   "clockwork": {
@@ -553,6 +624,11 @@ const PACK_METADATA = Object.freeze({
       "minister",
       "catlady",
       "barnes"
+    ],
+    "cameoTriggers": [
+      "\"horrorshow\" / \"viddy well\" / \"ludwig van\" / \"droogs\" -> 🔵alex",
+      "\"ludovico\" / \"lid-locks\" -> 🟢brodsky",
+      "\"what is it going to be then, eh\" / \"655321\" -> 📓chaplain"
     ]
   }
 });

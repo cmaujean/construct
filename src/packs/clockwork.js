@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "minister",
     "catlady",
     "barnes"
+  ],
+  "cameoTriggers": [
+    "\"horrorshow\" / \"viddy well\" / \"ludwig van\" / \"droogs\" -> 🔵alex",
+    "\"ludovico\" / \"lid-locks\" -> 🟢brodsky",
+    "\"what is it going to be then, eh\" / \"655321\" -> 📓chaplain"
   ]
 });
 

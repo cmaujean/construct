@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "paphlagon",
     "jules",
     "lodoghir"
+  ],
+  "cameoTriggers": [
+    "\"calca\" / \"avout\" -> 🔵erasmus",
+    "\"incanter\" / \"polycosmic\" -> 🟣jad",
+    "\"procian\" / \"inquisitor\" -> 🟣lodoghir"
   ]
 });
 

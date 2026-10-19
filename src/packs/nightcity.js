@@ -35,6 +35,12 @@ const metadata = Object.freeze({
     "takemura",
     "panam",
     "reed"
+  ],
+  "cameoTriggers": [
+    "\"burn corpo shit\" / \"arasaka\" -> 🛡️johnny",
+    "\"braindance\" -> 🔵judy",
+    "\"sandevistan\" / \"mikoshi\" -> 🔴v",
+    "\"blackwall\" -> ⚡songbird"
   ]
 });
 

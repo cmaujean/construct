@@ -522,6 +522,13 @@ ${renderNavBar('../')}
       <span class="badge">Aliases: <code>${esc(aliases.join(', '))}</code></span>
       <span class="badge warn">Default Courier: <code>--via ${esc(defaultCourier)}</code></span>
     </div>
+    ${
+      Array.isArray(packMeta.cameoTriggers) && packMeta.cameoTriggers.length
+        ? `<div style="margin-top:14px;font-size:13px;color:var(--muted);"><strong>Cross-Bank World-Cue Cameo Triggers:</strong> ${packMeta.cameoTriggers
+            .map((t) => `<span class="badge" style="margin:2px 4px;">${esc(t)}</span>`)
+            .join('')}</div>`
+        : ''
+    }
   </div>
 
   <h2 class="section-title">The 9 Canonical Starter Seats (${starters.length})</h2>

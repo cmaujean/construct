@@ -36,6 +36,12 @@ const metadata = Object.freeze({
     "celebrimbor",
     "frodo",
     "smeagol"
+  ],
+  "cameoTriggers": [
+    "\"you shall not pass\" / \"speak friend and enter\" -> 🔵gandalf",
+    "\"my precious\" / \"gollum\" -> ⚡smeagol",
+    "\"no living man am i\" -> 🛡️eowyn",
+    "\"and my axe\" / \"baruk khazad\" -> 🔴gimli"
   ]
 });
 

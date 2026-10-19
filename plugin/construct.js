@@ -986,6 +986,33 @@ export default {
           res.end()
           return
         }
+        if (req.method === "GET" && (req.url === "/docs" || req.url?.startsWith("/docs/"))) {
+          try {
+            const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
+            let relPath = parsedUrl.pathname.replace(/^\/docs\/?/, "") || "index.html"
+            if (relPath.endsWith("/")) relPath += "index.html"
+            const repoRoot = !STAMPED_BIN.startsWith("__")
+              ? path.resolve(path.dirname(STAMPED_BIN), "..")
+              : path.resolve(PLUGIN_DIR, "..")
+            const docsRoot = path.resolve(repoRoot, "docs")
+            const absFile = path.resolve(docsRoot, relPath)
+            if (absFile.startsWith(docsRoot) && fs.existsSync(absFile) && fs.statSync(absFile).isFile()) {
+              const ext = path.extname(absFile).toLowerCase()
+              const mime =
+                ext === ".css"
+                  ? "text/css; charset=utf-8"
+                  : ext === ".js"
+                  ? "application/javascript; charset=utf-8"
+                  : "text/html; charset=utf-8"
+              res.writeHead(200, { "Content-Type": mime })
+              res.end(fs.readFileSync(absFile))
+              return
+            }
+          } catch (_) {}
+          res.writeHead(404)
+          res.end("Not found")
+          return
+        }
         if (req.method === "GET" && req.url?.startsWith("/hud")) {
           const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
           const qSid = parsedUrl.searchParams.get("sessionID") || ""

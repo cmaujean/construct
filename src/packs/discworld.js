@@ -35,6 +35,13 @@ const metadata = Object.freeze({
     "weatherwax",
     "angua",
     "death"
+  ],
+  "cameoTriggers": [
+    "\"out of cheese error\" / \"anthill inside\" -> 🔵ponder",
+    "\"gnu terry pratchett\" / \"going postal\" -> ⚡moist",
+    "\"ook\" / \"l-space\" -> 📓librarian",
+    "\"headology\" -> 🟣weatherwax",
+    "\"there is no justice\" -> 🛡️death"
   ]
 });
 

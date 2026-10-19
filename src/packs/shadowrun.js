@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "decker",
     "adept",
     "johnson"
+  ],
+  "cameoTriggers": [
+    "\"drek\" / \"chummer\" -> 🟣fastjack",
+    "\"never deal with a dragon\" -> 🛡️harlequin",
+    "\"wired reflexes\" -> 🔴hatchetman"
   ]
 });
 

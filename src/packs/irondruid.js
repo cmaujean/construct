@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "coyote",
     "perun",
     "starbuck"
+  ],
+  "cameoTriggers": [
+    "\"sausages\" / \"poodles\" / \"bangers and mash\" -> 🟠oberon",
+    "\"fragarach\" / \"cold iron\" -> 🔵atticus",
+    "\"chooser of the slain\" -> 🟣morrigan"
   ]
 });
 

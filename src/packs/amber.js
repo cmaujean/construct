@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "caine",
     "eric",
     "flora"
+  ],
+  "cameoTriggers": [
+    "\"walk the pattern\" / \"grayswandir\" -> 🔵corwin",
+    "\"trump\" / \"logrus\" -> 🟠merlin",
+    "\"courts of chaos\" -> 🛡️brand"
   ]
 });
 

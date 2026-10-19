@@ -393,7 +393,10 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
         })
         .join(' ');
       const bench = (pMeta.backups || []).length ? ` (+${pMeta.backups.join(',')})` : '';
-      return `\`${pName}\` [${highlights}${bench}]`;
+      const cues = Array.isArray(pMeta.cameoTriggers) && pMeta.cameoTriggers.length
+        ? ` {cues: ${pMeta.cameoTriggers.slice(0, 2).join('; ')}}`
+        : '';
+      return `\`${pName}\` [${highlights}${bench}]${cues}`;
     });
   const cameoBlock = otherPackSummaries.length
     ? `\n- **Cross-Bank Cameo Roster (on explicit name or world-cue only):** ${otherPackSummaries.join(' | ')}`

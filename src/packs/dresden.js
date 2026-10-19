@@ -35,6 +35,11 @@ const metadata = Object.freeze({
     "ebenezar",
     "michael",
     "toot"
+  ],
+  "cameoTriggers": [
+    "\"fuego\" / \"hell's bells\" / \"parkour\" -> 🔴harry",
+    "\"za-lord\" / \"pizza\" -> ⚡toot",
+    "\"polka will never die\" -> 🟠butters"
   ]
 });
 
