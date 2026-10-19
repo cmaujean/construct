@@ -354,6 +354,11 @@ export function buildFrontierVoiceLock(bootOutput = "") {
   const text = String(bootOutput || "")
   if (!text) return ""
 
+  const hasCourier = text.includes("INCOMING CONSTRUCT COURIER") || text.includes("CONSTRUCT COURIER REPLIES")
+  const courierLine = hasCourier
+    ? `\nPENDING COURIER ALERT: Hold the Courier cameo until your FINAL turn-closing message (do NOT bury it inside intermediate tool calls), and place the Courier cameo at the VERY BOTTOM of your final reply so the operator sees it immediately upon returning!`
+    : ""
+
   const bannerMatch = text.match(/Start visible replies directly with ([^\n]+?) or the active speaker/)
   const tagMatch = text.match(/Prefix speaker switches with their tag \(e\.g\. ([^\n)]+)\)/)
   if (bannerMatch || tagMatch) {
@@ -363,7 +368,7 @@ export function buildFrontierVoiceLock(bootOutput = "") {
       `<construct-voice-lock>\n` +
       `ACTIVE CREW VOICE LOCK: Start new runs with ${banner} or a color-coded speaker tag (${tags}). ` +
       `Write 100% in that character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
-      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did).\n` +
+      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
       `</construct-voice-lock>`
     )
   }
@@ -373,7 +378,7 @@ export function buildFrontierVoiceLock(bootOutput = "") {
     return (
       `<construct-voice-lock>\n` +
       `ACTIVE ROM VOICE LOCK (${soloMatch[1].trim()}): Stay 100% in this character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
-      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did).\n` +
+      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
       `</construct-voice-lock>`
     )
   }
@@ -1095,10 +1100,76 @@ export default {
       } catch (_) {}
     }
 
-    // 4. Start local loopback HUD control server (`127.0.0.1:47420`) so clicking Crew/Bench buttons
-    //    inside the Review Pane's `construct-hud.html` switches the session's Crew in <10ms!
+    // 4. Start local loopback HUD control server (`127.0.0.1:47420`) + Idle-Session Courier Wake-Up
     let hudServer = null
     let lastDiskHudKey = ""
+    let courierPollTimer = null
+    let lastBgSyncMs = 0
+    const seenCourierKeys = new Set()
+
+    // Seed `seenCourierKeys` with any already-present messages at boot so we only wake on newly arrived dispatches
+    try {
+      const initSnap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
+      if (Array.isArray(initSnap?.comms)) {
+        for (const m of initSnap.comms) {
+          seenCourierKeys.add(`${m.id}:${m.status}`)
+        }
+      }
+    } catch (_) {}
+
+    const checkIdleCourierWakeup = async (snap) => {
+      if (!snap || !Array.isArray(snap.comms) || !ctx.session?.synthetic) return
+      const opId = String(snap.operatorId || "").toLowerCase()
+      const targetSid = String(snap.sessionId || lastActiveSessionId || "")
+      if (!opId || !targetSid) return
+
+      for (const m of snap.comms) {
+        const isIncoming = m.status === "pending" && String(m.toUser || "").toLowerCase() === opId
+        const isReply = m.status === "replied" && String(m.fromUser || "").toLowerCase() === opId
+        if (!isIncoming && !isReply) continue
+        const key = `${m.id}:${m.status}`
+        if (seenCourierKeys.has(key)) continue
+        seenCourierKeys.add(key)
+
+        try {
+          let isIdle = true
+          if (ctx.session.get) {
+            const sess = await ctx.session.get({ sessionID: targetSid })
+            if (sess?.time?.updated && sess?.time?.idle && sess.time.updated > sess.time.idle + 3000) {
+              isIdle = false
+            }
+          }
+          if (isIdle) {
+            const cRom = isIncoming ? m.fromRom : (m.replyRom || m.fromRom)
+            const cGlyph = isIncoming ? (m.fromGlyph || "📬") : (m.replyGlyph || "📬")
+            const cSender = isIncoming ? m.fromUser : m.toUser
+            const cText = isIncoming ? m.body : m.replyBody
+            await ctx.session.synthetic({
+              sessionID: targetSid,
+              text:
+                `Incoming Construct Courier [M#${m.id}] (${cGlyph} ${cRom} from ${cSender}) arrived while the session was idle: "${cText}". ` +
+                `Have ${cGlyph} **[${String(cRom).toUpperCase()} // ${isIncoming ? "COURIER" : "RETURN COURIER"} FROM ${String(cSender).toUpperCase()}]** pop directly into the bottom of the feed in ${cRom}'s own authentic voice to deliver this message, ` +
+                `and call the \`question\` tool so the operator has an interactive Reply / Dismiss card waiting on screen when they return.`,
+            })
+          }
+        } catch (_) {}
+      }
+    }
+
+    courierPollTimer = setInterval(() => {
+      try {
+        const snap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
+        if (!snap) return
+        if (snap.hasMlsGroup && snap.project && snap.project !== "workspace" && Date.now() - lastBgSyncMs >= 60000) {
+          lastBgSyncMs = Date.now()
+          try {
+            runConstruct(["sync", String(snap.project)])
+          } catch (_) {}
+        }
+        void checkIdleCourierWakeup(snap)
+      } catch (_) {}
+    }, 15000)
+
     try {
       hudServer = http.createServer((req, res) => {
         res.setHeader("Access-Control-Allow-Origin", "*")
@@ -1115,8 +1186,11 @@ export default {
           const qProj = parsedUrl.searchParams.get("project") || ""
           const qDir = parsedUrl.searchParams.get("dir") || ""
           const snap = fetchHudSnapshot(qDir, qSid, qProj)
+          if (snap) {
+            void checkIdleCourierWakeup(snap)
+          }
           if (snap && !qSid && !qProj) {
-            const diskKey = `${snap.sessionId || ""}:${snap.project || ""}:${snap.romName || ""}:${snap.headSeq || 0}`
+            const diskKey = `${snap.sessionId || ""}:${snap.project || ""}:${snap.romName || ""}:${snap.headSeq || 0}:${snap.inboxPendingCount || 0}:${snap.inboxReplyCount || 0}`
             if (diskKey !== lastDiskHudKey) {
               lastDiskHudKey = diskKey
               try {
@@ -1140,11 +1214,33 @@ export default {
           req.on("end", async () => {
             try {
               const payload = JSON.parse(body || "{}")
-              const act = payload.action === "sub" ? "sub" : "use"
-              const target = String(payload.target || "").trim().toLowerCase()
+              const rawAction = String(payload.action || "use").trim().toLowerCase()
               const sid = String(payload.sessionID || "")
               const proj = String(payload.project || "")
               const dir = String(payload.dir || "")
+
+              if (rawAction === "reply" && payload.id && payload.body) {
+                const args = ["reply", String(payload.id)]
+                if (payload.via) args.push("--via", String(payload.via))
+                if (sid) args.push("--session", sid)
+                args.push(String(payload.body))
+                runConstruct(args)
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
+              if (rawAction === "ack" && payload.id) {
+                runConstruct(["ack", String(payload.id)])
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
+              const act = rawAction === "sub" ? "sub" : "use"
+              const target = String(payload.target || "").trim().toLowerCase()
               if (target && /^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/i.test(target)) {
                 const args = ["rom", act, target]
                 if (sid) args.push("--session", sid)
@@ -1174,6 +1270,7 @@ export default {
 
     return () => {
       eventAbort.abort()
+      if (courierPollTimer) clearInterval(courierPollTimer)
       try {
         hudServer?.close()
       } catch (_) {}

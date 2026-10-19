@@ -1108,13 +1108,16 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       });
       assert.match(cliCourierBoot, /INCOMING CONSTRUCT COURIER FOR BOB/);
       assert.match(cliCourierBoot, /⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\*/);
-      assert.match(cliCourierBoot, /COURIER CAMEO RULE: Open your reply by having ⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\* pop directly into the feed/);
+      assert.match(cliCourierBoot, /COURIER CAMEO & STICKY FRONTIER RULE/);
 
       const dashFile = path.join(bobHome, 'dashboard.html');
       const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
+      assert.match(dash.html, /UNREAD COURIER \[M#/);
+      assert.match(dash.html, /replyCourier\(/);
+      assert.match(dash.html, /ackCourier\(/);
       assert.match(dash.html, /Construct Comms &amp; Courier Log — acme\/shared_app/);
       assert.match(dash.html, /⚡ toot/);
       assert.match(dash.html, /Za-Lord says #111 is merged and ready for review!/);

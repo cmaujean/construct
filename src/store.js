@@ -2800,6 +2800,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       handle: rom.handle || displayRom,
       roster,
       operator: user ? `${user.name} [${user.id}]` : detectedLogin,
+      operatorId: activeUserId,
       state: headRow?.state || '',
       next: headRow?.next || '',
       headSeq,
@@ -2893,17 +2894,63 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     .join('');
 
   const commsList = Array.isArray(hud.comms) ? hud.comms : [];
+  const activeOpId = String(hud.operatorId || '').toLowerCase();
+  const unreadComms = commsList.filter(
+    (m) =>
+      (m.status === 'pending' && String(m.toUser || '').toLowerCase() === activeOpId) ||
+      (m.status === 'replied' && String(m.fromUser || '').toLowerCase() === activeOpId)
+  );
+  const unreadAlertHtml = unreadComms.length
+    ? unreadComms
+        .map((m) => {
+          const isIncoming = m.status === 'pending';
+          const courierLabel = isIncoming
+            ? `${escapeHtml(m.fromGlyph || '📬')} ${escapeHtml(String(m.fromRom || '').toUpperCase())} // COURIER FROM ${escapeHtml(String(m.fromUser || '').toUpperCase())}`
+            : `${escapeHtml(m.replyGlyph || '📬')} ${escapeHtml(String(m.replyRom || m.fromRom || '').toUpperCase())} // RETURN COURIER FROM ${escapeHtml(String(m.toUser || '').toUpperCase())}`;
+          const msgText = isIncoming ? m.body : `${m.replyBody} (in reply to: "${m.body}")`;
+          return `
+      <div class="courier-alert-item">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <div><span class="badge warn">📬 UNREAD COURIER [M#${m.id}]</span> <strong style="color:#fff;margin-left:6px;">${courierLabel}</strong> <span class="sub">(${escapeHtml(m.project)} · ${escapeHtml(m.created || '')})</span></div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            ${
+              isIncoming
+                ? `<input type="text" class="reply-input" id="reply-input-${m.id}" placeholder="Type reply to ${escapeHtml(m.fromUser)}..." onkeydown="if(event.key==='Enter')replyCourier(${m.id})" />
+                   <button class="crew-btn active" onclick="replyCourier(${m.id})">⚡ Send Reply</button>`
+                : ''
+            }
+            <button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack / Dismiss</button>
+          </div>
+        </div>
+        <div style="margin-top:6px;font-size:13px;color:#fff;">"${escapeHtml(msgText)}"</div>
+      </div>`;
+        })
+        .join('')
+    : '';
+
   const commsRows = commsList
     .map((m) => {
       const stClass = m.status === 'pending' ? 'warn' : 'ok';
       const replyBlock = m.replyBody
         ? `<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ${escapeHtml(m.replyGlyph || '📬')} ${escapeHtml(m.replyRom)} (${escapeHtml(m.toUser)}):</strong> "${escapeHtml(m.replyBody)}"</div>`
         : '';
+      const actionsBlock =
+        m.status !== 'delivered'
+          ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+               ${
+                 m.status === 'pending'
+                   ? `<input type="text" class="reply-input" id="row-reply-${m.id}" placeholder="Reply..." onkeydown="if(event.key==='Enter')replyCourier(${m.id},'row-reply-${m.id}')" />
+                      <button class="crew-btn" onclick="replyCourier(${m.id},'row-reply-${m.id}')">⚡ Reply</button>`
+                   : ''
+               }
+               <button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack</button>
+             </div>`
+          : '';
       return `
       <tr>
         <td><code>M#${m.id}</code><div style="margin-top:3px;"><span class="badge ${stClass}">${escapeHtml(m.status)}</span></div><div class="sub">${escapeHtml(m.created || '')}</div></td>
         <td><strong>${escapeHtml(m.fromGlyph || '📬')} ${escapeHtml(m.fromRom)}</strong><div class="sub">${escapeHtml(m.fromUser)} -&gt; ${escapeHtml(m.toUser)}</div></td>
-        <td>"${escapeHtml(m.body)}"${replyBlock}</td>
+        <td>"${escapeHtml(m.body)}"${replyBlock}${actionsBlock}</td>
       </tr>`;
     })
     .join('');
@@ -2995,6 +3042,29 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   }
   button.crew-btn:hover { border-color: var(--accent); color: #fff; background: #223049; }
   button.crew-btn.active { border-color: var(--accent); background: rgba(88, 166, 255, 0.22); color: #fff; font-weight: 700; }
+  .courier-alert-box {
+    background: rgba(210, 153, 34, 0.14);
+    border: 2px solid var(--warn);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
+  .courier-alert-item + .courier-alert-item {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(210, 153, 34, 0.35);
+  }
+  input.reply-input {
+    background: #0b0e14;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-family: inherit;
+    font-size: 11.5px;
+    width: 220px;
+  }
+  input.reply-input:focus { outline: none; border-color: var(--accent); }
   #hud-toast { color: var(--ok); font-weight: 600; font-size: 11.5px; margin-left: 10px; }
   table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
   th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -3019,6 +3089,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <span class="badge ok" id="hud-guard-badge">🛡️ ${hud.guardCount} Active Shell Guards</span>
     </div>
   </div>
+
+  <div id="hud-courier-alert-wrap" class="courier-alert-box" style="display:${unreadComms.length ? 'block' : 'none'};">${unreadAlertHtml}</div>
 
   <div class="roster-bar">
     <strong style="margin-right:6px;">ACTIVE 9-SEAT CREW (<span id="active-rom-name">${escapeHtml(hud.romName.toUpperCase())}</span>):</strong>
@@ -3209,9 +3281,45 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
       const commsHeading = document.getElementById('hud-comms-heading');
       const commsTbody = document.getElementById('hud-comms-tbody');
+      const alertWrap = document.getElementById('hud-courier-alert-wrap');
       const commsArr = Array.isArray(h.comms) ? h.comms : [];
+      const opId = String(h.operatorId || '').toLowerCase();
+      const activeEl = document.activeElement;
+      const isTypingReply = Boolean(activeEl && activeEl.classList && activeEl.classList.contains('reply-input'));
+
+      if (alertWrap && !isTypingReply) {
+        const unread = commsArr.filter((m) =>
+          (m.status === 'pending' && String(m.toUser || '').toLowerCase() === opId) ||
+          (m.status === 'replied' && String(m.fromUser || '').toLowerCase() === opId)
+        );
+        if (!unread.length) {
+          alertWrap.style.display = 'none';
+          alertWrap.innerHTML = '';
+        } else {
+          alertWrap.style.display = 'block';
+          alertWrap.innerHTML = unread.map((m) => {
+            const isIncoming = m.status === 'pending';
+            const cLabel = isIncoming
+              ? esc(m.fromGlyph || '📬') + ' ' + esc(String(m.fromRom || '').toUpperCase()) + ' // COURIER FROM ' + esc(String(m.fromUser || '').toUpperCase())
+              : esc(m.replyGlyph || '📬') + ' ' + esc(String(m.replyRom || m.fromRom || '').toUpperCase()) + ' // RETURN COURIER FROM ' + esc(String(m.toUser || '').toUpperCase());
+            const mText = isIncoming ? m.body : (m.replyBody + ' (in reply to: "' + m.body + '")');
+            const inputHtml = isIncoming
+              ? '<input type="text" class="reply-input" id="reply-input-' + esc(m.id) + '" placeholder="Type reply to ' + esc(m.fromUser) + '..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ')" />' +
+                '<button class="crew-btn active" onclick="replyCourier(' + esc(m.id) + ')">⚡ Send Reply</button>'
+              : '';
+            return '<div class="courier-alert-item">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+              '<div><span class="badge warn">📬 UNREAD COURIER [M#' + esc(m.id) + ']</span> <strong style="color:#fff;margin-left:6px;">' + cLabel + '</strong> <span class="sub">(' + esc(m.project) + ' · ' + esc(m.created) + ')</span></div>' +
+              '<div style="display:flex;gap:6px;align-items:center;">' + inputHtml + '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack / Dismiss</button></div>' +
+              '</div>' +
+              '<div style="margin-top:6px;font-size:13px;color:#fff;">"' + esc(mText) + '"</div>' +
+              '</div>';
+          }).join('');
+        }
+      }
+
       if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log — ' + (h.project || 'workspace') + ' (' + commsArr.length + ')';
-      if (commsTbody) {
+      if (commsTbody && !isTypingReply) {
         if (!commsArr.length) {
           commsTbody.innerHTML = '<tr><td colspan="3">(no messages in construct comms log)</td></tr>';
         } else {
@@ -3220,9 +3328,17 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
             const replyHtml = m.replyBody
               ? '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
               : '';
+            const actHtml = m.status !== 'delivered'
+              ? '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+                (m.status === 'pending'
+                  ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" placeholder="Reply..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')" />' +
+                    '<button class="crew-btn" onclick="replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')">⚡ Reply</button>'
+                  : '') +
+                '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack</button></div>'
+              : '';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
               '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div></td>' +
-              '<td>"' + esc(m.body) + '"' + replyHtml + '</td></tr>';
+              '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
           }).join('');
         }
       }
@@ -3323,6 +3439,44 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       } catch (e) {
         if (toast) toast.textContent = 'Run "/construct ' + target + '" in prompt';
       }
+    }
+
+    async function replyCourier(msgId, inputId) {
+      const el = document.getElementById(inputId || ('reply-input-' + msgId));
+      const body = el ? String(el.value || '').trim() : '';
+      if (!body) return;
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Sending reply to M#' + msgId + '...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'reply', id: msgId, body, sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.hud) {
+          if (el) el.value = '';
+          applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Replied to M#' + msgId;
+        }
+      } catch (_) {}
+    }
+
+    async function ackCourier(msgId) {
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Dismissing M#' + msgId + '...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'ack', id: msgId, sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.hud) {
+          applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Acknowledged M#' + msgId;
+        }
+      } catch (_) {}
     }
 
     void pollHud();
