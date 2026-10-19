@@ -78,7 +78,7 @@ function normalizeProject(project, wsRoot = '') {
     }
   }
   const cleaned = p.replace(/^~\/[^/]+\//, (m) => (m.toLowerCase() === '~/src/' ? '' : m)).replace(/^\/+|\/+$/g, '');
-  return cleaned.replace(/^psylogi\//i, 'psilogi/');
+  return cleaned;
 }
 
 function validateKind(kind) {
@@ -1091,31 +1091,34 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       } catch (_) {}
     }
 
-    // Check whether this project belongs to an active MLS group and trigger a throttled (60s),
-    // non-blocking detached background `construct sync` so teammates' frames, gotchas, and comms
-    // arrive automatically without blocking `boot`.
+    // Check whether this project (or any other joined MLS group in construct.db) is due for a throttled (60s),
+    // non-blocking detached background `construct sync` so teammates' frames, gotchas, and Couriers
+    // arrive automatically regardless of which repository tab the operator currently has open.
     let autoSyncTriggered = false;
     const mlsRow = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    const allMlsRows = db.prepare('SELECT project, updated FROM mls_groups').all();
     const allowAutoSync =
       options.autoSync === true || (options.autoSync !== false && process.env.CONSTRUCT_NO_AUTOSYNC !== '1');
-    if (mlsRow && allowAutoSync) {
-      const lastTs = Date.parse(mlsRow.updated || '') || 0;
+    if (allMlsRows.length && allowAutoSync) {
       const throttleMs = Number(options.autoSyncThrottleMs ?? 60000);
-      if (Date.now() - lastTs >= throttleMs) {
-        const now = nowIso();
-        db.prepare('UPDATE mls_groups SET updated = ? WHERE project = ?').run(now, project);
-        autoSyncTriggered = true;
-        if (!options.dryRunAutoSync) {
-          try {
-            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
-            const child = spawn(process.execPath, [binScript, 'sync', project], {
-              detached: true,
-              stdio: 'ignore',
-              windowsHide: true,
-              env: { ...process.env, CONSTRUCT_DB: file },
-            });
-            child.unref();
-          } catch (_) {}
+      const now = nowIso();
+      for (const grp of allMlsRows) {
+        const lastTs = Date.parse(grp.updated || '') || 0;
+        if (Date.now() - lastTs >= throttleMs) {
+          db.prepare('UPDATE mls_groups SET updated = ? WHERE project = ?').run(now, grp.project);
+          if (grp.project === project) autoSyncTriggered = true;
+          if (!options.dryRunAutoSync) {
+            try {
+              const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+              const child = spawn(process.execPath, [binScript, 'sync', grp.project], {
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: true,
+                env: { ...process.env, CONSTRUCT_DB: file },
+              });
+              child.unref();
+            } catch (_) {}
+          }
         }
       }
     }
@@ -4826,9 +4829,15 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
 }
 
 async function syncProject(projectInput, options = {}, file = dbPath()) {
-  const project = normalizeProject(projectInput);
+  let project = normalizeProject(projectInput);
   const group = withDb((db) => {
-    const row = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    let row = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    if (!row && project.includes('/')) {
+      const repoBase = project.split('/').pop().toLowerCase();
+      const allGroups = db.prepare('SELECT * FROM mls_groups').all();
+      row = allGroups.find((g) => String(g.project || '').toLowerCase().split('/').pop() === repoBase) || null;
+      if (row) project = row.project;
+    }
     if (!row) throw new Error(`project "${project}" has no MLS group yet (run "construct invite ${project}" or "construct join <uri>" first)`);
     return crdt.hydrateMlsGroup(row);
   }, file);

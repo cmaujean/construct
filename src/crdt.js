@@ -697,18 +697,26 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
     if (op.payload.hlc && !isHlcWithinDrift(op.payload.hlc, nowMs)) continue;
     if (op.payload.replyHlc && !isHlcWithinDrift(op.payload.replyHlc, nowMs)) continue;
 
-    const canonicalOpProject = String(op.project || '').replace(/^psylogi\//i, 'psilogi/');
     if (allowedProject) {
-      const canonicalAllowed = String(allowedProject).replace(/^psylogi\//i, 'psilogi/');
-      if (canonicalOpProject !== canonicalAllowed) continue;
-      if (op.entity === 'gotcha' && op.payload.scope && String(op.payload.scope).replace(/^psylogi\//i, 'psilogi/') !== canonicalAllowed) continue;
-      if (op.entity === 'frame' && op.payload.project && String(op.payload.project).replace(/^psylogi\//i, 'psilogi/') !== canonicalAllowed) continue;
-      if (op.entity === 'message' && op.payload.project && String(op.payload.project).replace(/^psylogi\//i, 'psilogi/') !== canonicalAllowed) continue;
-    }
-    op.project = canonicalOpProject;
-    if (op.payload && typeof op.payload === 'object') {
-      if (typeof op.payload.project === 'string') op.payload.project = op.payload.project.replace(/^psylogi\//i, 'psilogi/');
-      if (typeof op.payload.scope === 'string') op.payload.scope = op.payload.scope.replace(/^psylogi\//i, 'psilogi/');
+      const sameProjectOrRenamedOwner = (candidate, target) => {
+        if (!candidate || candidate === 'global') return false;
+        if (candidate === target) return true;
+        const cParts = String(candidate).toLowerCase().split('/');
+        const tParts = String(target).toLowerCase().split('/');
+        if (cParts.length === 2 && tParts.length === 2 && cParts[1] === tParts[1]) {
+          return true;
+        }
+        return false;
+      };
+      if (!sameProjectOrRenamedOwner(op.project, allowedProject)) continue;
+      if (op.entity === 'gotcha' && op.payload.scope && !sameProjectOrRenamedOwner(op.payload.scope, allowedProject)) continue;
+      if (op.entity === 'frame' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
+      if (op.entity === 'message' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
+      op.project = allowedProject;
+      if (op.payload && typeof op.payload === 'object') {
+        if (typeof op.payload.project === 'string') op.payload.project = allowedProject;
+        if (typeof op.payload.scope === 'string') op.payload.scope = allowedProject;
+      }
     }
     // Advance local HLC past remote HLC so causal ordering holds
     nextHlc(identity.did, op.hlc, nowMs);
