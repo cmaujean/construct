@@ -98,14 +98,15 @@ function finalizeGotchaEntry(raw) {
   const dateMatch = body.match(/(?:Found|observed|Extended|merged)\s+(\d{4}-\d{2}-\d{2})/i);
   if (dateMatch) created = dateMatch[1];
 
-  // Split into paragraphs (excluding horizontal rules `---`)
-  const paragraphs = body
+  // Split into paragraphs (excluding horizontal rules `---` and trailing `Found YYYY-MM-DD...` provenance footers)
+  // Preserve leading indentation so 4-space indented code blocks (`^ {4}`) are classified accurately before trimming.
+  const rawParagraphs = body
     .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p && p !== '---' && !/^Found\s+\d{4}-\d{2}-\d{2}\.?$/i.test(p));
+    .map((p) => p.replace(/^(?:\r?\n)+|\s+$/g, ''))
+    .filter((p) => p.trim() && p.trim() !== '---' && !/^Found\s+\d{4}-\d{2}-\d{2}\b/i.test(p.trim()));
 
-  const codeOrIndented = paragraphs.filter((p) => /^(`{3}| {4})/.test(p));
-  const prose = paragraphs.filter((p) => !/^(`{3}| {4})/.test(p));
+  const codeOrIndented = rawParagraphs.filter((p) => /^(`{3}| {4})/.test(p)).map((p) => p.trim());
+  const prose = rawParagraphs.filter((p) => !/^(`{3}| {4})/.test(p)).map((p) => p.trim());
 
   const evidenceParts = [];
   if (prose.length > 0) evidenceParts.push(prose[0].replace(/^\*\*(observed|from source|reported)\*\*\s*[-—]*\s*/i, ''));
@@ -133,24 +134,27 @@ function parseAgreementMarkdown(filePath, mdText) {
   const platformMatch = mdText.match(/\*\*Platform:\*\*\s*(.+)$/m);
   const platform = platformMatch ? platformMatch[1].trim() : '';
 
-  const whoMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*?)(?=\n##\s+|\s*$)/i);
-  const whoText = whoMatch ? whoMatch[1].trim() : mdText.trim();
+  const whoMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*)$/i);
+  const bodyAfterWho = whoMatch ? whoMatch[1].trim() : mdText.trim();
 
-  const paragraphs = whoText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
-  const experience = paragraphs.find((p) => !p.startsWith('-') && !p.startsWith('*')) || '';
+  const whoSectionOnlyMatch = mdText.match(/##\s+Who you are working with\s+([\s\S]*?)(?=\n##\s+|\s*$)/i);
+  const whoSectionText = whoSectionOnlyMatch ? whoSectionOnlyMatch[1].trim() : bodyAfterWho;
 
-  const bullets = whoText
-    .split(/\r?\n/)
-    .filter((l) => /^\s*[-*]\s+/.test(l))
-    .join('\n');
+  const paragraphs = whoSectionText.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const experience =
+    paragraphs.find((p) => !p.startsWith('-') && !p.startsWith('*') && !p.startsWith('>')) || '';
+
+  const calibration = experience
+    ? bodyAfterWho.replace(experience, '').replace(/^\s+/, '').trim()
+    : bodyAfterWho;
 
   return {
     id,
     name,
     osUsers: [id],
-    experience,
+    experience: experience.replace(/\r?\n/g, ' ').trim(),
     platform,
-    calibration: bullets || whoText,
+    calibration: calibration || whoSectionText,
   };
 }
 
@@ -229,7 +233,10 @@ function assimilateDirectory(store, targetDir, options = {}) {
     : fs.existsSync(path.join(absDir, 'docs', 'dev'))
       ? path.join(absDir, 'docs', 'dev')
       : path.join(absDir, 'docs');
-  const scope = options.project ? store.normalizeProject(options.project) : 'global';
+  const resolvedProj =
+    options.project ||
+    (!isDirectLdk && typeof store.resolveProjectFromDir === 'function' ? store.resolveProjectFromDir(absDir) : '');
+  const scope = resolvedProj && resolvedProj !== 'global' ? store.normalizeProject(resolvedProj) : 'global';
 
   const instructionFiles = discoverInstructionFiles(absDir);
   const hasLdk = fs.existsSync(ldkDir);

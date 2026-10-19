@@ -1075,7 +1075,7 @@ export default {
               await ctx.session.prompt({
                 ...prompt,
                 sessionID,
-                text: "Open `C:/Users/chris/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.",
+                text: "Open `~/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.",
                 delivery,
               })
             },
