@@ -288,7 +288,8 @@ Whenever you open OpenCode (or Claude Code) inside a project, Construct automati
 As you and the crew work, Construct records inflection points onto the tape in real time (so even if you close the window without saving, the sequence of what was tried and what failed is already on the tape). You can ask at any time:
 - *"Where do we stand on this project, and what threads are still open?"*
 - *"Why is `src/crdt.js` shaped like that?"* (`construct why <file_or_symbol>` searches synced CRDT frames with operator attribution, project/global gotchas, and local `git log -S`, and can automatically query a teammate's Construct over MLS comms if a symbol has no local provenance.)
-- *"Sync our GitHub issues into Construct threads."* (`construct issues sync <project>` imports open GitHub issues as `[GH #N]` open threads, automatically resolves any thread whose GitHub issue was closed, and keeps private Construct threads private until you explicitly run `construct issues publish <seq>`. Resolving a thread in Construct only closes the GitHub issue when you explicitly pass `--close-gh`.)
+- *"Sync our GitHub issues and pull requests into Construct threads."* (`construct issues sync <project>` and `construct pr sync <project>` import open GitHub issues (`[GH #N]`) and pull requests (`[PR #N]`) as open threads and automatically resolve any thread whose issue or PR was merged/closed. `construct pr open`, `construct pr review`, and `construct pr merge` drive the full PR lifecycle while automatically recording `#seq` frames and dispatching Courier notifications to your teammates.)
+- *"Check if Construct has an update and upgrade it."* (`construct upgrade --check` and `construct upgrade` pull `origin/main`, reseed all 15 Crew Banks, refresh `active-rom.md`, reinstall the OpenCode plugin, and update all 178 Claude Code subagents in one command -- or via the one-click `⬆️ CONSTRUCT UPDATE AVAILABLE` banner at the top of the HUD.)
 - *"Switch to `acme/billing_service`."* (Updates the current project head, moves the OpenCode session directory to `acme/billing_service`'s local checkout, and loads that project's tape and gotchas automatically.)
 - *"Zoom into frame `#13` on the tape and show me why we reverted the circular saw."*
 - *"Search the tape across all projects for `exit code 134`."*
@@ -340,26 +341,22 @@ Not all of your projects are shared with the same people. Construct enforces har
 
 ## 9. Construct-to-Construct Comms & Courier Cameo Protocol (`--via <messenger>`)
 
-Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over the project's encrypted MLS sync channel -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
+Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted MLS sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
+
+Once you connect with a collaborator on *any* shared project, Construct Comms are **person-to-person (`--to <user>`)** rather than locked to a single repository: sending a message to `--to bob` writes a single deduplicated message `uid` and routes it automatically across your shared MLS channels regardless of which repository tab you or Bob currently have open.
 
 ### How Courier Cameos Work in Practice
 
 1. **Alice tells her Crew in OpenCode:**
-   > *"Send Toot-Toot to tell Bob on `acme/alpha_app` that #111 is merged and ready for review."*
-   - Construct records message `[M#1]` (`from: alice/toot -> to: bob` via `--via toot`) and syncs it over the encrypted MLS relay.
+   > *"Send Toot-Toot to tell Bob that #111 is merged and ready for review."*
+   - Alice's Crew spawns a non-blocking `[ROM: toot]` subagent that composes the message in Toot-Toot's authentic first-person voice, records `[M#1]` (`from: alice/toot -> to: bob` via `--via toot`), and syncs it over the encrypted MLS relay.
 
-2. **Bob's next turn in OpenCode on his machine:**
-   - His Construct plugin injects `<construct-live-memory>` into his session, surfacing the courier's badge, handle, and voice cue:
-     ```text
-     INCOMING CONSTRUCT COURIER FOR BOB (1 awaiting reply):
-       [M#1] Courier: ⚡ **[TOOT // COURIER FROM ALICE]** (Major General Toot-Toot Minimus // Za-Lord's Elite Guard & Swarm Scout)
-              Message from alice -> bob (acme/alpha_app): "#111 is merged and ready for review."
-              -> COURIER CAMEO RULE: Open your reply by having ⚡ **[TOOT // COURIER FROM ALICE]** pop directly into the feed in toot's own authentic voice to deliver alice's message to bob, then immediately hand the mic back to bob's active Crew (do NOT switch bob's slotted session/project Crew).
-     ```
-   - **Toot-Toot** buzzes directly into Bob's feed for a cameo paragraph in his own voice (*"Halt! Major General Toot-Toot Minimus reporting from the Za-Lord! Issue #111 is merged and ready for review!"*), and immediately hands the mic back to Bob's own active **Sprawl Crew** (`Dixie`, `Wintermute`, `Molly`).
-   - All sent and received messages also appear in the **Construct Comms & Courier Log** table inside the Review Pane HUD (`construct-hud.html`) for easy look-back.
+2. **Bob's session receives the Courier automatically (even if idle):**
+   - If Bob's OpenCode session is idle when the relay poll arrives, Construct triggers an automatic `ctx.session.synthetic` wake-up turn and renders an interactive **`📬 UNREAD COURIER`** reply/dismiss banner at the top of his Review Pane HUD (`construct-hud-<project>.html`).
+   - On Bob's turn, `<construct-live-memory>` surfaces the courier's badge, handle, and multi-bullet voice profile, and **Toot-Toot** buzzes directly into the bottom of Bob's feed for a cameo paragraph in his own voice before handing the mic back to Bob's active Crew.
+   - All sent and received messages appear in the scrollable **Construct Comms & Courier Log** table inside the Review Pane HUD, where Bob can reply (with instant input locking), click **`✓ Ack`**, or click **`👁️ Hide`** (`construct hide-msg <id>`, which hides the message from the HUD while keeping it permanently searchable via `construct inbox --all` and preventing relay syncs from ever resurrecting it). Unwanted messages can also be obliterated locally and across relays via `construct purge-msg <id>` (CRDT `message_tombstone`).
 
-3. **Bob replies in normal chat:**
+3. **Bob replies in normal chat or directly from the HUD:**
    > *"Tell him we pulled main and it looks great."* (or *"Send Dixie back to tell Alice it looks great."*)
    - Bob's Construct records the reply on `[M#1]` (`construct reply 1 "..." [--via dixie]`) and syncs it back over the relay for a return courier cameo on Alice's next turn.
 
@@ -415,27 +412,30 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 
 | Component | Implementation | Latency / Footprint |
 |---|---|---|
-| **Storage Engine** | Node.js built-in `node:sqlite` (`DatabaseSync` in `WAL` mode + `FTS5` BM25 virtual tables & triggers) | `0.12 ms` raw query, `6.6 MB` V8 heap, `0 MB` resident between turns |
-| **Modular Crew Packs** | Lazy-loaded `src/packs/<bank>.js` + user drop-in packs (`~/.config/opencode/packs/*.js`) | `0` inactive pack files parsed into memory on normal turns |
-| **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, fallback cache, and `shell` guard | Zero round-trip ROM/Crew switching; multi-tab resilient |
-| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 81 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) |
+| **Storage Engine** | Node.js built-in `node:sqlite` (`DatabaseSync` in `WAL` mode + `FTS5` BM25 virtual tables & triggers) | `0.12 ms` raw query, `5.3 ms` in-process `bootProject`, `0 MB` resident between turns |
+| **Modular Crew Packs** | 15 lazy-loaded `src/packs/<bank>.js` banks (`179` ROMs) + user drop-in packs (`~/.config/opencode/packs/*.js`) | `0` inactive pack files parsed into memory on normal turns |
+| **Unified Tool & MCP Core** | `src/mcp.js` (`CONSTRUCT_TOOL_SPECS`, `executeMcpTool`, `initialize.result.instructions`, MCP `prompts` & `resources`) shared by OpenCode, Claude Code, Cursor, Windsurf, Cline, Zed, and Goose | `2.4 ms` in-process tool execution (`0.013 ms` `tools/list`); zero schema duplication |
+| **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, `<construct-voice-lock>`, per-project HUD server (`127.0.0.1:47420`), and `shell` guard (`0.083 ms`) | Zero round-trip ROM/Crew switching; tab- and project-scoped HUD |
+| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 178 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) + `<construct-voice-lock>` |
 | **Identity & Auth** | Self-certifying W3C `did:key:z6Mk...` (`Ed25519` signing + `X25519` ECDH via native OpenSSL `node:crypto`) | Stored in `~/.config/opencode/identity.json` (`0600`) |
 | **Group Encryption** | MLS-style Epoch Secret Tree (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`) | Relay sees only opaque ciphertext and a blinded HKDF `routeTag` |
-| **Conflict-Free Merge** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`) + LWW-Element-Map (`heads`, `messages`) | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) |
-| **Relay Transport** | Built-in `WebSocket` speaking NIP-01 ephemeral events signed with cached pure-BigInt BIP-340 `secp256k1` Schnorr keys (`4 MB` frame cap) | Works over any public relay (`wss://nos.lol`) or self-hosted `construct relay` |
+| **Conflict-Free Merge** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`, `message_tombstone`) + LWW-Element-Map (`heads`, `messages`) | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) |
+| **Relay Transport** | Built-in `WebSocket` speaking NIP-01 ephemeral events (`<= 16 KB` chunked batch publisher) signed with cached pure-BigInt BIP-340 `secp256k1` Schnorr keys (`4 MB` frame cap) | Works over any public relay (`wss://nos.lol`, `wss://relay.damus.io`) or self-hosted `construct relay` |
 
 ---
 
 ## 12. CLI Reference (Optional)
 
-Everything above works conversationally inside OpenCode (`tools.construct.*`) and Claude Code (`mcp__construct__*`). When you want to inspect or script Construct from a terminal:
+Everything above works conversationally inside OpenCode (`tools.construct.*`), Claude Code (`mcp__construct__*`), and any MCP coding agent (`construct mcp`). When you want to inspect or script Construct from a terminal:
 
 ```sh
-# One-command setup (OpenCode + optional Claude Code MCP/hooks/subagents) & assimilation
+# One-command setup, self-update & assimilation
 construct init [--rom <name>] [--claude]
+construct upgrade [--check]
 construct assimilate [<dir>] [--project <proj>] [--remove-files]
+construct mcp
 
-# Project boot, sequential tape, causal zoom & FTS5 search
+# Project boot, sequential tape, causal zoom, FTS5 search, GitHub Issues & PRs
 construct projects
 construct boot <project> [-n 25] [--session <session_id>]
 construct rec <project> <kind> "<summary>" [--detail ".."] [--verified ".."] [--parent <seq>] [--resolves <seq>] [--open] [--refs a,b]
@@ -447,16 +447,18 @@ construct zoom <seq> [-w 3]
 construct search "<fts5_query>" [--project <project>] [--open]
 construct why "<file_or_symbol>" [--project <project>] [--ask <user>]
 construct issues [sync <project> | publish <seq>] [--dir <repo_dir>]
+construct pr [sync <project> | open <project> --title ".." | review <project> <pr_num> --approve | merge <project> <pr_num>] [--to <user>] [--via <messenger>]
 construct hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
-construct dashboard [--out <html_path>]
+construct dashboard [--out <html_path>] [--project <proj>] [--session <session_id>]
+construct hud-server [--port 47420]
 construct edit <seq> [--summary ".."] [--detail ".."] [--verified ".."]
 
 # Crew Banks, Bench substitutions, session slotting, dial tuning & directives
 construct rom packs
 construct rom list [--pack <bank>]
 construct rom show [<bank_or_rom>]
-construct rom use <bank_or_rom> [--session <session_id>]
-construct rom sub <backup_name> [--session <session_id>]
+construct rom use <bank_or_rom> [--session <session_id>] [--project <proj>]
+construct rom sub <backup_name> [--session <session_id>] [--project <proj>]
 construct rom default [<bank_or_rom> | off]
 construct rom tune <dial>=<0..1> [<dial>=<0..1> ...] [--rom <name>]
 construct rom burn "<directive>" [--rom <name>]
@@ -471,18 +473,20 @@ construct gotcha add "<title>" [--project <proj>] [--status observed|from_source
 construct gotcha search "<query>" [--project <proj> | --all]
 construct gotcha rm <id>
 
-# DIDComm v2 + MLS + CRDT sync, Encrypted Patch Drops & Construct-to-Construct Comms
+# DIDComm v2 + MLS + CRDT sync, Encrypted Patch Drops & Person-to-Person Courier Comms
 construct did
 construct invite <project> [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
 construct join "<construct://invite/...#...>" [--dir <target_dir>]
 construct sync <project> [--relays wss://...]
 construct relay [--port 8787]
-construct msg <project> --to <user> [--via <messenger>] "<message>"
+construct msg --to <user> [--via <messenger>] "<in-character message>"
 construct drop <project> --to <user> [--via <messenger>] [--file <path> | --git-diff | --content ".."] [--note ".."]
 construct apply-drop <msg_id> [--out <file> | --apply]
-construct reply <msg_id> [--via <messenger>] "<answer>"
+construct reply <msg_id> [--via <messenger>] "<in-character answer>"
 construct ack <msg_id>
-construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered]
+construct hide-msg <msg_id[,msg_id...]>
+construct purge-msg <msg_id[,msg_id...]>
+construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden]
 ```
 
 ## 13. License, Literary Homage & Good-Faith Pack Policy
@@ -502,7 +506,7 @@ The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anath
 - **Roger Zelazny** (*The Chronicles of Amber*)
 - **Charles Stross** (*The Laundry Files*)
 - **J.R.R. Tolkien** (*The Lord of the Rings* / *The Silmarillion*)
-- **Sir Terry Pratchett** (*Discworld* — *GNU Terry Pratchett*)
+- **Sir Terry Pratchett** (*Discworld* -- *GNU Terry Pratchett*)
 - **Kevin Hearne** (*The Iron Druid Chronicles*)
 - **Lloyd Alexander** (*The Chronicles of Prydain*)
 - **Anthony Burgess & Stanley Kubrick** (*A Clockwork Orange*)
