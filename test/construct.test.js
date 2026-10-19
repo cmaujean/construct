@@ -1220,7 +1220,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
-      assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
+      assert.doesNotMatch(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
       assert.match(dash.html, /CONSTRUCT UPDATE AVAILABLE \(2 new commits\)/);
       assert.match(dash.html, /upgradeConstructNow\(\)/);
       assert.match(dash.html, /UNREAD COURIER \[M#/);
@@ -1306,7 +1306,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.match(dash.html, /⚡ toot/);
       assert.match(dash.html, /Za-Lord says #111 is merged and ready for review!/);
       assert.match(dash.html, /acme\/shared_app/);
-      assert.match(dash.html, /acme\/other_app/);
+      assert.doesNotMatch(dash.html, /acme\/other_app/);
       assert.doesNotMatch(dash.html, /Other project open thread that must not leak into shared_app HUD/);
       assert.match(dash.html, /data-pack="cryptonomicon"/);
       assert.match(dash.html, /applyHudToDom\(data\.hud\)/);

@@ -2943,25 +2943,6 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     })
     .join(' ');
 
-  const initialTabs = Array.isArray(hud.tabs) ? hud.tabs : [];
-  const tabSelectorButtons = initialTabs
-    .map((t) => {
-      const isSelected = (hud.sessionId && t.sessionId === hud.sessionId) || (!hud.sessionId && t.project === hud.project);
-      return `<button class="crew-btn ${isSelected ? 'active' : ''}" data-target-sid="${escapeHtml(t.sessionId)}" data-target-proj="${escapeHtml(t.project)}" onclick="selectTarget('${escapeHtml(t.sessionId)}','${escapeHtml(t.project)}')">${escapeHtml(t.emblem)} ${escapeHtml(t.project)} <span class="sub">[tab:${escapeHtml(t.shortId)} · ${escapeHtml(t.romName)}]</span></button>`;
-    })
-    .join('\n      ');
-
-  const projectSelectorButtons = projects
-    .filter((p) => !initialTabs.some((t) => t.project === p.project))
-    .map((p) => {
-      const pRom = hud.projectRoms?.[p.project];
-      const pEmblem = pRom?.emblem || '📁';
-      const pRomLabel = pRom?.romName ? ` · ${pRom.romName}` : '';
-      const isSelected = !hud.sessionId && p.project === hud.project;
-      return `<button class="crew-btn ${isSelected ? 'active' : ''}" data-target-sid="" data-target-proj="${escapeHtml(p.project)}" onclick="selectTarget('','${escapeHtml(p.project)}')">${escapeHtml(pEmblem)} ${escapeHtml(p.project)} <span class="sub">[project${escapeHtml(pRomLabel)}]</span></button>`;
-    })
-    .join('\n      ');
-
   const openThreads = Array.isArray(hud.openThreads) ? hud.openThreads : [];
   const openRows = openThreads
     .map(
@@ -3228,18 +3209,9 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </div>
 
   <div class="control-deck">
-    <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);">
-      <strong>TARGET TAB &amp; PROJECT SCOPE</strong>
-      <span class="sub" style="margin-left:8px;">(Automatically follows your focused OpenCode tab, or click any tab/project pill to pin it)</span>
-      <div class="btn-row" id="target-tab-row">
-        <button class="crew-btn active" id="btn-autofollow" onclick="enableAutoFollow()">🎯 Auto-Follow Active Tab</button>
-        ${tabSelectorButtons}
-        ${projectSelectorButtons}
-      </div>
-    </div>
     <div>
       <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
-      <span class="sub" style="margin-left:8px;">(Switches Crew for target: <code id="target-scope-label">${escapeHtml(hud.project)}${shortSidInit ? ` [tab:${shortSidInit}]` : ''} (auto-following)</code>)</span>
+      <span class="sub" style="margin-left:8px;">(Project: <code id="target-scope-label">${escapeHtml(hud.project)}</code>)</span>
       <span id="hud-toast"></span>
     </div>
     <div class="btn-row">
@@ -3314,9 +3286,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    let selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
-    let selectedProject = ${JSON.stringify(hud.project || '')};
-    let autoFollow = true;
+    const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
+    const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
 
     function esc(s) {
@@ -3327,50 +3298,12 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         .replace(/"/g, '&quot;');
     }
 
-    function renderTargetButtons(h) {
-      const rowEl = document.getElementById('target-tab-row');
-      if (!rowEl || !h) return;
-      const tabs = Array.isArray(h.tabs) ? h.tabs : [];
-      rowEl.innerHTML = '';
-
-      const autoBtn = document.createElement('button');
-      autoBtn.className = 'crew-btn' + (autoFollow ? ' active' : '');
-      autoBtn.textContent = '🎯 Auto-Follow Active Tab';
-      autoBtn.onclick = () => enableAutoFollow();
-      rowEl.appendChild(autoBtn);
-
-      tabs.forEach((t) => {
-        const btn = document.createElement('button');
-        const isCurrent = (selectedSessionId && t.sessionId === selectedSessionId) || (!selectedSessionId && t.project === selectedProject);
-        btn.className = 'crew-btn' + (isCurrent ? ' active' : '');
-        btn.textContent = (t.emblem || '🦾') + ' ' + t.project + ' [tab:' + (t.shortId || '') + ' · ' + (t.romName || '') + ']';
-        btn.onclick = () => selectTarget(t.sessionId, t.project);
-        rowEl.appendChild(btn);
-      });
-
-      const projectRoms = h.projectRoms || {};
-      Object.keys(projectRoms).forEach((proj) => {
-        if (tabs.some((t) => t.project === proj)) return;
-        const pr = projectRoms[proj];
-        const btn = document.createElement('button');
-        const isSel = !selectedSessionId && selectedProject === proj;
-        btn.className = 'crew-btn' + (isSel ? ' active' : '');
-        btn.textContent = (pr.emblem || '📁') + ' ' + proj + ' [project · ' + (pr.romName || '') + ']';
-        btn.onclick = () => selectTarget('', proj);
-        rowEl.appendChild(btn);
-      });
-    }
-
     function applyHudToDom(h) {
       if (!h) return;
-      if (autoFollow) {
-        selectedSessionId = h.sessionId || '';
-        selectedProject = h.project || '';
-      }
       const shortSid = (h.sessionId || selectedSessionId || '').replace(/^ses_/, '').slice(0, 6);
       const scopeEl = document.getElementById('target-scope-label');
       if (scopeEl) {
-        scopeEl.textContent = (h.project || selectedProject || 'workspace') + (shortSid ? ' [tab:' + shortSid + ']' : ' [project]') + (autoFollow ? ' (auto-following)' : ' (pinned)');
+        scopeEl.textContent = h.project || selectedProject || 'workspace';
       }
       const pillEl = document.getElementById('hud-pill');
       if (pillEl && h.pill) pillEl.textContent = h.pill;
@@ -3552,35 +3485,15 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           ).join('');
         }
       }
-
-      renderTargetButtons(h);
     }
 
     async function pollHud() {
       try {
-        const qs = autoFollow
-          ? ''
-          : '?sessionID=' + encodeURIComponent(selectedSessionId || '') + '&project=' + encodeURIComponent(selectedProject || '');
+        const qs = '?sessionID=' + encodeURIComponent(selectedSessionId || '') + '&project=' + encodeURIComponent(selectedProject || '');
         const res = await fetch('http://127.0.0.1:47420/hud' + qs);
         const data = await res.json();
         if (data && data.ok && data.hud) applyHudToDom(data.hud);
       } catch (_) {}
-    }
-
-    function selectTarget(sid, proj) {
-      autoFollow = false;
-      selectedSessionId = sid || '';
-      selectedProject = proj || '';
-      const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = 'Pinned target -> ' + (proj || sid);
-      void pollHud();
-    }
-
-    function enableAutoFollow() {
-      autoFollow = true;
-      const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = '🎯 Following active OpenCode tab';
-      void pollHud();
     }
 
     async function switchCrew(action, target) {
