@@ -283,6 +283,69 @@ async function publishEnvelopeToRelays(relays, routeTag, envelope, timeoutMs = 4
   return { eventId: event.id, results };
 }
 
+function publishBatchToOneRelay(url, events, timeoutMs = 8000) {
+  if (!events.length) return Promise.resolve({ url, ok: true, ackedCount: 0 });
+  return new Promise((resolve) => {
+    let settled = false;
+    let ackedCount = 0;
+    let currentIdx = 0;
+    const finish = (ok, error = '') => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch (_) {}
+      resolve({ url, ok: ok || ackedCount > 0, ackedCount, error });
+    };
+
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      return resolve({ url, ok: false, ackedCount: 0, error: err.message });
+    }
+
+    const timer = setTimeout(() => finish(ackedCount > 0, 'timeout'), timeoutMs);
+
+    const sendNext = () => {
+      if (currentIdx >= events.length) {
+        finish(ackedCount > 0);
+        return;
+      }
+      try {
+        ws.send(JSON.stringify(['EVENT', events[currentIdx]]));
+      } catch (err) {
+        finish(ackedCount > 0, err.message);
+      }
+    };
+
+    ws.onopen = () => {
+      sendNext();
+    };
+
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(String(msg.data));
+        if (Array.isArray(data) && data[0] === 'OK' && events[currentIdx] && data[1] === events[currentIdx].id) {
+          if (data[2]) ackedCount++;
+          currentIdx++;
+          sendNext();
+        }
+      } catch (_) {}
+    };
+
+    ws.onerror = () => finish(ackedCount > 0, 'websocket error');
+    ws.onclose = () => finish(ackedCount > 0, 'closed');
+  });
+}
+
+async function publishEnvelopesToRelays(relays, routeTag, envelopes, timeoutMs = 8000) {
+  const events = envelopes.map((env) => buildNostrWrapperEvent(routeTag, env));
+  const results = await Promise.all(relays.map((r) => publishBatchToOneRelay(r, events, timeoutMs)));
+  return { eventCount: events.length, results };
+}
+
 async function fetchEnvelopesFromRelays(relays, routeTag, timeoutMs = 4000) {
   const results = await Promise.all(relays.map((r) => fetchFromOneRelay(r, routeTag, timeoutMs)));
   const seen = new Set();
@@ -468,6 +531,7 @@ module.exports = {
   schnorrSign,
   buildNostrWrapperEvent,
   publishEnvelopeToRelays,
+  publishEnvelopesToRelays,
   fetchEnvelopesFromRelays,
   startLocalRelayServer,
 };

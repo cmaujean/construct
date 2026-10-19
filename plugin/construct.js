@@ -996,30 +996,52 @@ export default {
 
       editor.add({
         name: "sync",
-        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.",
+        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues & PRs (`issues-sync`, `issues-publish`, `pr-sync`, `pr-open`, `pr-review`, `pr-merge`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "upgrade", "upgrade-check", "dashboard", "issues-sync", "issues-publish"],
+              enum: [
+                "did",
+                "invite",
+                "join",
+                "sync",
+                "export",
+                "import",
+                "assimilate",
+                "init",
+                "upgrade",
+                "upgrade-check",
+                "dashboard",
+                "issues-sync",
+                "issues-publish",
+                "pr-sync",
+                "pr-open",
+                "pr-review",
+                "pr-merge",
+              ],
             },
             target: {
               type: "string",
-              description: "Project key (for invite/sync/export/issues-sync), frame seq (for issues-publish), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
+              description: "Project key (for invite/sync/export/issues-sync/pr-sync), frame seq (for issues-publish), PR number (for pr-review/pr-merge),PR title (for pr-open), construct://invite/... URI (for join), construct://packet/... token (for import), directory path (for assimilate), or output path (for dashboard)",
             },
             dir: {
               type: "string",
               description: "Optional local repository directory (target clone path for `join`, or source repo path for `invite`)",
             },
-            project: { type: "string", description: "Project key when assimilating a repository's instruction files" },
+            project: { type: "string", description: "Project key when assimilating, opening/reviewing/merging a PR, or syncing issues" },
+            to: { type: "string", description: "Optional teammate operator id to notify via Courier when opening, reviewing, or merging a PR" },
+            via: { type: "string", description: "Optional Courier ROM name (e.g. 'toot', 'bob', 'dixie') when notifying a teammate on PR open/review/merge" },
+            body: { type: "string", description: "PR description (for pr-open) or review comment body (for pr-review)" },
+            verdict: { type: "string", enum: ["approve", "request-changes", "comment"], description: "Review verdict for `pr-review`" },
             relays: { type: "string", description: "Optional comma-separated WebSocket relay URLs" },
           },
           required: ["action"],
           additionalProperties: false,
         },
         options: { namespace: "construct", codemode: true },
-        execute: async (input) => {
+        execute: async (input, context) => {
           if (input.action === "did") return { content: runConstruct(["did"]) }
           if (input.action === "init") return { content: runConstruct(["init"]) }
           if (input.action === "upgrade") return { content: runConstruct(["upgrade"]) }
@@ -1038,6 +1060,41 @@ export default {
           if (input.action === "issues-publish") {
             const args = ["issues", "publish", String(input.target)]
             if (input.dir) args.push("--dir", String(input.dir))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "pr-sync") {
+            const args = ["pr", "sync"]
+            if (input.target || input.project) args.push(String(input.target || input.project))
+            if (input.dir) args.push("--dir", String(input.dir))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "pr-open") {
+            const args = ["pr", "open", String(input.project || "construct"), "--title", String(input.target || "")]
+            if (input.body) args.push("--body", String(input.body))
+            if (input.to) args.push("--to", String(input.to))
+            if (input.via) args.push("--via", String(input.via))
+            if (input.dir) args.push("--dir", String(input.dir))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "pr-review") {
+            const args = ["pr", "review", String(input.project || "construct"), String(input.target || "")]
+            if (input.verdict === "approve") args.push("--approve")
+            else if (input.verdict === "request-changes") args.push("--request-changes")
+            else args.push("--comment")
+            if (input.body) args.push("--body", String(input.body))
+            if (input.to) args.push("--to", String(input.to))
+            if (input.via) args.push("--via", String(input.via))
+            if (input.dir) args.push("--dir", String(input.dir))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
+            return { content: runConstruct(args) }
+          }
+          if (input.action === "pr-merge") {
+            const args = ["pr", "merge", String(input.project || "construct"), String(input.target || "")]
+            if (input.to) args.push("--to", String(input.to))
+            if (input.via) args.push("--via", String(input.via))
+            if (input.dir) args.push("--dir", String(input.dir))
+            if (context?.sessionID) args.push("--session", String(context.sessionID))
             return { content: runConstruct(args) }
           }
           if (input.action === "assimilate") {

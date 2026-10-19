@@ -164,6 +164,18 @@ const OPTIONS = {
   'remove-files': { type: 'boolean' },
   claude: { type: 'boolean' },
   check: { type: 'boolean' },
+  title: { type: 'string' },
+  body: { type: 'string' },
+  base: { type: 'string' },
+  head: { type: 'string' },
+  draft: { type: 'boolean' },
+  approve: { type: 'boolean' },
+  'request-changes': { type: 'boolean' },
+  comment: { type: 'boolean' },
+  squash: { type: 'boolean' },
+  rebase: { type: 'boolean' },
+  merge: { type: 'boolean' },
+  'delete-branch': { type: 'boolean' },
   port: { type: 'string' },
   open: { type: 'boolean' },
   closed: { type: 'boolean' },
@@ -687,7 +699,7 @@ function handleGotchaCommand(rest, o) {
   }
 }
 
-function main(argv) {
+async function main(argv) {
   const { values: o, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true });
   const [cmd, ...rest] = positionals;
 
@@ -912,10 +924,116 @@ function main(argv) {
       const project = (sub === 'sync' ? rest[1] : sub) || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
       if (!project) throw new Error('usage: construct issues sync <project> [--dir <repo_dir>]');
       const res = store.syncGithubIssues(project, { repoDir: o.dir, limit: o.limit ? Number(o.limit) : 50 });
+      try {
+        store.syncGithubPrs(project, { repoDir: o.dir, limit: o.limit ? Number(o.limit) : 50 });
+      } catch (_) {}
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else {
         console.log(
           `synced ${res.totalIssuesChecked} GitHub issue(s) for ${res.project}: ${res.openedCount} new open thread(s), ${res.resolvedCount} closed thread(s) resolved`
+        );
+      }
+      return 0;
+    }
+
+    case 'pr':
+    case 'prs': {
+      const sub = rest[0] || 'sync';
+      if (sub === 'open' || sub === 'create') {
+        const project = rest[1] || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
+        if (!project) throw new Error('usage: construct pr open <project> --title "<title>" [--body ".."] [--to <user>] [--via <messenger>]');
+        const res = store.openGithubPr(project, {
+          repoDir: o.dir,
+          title: o.title || rest.slice(2).join(' '),
+          body: o.body || o.detail || o.content || '',
+          base: o.base,
+          head: o.head || o.branch,
+          draft: Boolean(o.draft),
+          to: o.to,
+          via: o.via || o.rom,
+          sessionId: o.session,
+        });
+        if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1' && res.courierSent) {
+          try {
+            await store.syncProject(res.project);
+          } catch (_) {}
+        }
+        if (o.json) console.log(JSON.stringify(res, null, 2));
+        else {
+          const courierStr = res.courierSent ? ` | dispatched ${res.courierSent.fromRom} -> ${res.courierSent.toUser} [M#${res.courierSent.id}]` : '';
+          console.log(`opened PR #${res.prNumber} on ${res.project} -> thread #${res.frame.seq} (${res.prUrl || `pr:#${res.prNumber}`}${courierStr})`);
+        }
+        return 0;
+      }
+
+      if (sub === 'review') {
+        const project = o.project || (rest[2] ? rest[1] : o.dir ? store.resolveProjectFromDir(o.dir) : '');
+        const prNum = rest[2] ? rest[2] : rest[1];
+        if (!project || !prNum) {
+          throw new Error('usage: construct pr review <project> <pr_num> [--approve | --request-changes | --comment] --body "<note>" [--to <user>] [--via <messenger>]');
+        }
+        const res = store.reviewGithubPr(project, prNum, {
+          repoDir: o.dir,
+          approve: Boolean(o.approve),
+          requestChanges: Boolean(o['request-changes']),
+          comment: Boolean(o.comment),
+          body: o.body || o.note || o.detail || rest.slice(3).join(' '),
+          verified: o.verified,
+          to: o.to,
+          via: o.via || o.rom,
+          sessionId: o.session,
+        });
+        if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1' && res.courierSent) {
+          try {
+            await store.syncProject(res.project);
+          } catch (_) {}
+        }
+        if (o.json) console.log(JSON.stringify(res, null, 2));
+        else {
+          const courierStr = res.courierSent ? ` | dispatched ${res.courierSent.fromRom} -> ${res.courierSent.toUser} [M#${res.courierSent.id}]` : '';
+          console.log(`reviewed PR #${res.prNumber} (${res.verdict}) -> frame #${res.frame.seq}${courierStr}`);
+        }
+        return 0;
+      }
+
+      if (sub === 'merge') {
+        const project = o.project || (rest[2] ? rest[1] : o.dir ? store.resolveProjectFromDir(o.dir) : '');
+        const prNum = rest[2] ? rest[2] : rest[1];
+        if (!project || !prNum) {
+          throw new Error('usage: construct pr merge <project> <pr_num> [--squash | --rebase | --merge] [--delete-branch] [--to <user>] [--via <messenger>]');
+        }
+        const res = store.mergeGithubPr(project, prNum, {
+          repoDir: o.dir,
+          squash: Boolean(o.squash),
+          rebase: Boolean(o.rebase),
+          merge: Boolean(o.merge),
+          deleteBranch: Boolean(o['delete-branch']),
+          title: o.title,
+          verified: o.verified,
+          to: o.to,
+          via: o.via || o.rom,
+          sessionId: o.session,
+        });
+        if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1' && res.courierSent) {
+          try {
+            await store.syncProject(res.project);
+          } catch (_) {}
+        }
+        if (o.json) console.log(JSON.stringify(res, null, 2));
+        else {
+          const courierStr = res.courierSent ? ` | dispatched ${res.courierSent.fromRom} -> ${res.courierSent.toUser} [M#${res.courierSent.id}]` : '';
+          console.log(`merged PR #${res.prNumber} (${res.strategy}) -> frame #${res.frame.seq} (resolved: ${res.resolvedSeqs.map((s) => `#${s}`).join(', ') || 'none'}${courierStr})`);
+        }
+        return 0;
+      }
+
+      const project = (sub === 'sync' ? rest[1] : sub) || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
+      if (!project) throw new Error('usage: construct pr sync <project> [--dir <repo_dir>]');
+      const res = store.syncGithubPrs(project, { repoDir: o.dir, limit: o.limit ? Number(o.limit) : 50 });
+      if (o.json) console.log(JSON.stringify(res, null, 2));
+      else {
+        console.log(
+          `synced ${res.totalPrsChecked} GitHub PR(s) for ${res.project}: ${res.openedCount} new open PR thread(s), ${res.updatedCount} updated, ${res.resolvedCount} merged/closed resolved`
         );
       }
       return 0;
@@ -1058,6 +1176,11 @@ function main(argv) {
         content: o.content,
         note: o.note,
       });
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          await store.syncProject(m.project);
+        } catch (_) {}
+      }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`queued encrypted drop [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project})`);
       return 0;
@@ -1148,6 +1271,11 @@ function main(argv) {
         throw new Error('usage: construct msg <project> --to <user> [--via <messenger>] "<message>"');
       }
       const m = store.sendMessage({ project, to: o.to, via: o.via || o.rom, sessionId: o.session, body });
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          await store.syncProject(m.project);
+        } catch (_) {}
+      }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`queued [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project}): "${m.body}"`);
       return 0;
@@ -1158,6 +1286,11 @@ function main(argv) {
       const replyBody = replyParts.join(' ');
       if (!msgId || !replyBody) throw new Error('usage: construct reply <msg_id> [--via <messenger>] "<answer>"');
       const m = store.replyMessage(msgId, replyBody, { via: o.via || o.rom, sessionId: o.session });
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          await store.syncProject(m.project);
+        } catch (_) {}
+      }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`replied to [M#${m.id}] (${m.toUser}/${m.replyRom} -> ${m.fromUser}/${m.fromRom}): "${m.replyBody}"`);
       return 0;

@@ -268,7 +268,25 @@ const MCP_TOOLS = Object.freeze([
       properties: {
         action: {
           type: 'string',
-          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'upgrade', 'upgrade-check', 'dashboard', 'issues-sync', 'issues-publish'],
+          enum: [
+            'did',
+            'invite',
+            'join',
+            'sync',
+            'export',
+            'import',
+            'assimilate',
+            'init',
+            'upgrade',
+            'upgrade-check',
+            'dashboard',
+            'issues-sync',
+            'issues-publish',
+            'pr-sync',
+            'pr-open',
+            'pr-review',
+            'pr-merge',
+          ],
         },
         target: {
           type: 'string',
@@ -278,7 +296,11 @@ const MCP_TOOLS = Object.freeze([
           type: 'string',
           description: 'Optional local repository directory (target clone path for `join`, or source repo path for `invite`)',
         },
-        project: { type: 'string', description: "Project key when assimilating a repository's instruction files" },
+        project: { type: 'string', description: "Project key when assimilating, opening/reviewing/merging a PR, or syncing issues" },
+        to: { type: 'string', description: 'Optional teammate operator id to notify via Courier on PR open/review/merge' },
+        via: { type: 'string', description: "Optional Courier ROM name (e.g. 'toot', 'bob', 'dixie') on PR open/review/merge" },
+        body: { type: 'string', description: 'PR description (for pr-open) or review comment body (for pr-review)' },
+        verdict: { type: 'string', enum: ['approve', 'request-changes', 'comment'], description: 'Review verdict for pr-review' },
         relays: { type: 'string', description: 'Optional comma-separated WebSocket relay URLs' },
       },
       required: ['action'],
@@ -438,6 +460,38 @@ function executeMcpTool(name, input = {}) {
       }
       if (input.action === 'issues-publish') {
         const args = ['issues', 'publish', String(input.target)];
+        if (input.dir) args.push('--dir', String(input.dir));
+        return runConstructCli(args);
+      }
+      if (input.action === 'pr-sync') {
+        const args = ['pr', 'sync'];
+        if (input.target || input.project) args.push(String(input.target || input.project));
+        if (input.dir) args.push('--dir', String(input.dir));
+        return runConstructCli(args);
+      }
+      if (input.action === 'pr-open') {
+        const args = ['pr', 'open', String(input.project || 'construct'), '--title', String(input.target || '')];
+        if (input.body) args.push('--body', String(input.body));
+        if (input.to) args.push('--to', String(input.to));
+        if (input.via) args.push('--via', String(input.via));
+        if (input.dir) args.push('--dir', String(input.dir));
+        return runConstructCli(args);
+      }
+      if (input.action === 'pr-review') {
+        const args = ['pr', 'review', String(input.project || 'construct'), String(input.target || '')];
+        if (input.verdict === 'approve') args.push('--approve');
+        else if (input.verdict === 'request-changes') args.push('--request-changes');
+        else args.push('--comment');
+        if (input.body) args.push('--body', String(input.body));
+        if (input.to) args.push('--to', String(input.to));
+        if (input.via) args.push('--via', String(input.via));
+        if (input.dir) args.push('--dir', String(input.dir));
+        return runConstructCli(args);
+      }
+      if (input.action === 'pr-merge') {
+        const args = ['pr', 'merge', String(input.project || 'construct'), String(input.target || '')];
+        if (input.to) args.push('--to', String(input.to));
+        if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
         return runConstructCli(args);
       }

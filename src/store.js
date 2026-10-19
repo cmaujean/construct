@@ -1021,11 +1021,25 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
     const projectGotchas = protocol.listGotchasInDb(db, project);
 
     const activeUserId = user?.id || detectedLogin;
-    const inboxPending = db
+    const localIdentity = crdt.loadOrCreateIdentity();
+    const recipientAliases = new Set(
+      [activeUserId, user?.id, user?.name, detectedLogin, ...(user?.osUsers || []), 'all', 'team']
+        .filter(Boolean)
+        .map((s) => String(s).trim().toLowerCase())
+    );
+    const allPendingRows = db
       .prepare(
-        "SELECT * FROM messages WHERE to_user = ? AND status = 'pending' AND (project = ? OR project = 'global') ORDER BY hlc ASC"
+        "SELECT * FROM messages WHERE status = 'pending' AND (project = ? OR project = 'global') ORDER BY hlc ASC"
       )
-      .all(activeUserId, project)
+      .all(project);
+    const inboxPending = allPendingRows
+      .filter((row) => {
+        const toLower = String(row.to_user || '').trim().toLowerCase();
+        if (recipientAliases.has(toLower)) return true;
+        // If sent by a remote MLS peer (different cryptographic DID), treat it as addressed to the local operator
+        if (row.from_did && localIdentity?.did && row.from_did !== localIdentity.did) return true;
+        return false;
+      })
       .map((row) => {
         const m = crdt.hydrateMessage(row);
         m.courier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
@@ -1034,9 +1048,15 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
 
     const inboxReplies = db
       .prepare(
-        "SELECT * FROM messages WHERE from_user = ? AND status = 'replied' AND (project = ? OR project = 'global') ORDER BY reply_hlc ASC"
+        "SELECT * FROM messages WHERE status = 'replied' AND (project = ? OR project = 'global') ORDER BY reply_hlc ASC"
       )
-      .all(activeUserId, project)
+      .all(project)
+      .filter((row) => {
+        const fromLower = String(row.from_user || '').trim().toLowerCase();
+        if (recipientAliases.has(fromLower)) return true;
+        if (row.from_did && localIdentity?.did && row.from_did === localIdentity.did) return true;
+        return false;
+      })
       .map((row) => {
         const m = crdt.hydrateMessage(row);
         m.courier = buildCourierProfileInDb(db, m.replyRom || m.fromRom, m.toUser, 'RETURN COURIER');
@@ -3821,6 +3841,474 @@ function publishThreadToGithub(seqInput, options = {}, file = dbPath()) {
   };
 }
 
+// --- PR-Driven Workflow Bridge (`construct pr [sync | open | review | merge]`) ---
+
+function resolveTeammateUserInDb(db, project, explicitTo = '') {
+  if (explicitTo && String(explicitTo).trim()) {
+    return String(explicitTo).trim().toLowerCase();
+  }
+  const localIdentity = crdt.loadOrCreateIdentity();
+  const activeUser = protocol.getCurrentUserInDb(db);
+  const activeId = (activeUser?.id || protocol.detectOsUsername() || '').toLowerCase();
+
+  if (project) {
+    const mlsRow = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    if (mlsRow) {
+      const group = crdt.hydrateMlsGroup(mlsRow);
+      const peer = (group.members || []).find((m) => m.did && m.did !== localIdentity.did);
+      if (peer && peer.userId && peer.userId !== 'peer') return peer.userId.toLowerCase();
+    }
+  }
+  const otherUser = db
+    .prepare('SELECT id FROM users WHERE LOWER(id) != ? ORDER BY active DESC, id ASC LIMIT 1')
+    .get(activeId);
+  if (otherUser && otherUser.id) return otherUser.id.toLowerCase();
+  return '';
+}
+
+function syncGithubPrs(projectInput, options = {}, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+
+  let prs = options.prs;
+  if (!Array.isArray(prs)) {
+    const repoDir =
+      options.repoDir ||
+      withDb((db) => {
+        const h = db.prepare('SELECT repo FROM heads WHERE project = ?').get(project);
+        return h?.repo ? expandHome(h.repo) : defaultRepoPathInDb(db, project);
+      }, file);
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${project}" to query GitHub pull requests`);
+    }
+    const rawJson = execFileSync(
+      'gh',
+      [
+        'pr',
+        'list',
+        '--state',
+        'all',
+        '--limit',
+        String(options.limit || 50),
+        '--json',
+        'number,title,state,body,author,headRefName,baseRefName,reviewDecision,isDraft,url,updatedAt',
+      ],
+      {
+        cwd: repoDir,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      }
+    );
+    prs = JSON.parse(rawJson || '[]');
+  }
+
+  let openedCount = 0;
+  let updatedCount = 0;
+  let resolvedCount = 0;
+  const createdSeqs = [];
+  const resolvedSeqs = [];
+
+  withDb(
+    (db) =>
+      tx(db, () => {
+        const existingFrames = db
+          .prepare('SELECT * FROM frames WHERE project = ? ORDER BY seq ASC')
+          .all(project)
+          .map(hydrateFrame);
+
+        for (const pr of prs) {
+          const num = Number(pr.number);
+          if (!Number.isInteger(num) || num <= 0) continue;
+          const prRef = `pr:#${num}`;
+          const shortRef = `#${num}`;
+          const state = String(pr.state || 'OPEN').toUpperCase();
+          const title = String(pr.title || `PR #${num}`).trim();
+          const body = String(pr.body || '').trim();
+          const authorLogin =
+            typeof pr.author === 'string' ? pr.author : String(pr.author?.login || 'author').trim();
+          const headBranch = String(pr.headRefName || '').trim();
+          const reviewStatus = pr.isDraft
+            ? 'DRAFT'
+            : String(pr.reviewDecision || 'REVIEW_REQUIRED').trim();
+
+          const matchingFrames = existingFrames.filter((f) => f.refs.includes(prRef));
+
+          if (state === 'OPEN') {
+            const summary = `[PR #${num}] ${title}${headBranch ? ` (${headBranch} by ${authorLogin} · ${reviewStatus})` : ` (by ${authorLogin} · ${reviewStatus})`}`;
+            const refs = [
+              prRef,
+              shortRef,
+              ...(headBranch ? [`branch:${headBranch}`] : []),
+              `author:${authorLogin}`,
+            ];
+
+            if (matchingFrames.length === 0) {
+              const identity = crdt.loadOrCreateIdentity();
+              const uid = `frame-${project}-pr-${num}-${crypto.randomUUID()}`;
+              const hlc = crdt.nextHlc(identity.did);
+              const ts = pr.updatedAt ? String(pr.updatedAt).trim() : nowIso();
+              const info = db
+                .prepare(
+                  `INSERT INTO frames (uid, hlc, ts, project, kind, summary, detail, verified, parent_seq, open, refs)
+                   VALUES (?, ?, ?, ?, 'thread', ?, ?, '', NULL, 1, ?)`
+                )
+                .run(uid, hlc, ts, project, summary, body, JSON.stringify(refs));
+              const newSeq = Number(info.lastInsertRowid);
+              crdt.appendCrdtOpInDb(db, {
+                project,
+                entity: 'frame',
+                recordUid: uid,
+                payload: {
+                  uid,
+                  hlc,
+                  ts,
+                  project,
+                  kind: 'thread',
+                  summary,
+                  detail: body,
+                  verified: '',
+                  open: true,
+                  refs,
+                },
+              });
+              openedCount++;
+              createdSeqs.push(newSeq);
+            } else {
+              for (const mf of matchingFrames) {
+                if (mf.open && mf.summary !== summary) {
+                  const identity = crdt.loadOrCreateIdentity();
+                  const hlc = crdt.nextHlc(identity.did);
+                  db.prepare('UPDATE frames SET summary = ?, hlc = ?, refs = ? WHERE seq = ?').run(
+                    summary,
+                    hlc,
+                    JSON.stringify(refs),
+                    mf.seq
+                  );
+                  if (mf.uid) {
+                    crdt.appendCrdtOpInDb(db, {
+                      project,
+                      entity: 'frame',
+                      recordUid: mf.uid,
+                      payload: {
+                        uid: mf.uid,
+                        hlc,
+                        ts: mf.ts,
+                        project: mf.project,
+                        kind: mf.kind,
+                        summary,
+                        detail: mf.detail,
+                        verified: mf.verified,
+                        open: true,
+                        refs,
+                      },
+                    });
+                  }
+                  updatedCount++;
+                }
+              }
+            }
+          } else if (state === 'MERGED' || state === 'CLOSED') {
+            for (const mf of matchingFrames) {
+              if (mf.open) {
+                const identity = crdt.loadOrCreateIdentity();
+                const hlc = crdt.nextHlc(identity.did);
+                const stateLabel = state === 'MERGED' ? 'Merged' : 'Closed';
+                const verifiedNote = mf.verified
+                  ? `${mf.verified}; ${stateLabel} on GitHub (${prRef})`
+                  : `${stateLabel} on GitHub (${prRef})`;
+                db.prepare('UPDATE frames SET open = 0, hlc = ?, verified = ? WHERE seq = ?').run(
+                  hlc,
+                  verifiedNote,
+                  mf.seq
+                );
+                if (mf.uid) {
+                  crdt.appendCrdtOpInDb(db, {
+                    project,
+                    entity: 'frame',
+                    recordUid: mf.uid,
+                    payload: {
+                      uid: mf.uid,
+                      hlc,
+                      ts: mf.ts,
+                      project: mf.project,
+                      kind: mf.kind,
+                      summary: mf.summary,
+                      detail: mf.detail,
+                      verified: verifiedNote,
+                      open: false,
+                      refs: mf.refs,
+                    },
+                  });
+                }
+                resolvedCount++;
+                resolvedSeqs.push(mf.seq);
+              }
+            }
+          }
+        }
+      }),
+    file
+  );
+
+  return {
+    project,
+    totalPrsChecked: prs.length,
+    openedCount,
+    updatedCount,
+    resolvedCount,
+    createdSeqs,
+    resolvedSeqs,
+  };
+}
+
+function openGithubPr(projectInput, options = {}, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+  const title = String(options.title || '').trim();
+  const body = String(options.body || '').trim();
+  if (!title) throw new Error('PR title (--title "<title>") is required to open a pull request');
+
+  const { repoDir, branch: detectedBranch, toUser } = withDb((db) => {
+    const meta = detectRepoGitMetaInDb(db, project, options.repoDir);
+    const peer = resolveTeammateUserInDb(db, project, options.to);
+    return { repoDir: meta.repoDir, branch: meta.branch, toUser: peer };
+  }, file);
+
+  const headBranch = options.head || detectedBranch || '';
+  const baseBranch = options.base || 'main';
+  let prNumber = null;
+  let prUrl = '';
+
+  if (typeof options.createPrFn === 'function') {
+    const created = options.createPrFn({ project, title, body, headBranch, baseBranch, draft: Boolean(options.draft), repoDir });
+    prNumber = Number(created.number || created);
+    prUrl = created.url || '';
+  } else {
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${project}" to run "gh pr create"`);
+    }
+    const ghArgs = ['pr', 'create', '--title', title, '--body', body || title];
+    if (options.base) ghArgs.push('--base', String(options.base));
+    if (options.head) ghArgs.push('--head', String(options.head));
+    if (options.draft) ghArgs.push('--draft');
+    const out = execFileSync('gh', ghArgs, {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    }).trim();
+    prUrl = out;
+    const m = out.match(/\/pull\/(\d+)/) || out.match(/#(\d+)/);
+    if (!m) throw new Error(`could not parse created GitHub PR number from output: "${out}"`);
+    prNumber = Number(m[1]);
+  }
+
+  const prRef = `pr:#${prNumber}`;
+  const shortRef = `#${prNumber}`;
+  const refs = [prRef, shortRef, ...(headBranch ? [`branch:${headBranch}`] : [])];
+  const summary = `[PR #${prNumber}] ${title}${headBranch ? ` (${headBranch} · REVIEW_REQUIRED)` : ' (REVIEW_REQUIRED)'}`;
+
+  const rec = recordFrame(
+    {
+      project,
+      kind: 'thread',
+      open: true,
+      summary,
+      detail: body ? `${prUrl ? `${prUrl}\n\n` : ''}${body}` : prUrl,
+      refs,
+    },
+    file
+  );
+
+  let courierSent = null;
+  if (toUser && options.notify !== false) {
+    courierSent = sendMessage(
+      {
+        project,
+        to: toUser,
+        via: options.via,
+        sessionId: options.sessionId,
+        body: `[PR #${prNumber}] Opened pull request "${title}"${headBranch ? ` on branch \`${headBranch}\`` : ''}${prUrl ? ` (${prUrl})` : ''} -- ready for your review!`,
+      },
+      file
+    );
+  }
+
+  return {
+    project,
+    prNumber,
+    prUrl,
+    headBranch,
+    baseBranch,
+    frame: rec.frame,
+    courierSent,
+  };
+}
+
+function reviewGithubPr(projectInput, prNumberInput, options = {}, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+  const prNumber = requireSeq(prNumberInput, 'PR number');
+  const verdict = options.approve
+    ? 'APPROVED'
+    : options.requestChanges
+      ? 'CHANGES_REQUESTED'
+      : 'COMMENTED';
+  const body = String(options.body || options.note || (verdict === 'APPROVED' ? 'Approved and verified.' : '')).trim();
+  if (!body) throw new Error('review note (--body "<note>") is required when reviewing a PR');
+
+  const { repoDir, toUser } = withDb((db) => {
+    const meta = detectRepoGitMetaInDb(db, project, options.repoDir);
+    const peer = resolveTeammateUserInDb(db, project, options.to);
+    return { repoDir: meta.repoDir, toUser: peer };
+  }, file);
+
+  if (typeof options.reviewPrFn === 'function') {
+    options.reviewPrFn({ project, prNumber, verdict, body, repoDir });
+  } else {
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${project}" to run "gh pr review"`);
+    }
+    const flag = verdict === 'APPROVED' ? '--approve' : verdict === 'CHANGES_REQUESTED' ? '--request-changes' : '--comment';
+    execFileSync('gh', ['pr', 'review', String(prNumber), flag, '--body', body], {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+  }
+
+  const prRef = `pr:#${prNumber}`;
+  const shortRef = `#${prNumber}`;
+  const rec = recordFrame(
+    {
+      project,
+      kind: 'finding',
+      summary: `Reviewed [PR #${prNumber}] (${verdict}): ${body.split(/\r?\n/)[0].slice(0, 140)}`,
+      detail: body,
+      verified: options.verified || `PR #${prNumber} review (${verdict})`,
+      refs: [prRef, shortRef],
+    },
+    file
+  );
+
+  // Also update any open `[PR #<prNumber>]` thread summary with the new review decision
+  withDb((db) => {
+    const openFrames = db
+      .prepare('SELECT * FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
+      .all(project)
+      .map(hydrateFrame);
+    for (const mf of openFrames) {
+      if (mf.refs.includes(prRef)) {
+        const updatedSummary = mf.summary.replace(/·\s*(?:REVIEW_REQUIRED|CHANGES_REQUESTED|APPROVED|DRAFT)\)/, `· ${verdict})`);
+        if (updatedSummary !== mf.summary) {
+          editFrame(mf.seq, { summary: updatedSummary }, file);
+        }
+      }
+    }
+  }, file);
+
+  let courierSent = null;
+  if (toUser && options.notify !== false) {
+    courierSent = sendMessage(
+      {
+        project,
+        to: toUser,
+        via: options.via,
+        sessionId: options.sessionId,
+        body: `[PR #${prNumber} ${verdict}] ${body}`,
+      },
+      file
+    );
+  }
+
+  return {
+    project,
+    prNumber,
+    verdict,
+    frame: rec.frame,
+    courierSent,
+  };
+}
+
+function mergeGithubPr(projectInput, prNumberInput, options = {}, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+  const prNumber = requireSeq(prNumberInput, 'PR number');
+  const strategy = options.squash ? 'squash' : options.rebase ? 'rebase' : 'merge';
+
+  const { repoDir, toUser, matchingSeqs, prTitle } = withDb((db) => {
+    const meta = detectRepoGitMetaInDb(db, project, options.repoDir);
+    const peer = resolveTeammateUserInDb(db, project, options.to);
+    const prRef = `pr:#${prNumber}`;
+    const openFrames = db
+      .prepare('SELECT * FROM frames WHERE project = ? AND open = 1 ORDER BY seq ASC')
+      .all(project)
+      .map(hydrateFrame);
+    const matches = openFrames.filter((f) => f.refs.includes(prRef));
+    const title = matches[0]
+      ? matches[0].summary.replace(/^\[PR #\d+\]\s*/, '').replace(/\s*\([^)]*\)\s*$/, '').trim()
+      : '';
+    return {
+      repoDir: meta.repoDir,
+      toUser: peer,
+      matchingSeqs: matches.map((f) => f.seq),
+      prTitle: options.title || title,
+    };
+  }, file);
+
+  if (typeof options.mergePrFn === 'function') {
+    options.mergePrFn({ project, prNumber, strategy, deleteBranch: Boolean(options.deleteBranch), repoDir });
+  } else {
+    if (!repoDir || !fs.existsSync(repoDir)) {
+      throw new Error(`no local repository directory found for "${project}" to run "gh pr merge"`);
+    }
+    const ghArgs = ['pr', 'merge', String(prNumber), `--${strategy}`];
+    if (options.deleteBranch) ghArgs.push('--delete-branch');
+    execFileSync('gh', ghArgs, {
+      cwd: repoDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+  }
+
+  const prRef = `pr:#${prNumber}`;
+  const shortRef = `#${prNumber}`;
+  const summary = `Merged [PR #${prNumber}]${prTitle ? `: ${prTitle}` : ''}`;
+  const rec = recordFrame(
+    {
+      project,
+      kind: 'commit',
+      summary,
+      verified: options.verified || `Merged on GitHub (${prRef}, ${strategy})`,
+      resolves: matchingSeqs,
+      refs: [prRef, shortRef],
+    },
+    file
+  );
+
+  let courierSent = null;
+  if (toUser && options.notify !== false) {
+    courierSent = sendMessage(
+      {
+        project,
+        to: toUser,
+        via: options.via,
+        sessionId: options.sessionId,
+        body: `[PR #${prNumber} MERGED] ${summary} -- pulled into main and closed on the Construct tape!`,
+      },
+      file
+    );
+  }
+
+  return {
+    project,
+    prNumber,
+    strategy,
+    resolvedSeqs: rec.resolved,
+    frame: rec.frame,
+    courierSent,
+  };
+}
+
 // --- DID Identity, DIDComm v2 Invitations, MLS Group Ratchet & CRDT Sync ---
 
 function getIdentity() {
@@ -4091,15 +4579,25 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
 
         // Also build relay-safe chunk envelopes (<= 16 KB raw ops JSON per chunk -> < 28 KB Nostr event)
         // so public NIP-01 relays with 64 KB frame ceilings accept large initial project syncs.
+        // Sort chunk priority so `message` and `head` ops always ride in Chunk #0 (first frame on the wire),
+        // followed by `gotcha` and `frame` ops in HLC order.
+        const chunkOrderedOps = [...ops].sort((a, b) => {
+          const prio = (e) => (e === 'message' ? 0 : e === 'head' ? 1 : 2);
+          const pa = prio(a.entity);
+          const pb = prio(b.entity);
+          if (pa !== pb) return pa - pb;
+          return a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : 0;
+        });
+
         const MAX_CHUNK_JSON_BYTES = 16000;
         const envelopes = [];
         let currentChunk = [];
         let currentBytes = 0;
-        for (const op of ops) {
+        for (const op of chunkOrderedOps) {
           const opBytes = JSON.stringify(op).length;
           if (currentChunk.length > 0 && currentBytes + opBytes > MAX_CHUNK_JSON_BYTES) {
             envelopes.push({
-              maxHlc: currentChunk[currentChunk.length - 1].hlc,
+              maxHlc: currentChunk.reduce((m, x) => (x.hlc > m ? x.hlc : m), ''),
               envelope: crdt.sealMlsApplicationMessage(group, identity, {
                 project,
                 opCount: currentChunk.length,
@@ -4114,7 +4612,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
         }
         if (currentChunk.length > 0) {
           envelopes.push({
-            maxHlc: currentChunk[currentChunk.length - 1].hlc,
+            maxHlc: currentChunk.reduce((m, x) => (x.hlc > m ? x.hlc : m), ''),
             envelope: crdt.sealMlsApplicationMessage(group, identity, {
               project,
               opCount: currentChunk.length,
@@ -4219,23 +4717,16 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     file
   );
   let pushedOk = 0;
-  let lastAckedHlc = '';
   if (exported.opCount > 0) {
-    const chunks = Array.isArray(exported.envelopes) && exported.envelopes.length
-      ? exported.envelopes
-      : [{ maxHlc: exported.maxHlc, envelope: exported.envelope }];
-    for (const chunk of chunks) {
-      const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, chunk.envelope, options.timeoutMs || 5000);
-      const ackCount = pubRes.results.filter((r) => r.ok).length;
-      if (ackCount > 0) {
-        pushedOk = Math.max(pushedOk, ackCount);
-        if (chunk.maxHlc) lastAckedHlc = chunk.maxHlc;
-      }
-    }
-    if (pushedOk > 0 && lastAckedHlc) {
+    const rawEnvs = Array.isArray(exported.envelopes) && exported.envelopes.length
+      ? exported.envelopes.map((c) => c.envelope)
+      : [exported.envelope];
+    const pubRes = await relay.publishEnvelopesToRelays(relays, routeTag, rawEnvs, options.timeoutMs || 8000);
+    pushedOk = pubRes.results.filter((r) => r.ok).length;
+    if (pushedOk > 0 && exported.maxHlc) {
       withDb((db) => {
         db.prepare('UPDATE mls_groups SET last_sync_hlc = ?, updated = ? WHERE project = ?').run(
-          lastAckedHlc,
+          exported.maxHlc,
           nowIso(),
           project
         );
@@ -4632,6 +5123,10 @@ module.exports = {
   whyTarget,
   syncGithubIssues,
   publishThreadToGithub,
+  syncGithubPrs,
+  openGithubPr,
+  reviewGithubPr,
+  mergeGithubPr,
   getHudSnapshot,
   generateDashboardHtml,
   checkConstructUpstream,

@@ -1163,6 +1163,64 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.equal(upRes.previousSha, '111aaaa');
       assert.equal(upRes.currentSha, '222bbbb');
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).upstreamUpdate.behindCount, 0);
+
+      // 4h. PR-Driven Workflow (`syncGithubPrs`, `openGithubPr`, `reviewGithubPr`, `mergeGithubPr`)
+      const prSync1 = store.syncGithubPrs('acme/shared_app', {
+        prs: [
+          {
+            number: 11,
+            title: 'feat: add dark mode',
+            state: 'OPEN',
+            body: 'PR body',
+            author: { login: 'alice' },
+            headRefName: 'feat/dark-mode',
+            reviewDecision: 'REVIEW_REQUIRED',
+          },
+        ],
+      });
+      assert.equal(prSync1.openedCount, 1);
+
+      const openedPr = store.openGithubPr('acme/shared_app', {
+        title: 'fix: tighten auth guard',
+        body: 'Closes auth loophole',
+        head: 'fix/auth-guard',
+        to: 'alice',
+        via: 'toot',
+        createPrFn: () => ({ number: 12, url: 'https://github.com/acme/shared_app/pull/12' }),
+      });
+      assert.equal(openedPr.prNumber, 12);
+      assert.ok(openedPr.frame.open);
+      assert.ok(openedPr.frame.refs.includes('pr:#12'));
+      assert.equal(openedPr.courierSent.fromRom, 'toot');
+      assert.match(openedPr.courierSent.body, /\[PR #12\] Opened pull request/);
+
+      let reviewedFlag = false;
+      const revPr = store.reviewGithubPr('acme/shared_app', 12, {
+        approve: true,
+        body: 'LGTM, tests green',
+        to: 'alice',
+        via: 'marcone',
+        reviewPrFn: () => {
+          reviewedFlag = true;
+        },
+      });
+      assert.equal(reviewedFlag, true);
+      assert.equal(revPr.verdict, 'APPROVED');
+      assert.equal(revPr.courierSent.fromRom, 'marcone');
+
+      let mergedFlag = false;
+      const mergedPr = store.mergeGithubPr('acme/shared_app', 12, {
+        squash: true,
+        to: 'alice',
+        via: 'ivy',
+        mergePrFn: () => {
+          mergedFlag = true;
+        },
+      });
+      assert.equal(mergedFlag, true);
+      assert.deepEqual(mergedPr.resolvedSeqs, [openedPr.frame.seq]);
+      assert.equal(mergedPr.courierSent.fromRom, 'ivy');
+
       assert.match(dash.html, /⚡ toot/);
       assert.match(dash.html, /Za-Lord says #111 is merged and ready for review!/);
       assert.match(dash.html, /acme\/shared_app/);
