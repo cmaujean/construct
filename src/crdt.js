@@ -653,20 +653,22 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   );
   const selectGotchaStmt = db.prepare('SELECT * FROM gotchas WHERE uid = ?');
+  const selectGotchaByTitleStmt = db.prepare('SELECT * FROM gotchas WHERE scope = ? AND lower(title) = lower(?) LIMIT 1');
   const insertGotchaStmt = db.prepare(
     `INSERT INTO gotchas (uid, hlc, scope, title, status, tags, evidence, fix, guard_regex, guard_platform, created)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const updateGotchaStmt = db.prepare(
-    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ?, guard_regex = ?, guard_platform = ? WHERE uid = ?`
+    `UPDATE gotchas SET hlc = ?, title = ?, status = ?, tags = ?, evidence = ?, fix = ?, guard_regex = ?, guard_platform = ? WHERE id = ?`
   );
   const selectFrameStmt = db.prepare('SELECT * FROM frames WHERE uid = ?');
+  const selectFrameBySummaryStmt = db.prepare('SELECT * FROM frames WHERE project = ? AND kind = ? AND summary = ? LIMIT 1');
   const insertFrameStmt = db.prepare(
     `INSERT INTO frames (uid, hlc, ts, project, kind, summary, detail, verified, open, refs)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const updateFrameStmt = db.prepare(
-    `UPDATE frames SET hlc = ?, summary = ?, detail = ?, verified = ?, open = ?, refs = ? WHERE uid = ?`
+    `UPDATE frames SET hlc = ?, summary = ?, detail = ?, verified = ?, open = ?, refs = ? WHERE seq = ?`
   );
   const selectHeadStmt = db.prepare('SELECT * FROM heads WHERE project = ?');
   const upsertHeadStmt = db.prepare(
@@ -719,12 +721,13 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
 
     const p = op.payload;
     if (op.entity === 'gotcha') {
-      const existing = selectGotchaStmt.get(p.uid);
+      const scope = p.scope || op.project;
+      const existing = selectGotchaStmt.get(p.uid) || selectGotchaByTitleStmt.get(scope, p.title || '');
       if (!existing) {
         insertGotchaStmt.run(
           p.uid,
           p.hlc || op.hlc,
-          p.scope || op.project,
+          scope,
           p.title,
           p.status || 'observed',
           JSON.stringify(p.tags || []),
@@ -741,23 +744,29 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           p.title,
           p.status || existing.status,
           JSON.stringify(p.tags || []),
-          p.evidence || '',
-          p.fix || '',
+          p.evidence || existing.evidence || '',
+          p.fix && !/^Found\s+\d{4}-\d{2}-\d{2}\b/i.test(p.fix) ? p.fix : existing.fix || p.fix || '',
           p.guardRegex !== undefined ? p.guardRegex : existing.guard_regex || '',
           p.guardPlatform !== undefined ? p.guardPlatform : existing.guard_platform || 'all',
-          p.uid
+          existing.id
         );
         applied++;
       }
     } else if (op.entity === 'frame') {
-      const existing = selectFrameStmt.get(p.uid);
+      const proj = p.project || op.project;
+      const kind = p.kind || 'finding';
+      const existing =
+        selectFrameStmt.get(p.uid) ||
+        (kind === 'thread' && /^\[(?:GH|PR) #\d+\]/i.test(p.summary || '')
+          ? selectFrameBySummaryStmt.get(proj, kind, p.summary)
+          : null);
       if (!existing) {
         insertFrameStmt.run(
           p.uid,
           p.hlc || op.hlc,
           p.ts || new Date().toISOString(),
-          p.project || op.project,
-          p.kind || 'finding',
+          proj,
+          kind,
           p.summary,
           p.detail || '',
           p.verified || '',
@@ -773,7 +782,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
           p.verified ?? existing.verified,
           p.open !== undefined ? (p.open ? 1 : 0) : existing.open,
           JSON.stringify(p.refs || JSON.parse(existing.refs || '[]')),
-          p.uid
+          existing.seq
         );
         applied++;
       }

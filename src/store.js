@@ -3691,7 +3691,7 @@ function syncGithubIssues(projectInput, options = {}, file = dbPath()) {
           if (state === 'OPEN') {
             if (matchingFrames.length === 0) {
               const identity = crdt.loadOrCreateIdentity();
-              const uid = `frame-${project}-gh-${num}-${crypto.randomUUID()}`;
+              const uid = `frame-${project}-gh-${num}`;
               const hlc = crdt.nextHlc(identity.did);
               const ts = issue.updatedAt ? String(issue.updatedAt).trim() : nowIso();
               const refs = [ghRef, shortRef, ...labelNames];
@@ -3944,7 +3944,7 @@ function syncGithubPrs(projectInput, options = {}, file = dbPath()) {
 
             if (matchingFrames.length === 0) {
               const identity = crdt.loadOrCreateIdentity();
-              const uid = `frame-${project}-pr-${num}-${crypto.randomUUID()}`;
+              const uid = `frame-${project}-pr-${num}`;
               const hlc = crdt.nextHlc(identity.did);
               const ts = pr.updatedAt ? String(pr.updatedAt).trim() : nowIso();
               const info = db
@@ -4551,7 +4551,9 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           .prepare('SELECT * FROM crdt_log WHERE project = ? AND hlc > ? ORDER BY hlc ASC')
           .all(project, sinceHlc);
 
+        const identity = crdt.loadOrCreateIdentity();
         const rawOps = rows
+          .filter((r) => !options.onlyLocal || r.author_did === identity.did)
           .map((r) => ({
             opId: r.op_id,
             hlc: r.hlc,
@@ -4569,8 +4571,6 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           dedupedByRecord.set(`${op.entity}:${op.recordUid}`, op);
         }
         const ops = [...dedupedByRecord.values()].sort((a, b) => (a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : 0));
-
-        const identity = crdt.loadOrCreateIdentity();
         const envelope = crdt.sealMlsApplicationMessage(group, identity, {
           project,
           opCount: ops.length,
@@ -4713,7 +4713,7 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
   // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays (chunked for <28KB NIP-01 relay limits)
   const exported = exportEncryptedPacket(
     project,
-    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '' },
+    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '', onlyLocal: true },
     file
   );
   let pushedOk = 0;
