@@ -18,6 +18,9 @@ const path = require('node:path');
 
 // Parse markdown `### <Claim>` sections into structured `{ title, status, evidence, fix, created }` gotcha entries
 function parseGotchasMarkdown(mdText) {
+  if (/(^|\n)#\s+(Construct Base Cartridge|Global Construct Rules)\b/i.test(String(mdText || ''))) {
+    return [];
+  }
   const entries = [];
   const lines = String(mdText || '').split(/\r?\n/);
   let current = null;
