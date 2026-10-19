@@ -493,6 +493,12 @@ function resolveSingleRomRowInDb(db, name) {
     ook: 'librarian',
     esme: 'weatherwax',
     granny: 'weatherwax',
+    dodge: 'richard',
+    forthrast: 'richard',
+    alkali: 'wallace',
+    siodhachan: 'atticus',
+    brigid: 'brighid',
+    fflam: 'fflewddur',
   };
   const target = aliasMap[key] || key;
   return (
@@ -536,6 +542,16 @@ function getRomInDb(db, name) {
     ankhmorpork: 'discworld',
     nightwatch: 'discworld',
     clacks: 'discworld',
+    reamde: 'reamde',
+    tgd: 'reamde',
+    corporation9592: 'reamde',
+    train: 'reamde',
+    irondruid: 'irondruid',
+    tirnanog: 'irondruid',
+    thirdeye: 'irondruid',
+    prydain: 'prydain',
+    caerdath: 'prydain',
+    caerdallben: 'prydain',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
@@ -2074,6 +2090,9 @@ const PACK_DEFAULT_COURIER_MAP = Object.freeze({
   laundry: 'persephone',
   tolkien: 'legolas',
   discworld: 'moist',
+  reamde: 'yuxia',
+  irondruid: 'oberon',
+  prydain: 'gurgi',
   generic: 'pulse',
 });
 
@@ -2567,6 +2586,9 @@ const PACK_EMBLEM_MAP = Object.freeze({
   laundry: '🐙',
   tolkien: '💍',
   discworld: '🐢',
+  reamde: '🏔️',
+  irondruid: '🐺',
+  prydain: '⚔️',
   generic: '⚙️',
   core: '🔪',
 });
@@ -3031,11 +3053,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           <div style="display:flex;gap:6px;align-items:center;">
             ${
               isIncoming
-                ? `<input type="text" class="reply-input" id="reply-input-${m.id}" placeholder="Type reply to ${escapeHtml(m.fromUser)}..." onkeydown="if(event.key==='Enter')replyCourier(${m.id})" />
-                   <button class="crew-btn active" onclick="replyCourier(${m.id})">⚡ Send Reply</button>`
+                ? `<input type="text" class="reply-input" id="reply-input-${m.id}" data-msg-id="${m.id}" placeholder="Type reply to ${escapeHtml(m.fromUser)}..." onkeydown="handleReplyKey(event,this)" />
+                   <button class="crew-btn active" id="reply-btn-${m.id}" onclick="replyCourier(${m.id},'reply-input-${m.id}',this)">⚡ Send Reply</button>`
                 : ''
             }
-            <button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack / Dismiss</button>
+            <button class="crew-btn" onclick="ackCourier(${m.id},this)">✓ Ack / Dismiss</button>
           </div>
         </div>
         <div style="margin-top:6px;font-size:13px;color:#fff;">"${escapeHtml(msgText)}"</div>
@@ -3053,12 +3075,12 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const actionsBlock = `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                ${
                  m.status === 'pending'
-                   ? `<input type="text" class="reply-input" id="row-reply-${m.id}" placeholder="Reply..." onkeydown="if(event.key==='Enter')replyCourier(${m.id},'row-reply-${m.id}')" />
-                      <button class="crew-btn" onclick="replyCourier(${m.id},'row-reply-${m.id}')">⚡ Reply</button>`
+                   ? `<input type="text" class="reply-input" id="row-reply-${m.id}" data-msg-id="${m.id}" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />
+                      <button class="crew-btn" id="row-reply-btn-${m.id}" onclick="replyCourier(${m.id},'row-reply-${m.id}',this)">⚡ Reply</button>`
                    : ''
                }
-               ${m.status !== 'delivered' ? `<button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack</button>` : ''}
-               <button class="crew-btn" title="Delete message M#${m.id}" onclick="deleteCourier(${m.id})">✕ Delete</button>
+               ${m.status !== 'delivered' ? `<button class="crew-btn" onclick="ackCourier(${m.id},this)">✓ Ack</button>` : ''}
+               <button class="crew-btn" title="Delete message M#${m.id}" onclick="deleteCourier(${m.id},this)">✕ Delete</button>
              </div>`;
       return `
       <tr>
@@ -3237,6 +3259,9 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'laundry' ? 'active' : ''}" data-pack="laundry" onclick="switchCrew('use','laundry')">🐙 Laundry</button>
       <button class="crew-btn ${hud.pack === 'tolkien' ? 'active' : ''}" data-pack="tolkien" onclick="switchCrew('use','tolkien')">💍 Tolkien</button>
       <button class="crew-btn ${hud.pack === 'discworld' ? 'active' : ''}" data-pack="discworld" onclick="switchCrew('use','discworld')">🐢 Discworld</button>
+      <button class="crew-btn ${hud.pack === 'reamde' ? 'active' : ''}" data-pack="reamde" onclick="switchCrew('use','reamde')">🏔️ REAMDE</button>
+      <button class="crew-btn ${hud.pack === 'irondruid' ? 'active' : ''}" data-pack="irondruid" onclick="switchCrew('use','irondruid')">🐺 Iron Druid</button>
+      <button class="crew-btn ${hud.pack === 'prydain' ? 'active' : ''}" data-pack="prydain" onclick="switchCrew('use','prydain')">⚔️ Prydain</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
@@ -3244,6 +3269,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn" data-sub="weatherwax" onclick="switchCrew('sub','weatherwax')">🟣 Granny Weatherwax</button>
       <button class="crew-btn" data-sub="angua" onclick="switchCrew('sub','angua')">🟠 Angua</button>
       <button class="crew-btn" data-sub="death" onclick="switchCrew('sub','death')">🛡️ DEATH</button>
+      <button class="crew-btn" data-sub="wallace" onclick="switchCrew('sub','wallace')">🟣 Wallace (T'Rain)</button>
+      <button class="crew-btn" data-sub="coyote" onclick="switchCrew('sub','coyote')">🛡️ Coyote</button>
+      <button class="crew-btn" data-sub="hevydd" onclick="switchCrew('sub','hevydd')">🔴 Hevydd (Smith)</button>
+      <button class="crew-btn" data-sub="kaw" onclick="switchCrew('sub','kaw')">⚡ Kaw (Crow)</button>
       <button class="crew-btn" data-sub="toot" onclick="switchCrew('sub','toot')">⚡ Toot-Toot (Za-Lord)</button>
       <button class="crew-btn" data-sub="boromir" onclick="switchCrew('sub','boromir')">🛡️ Boromir (Gondor)</button>
       <button class="crew-btn" data-sub="celebrimbor" onclick="switchCrew('sub','celebrimbor')">🟣 Celebrimbor</button>
@@ -3417,13 +3446,13 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
               : esc(m.replyGlyph || '📬') + ' ' + esc(String(m.replyRom || m.fromRom || '').toUpperCase()) + ' // RETURN COURIER FROM ' + esc(String(m.toUser || '').toUpperCase());
             const mText = isIncoming ? m.body : (m.replyBody + ' (in reply to: "' + m.body + '")');
             const inputHtml = isIncoming
-              ? '<input type="text" class="reply-input" id="reply-input-' + esc(m.id) + '" placeholder="Type reply to ' + esc(m.fromUser) + '..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ')" />' +
-                '<button class="crew-btn active" onclick="replyCourier(' + esc(m.id) + ')">⚡ Send Reply</button>'
+              ? '<input type="text" class="reply-input" id="reply-input-' + esc(m.id) + '" data-msg-id="' + esc(m.id) + '" placeholder="Type reply to ' + esc(m.fromUser) + '..." onkeydown="handleReplyKey(event,this)" />' +
+                '<button class="crew-btn active" id="reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Send Reply</button>'
               : '';
             return '<div class="courier-alert-item">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
               '<div><span class="badge warn">📬 UNREAD COURIER [M#' + esc(m.id) + ']</span> <strong style="color:#fff;margin-left:6px;">' + cLabel + '</strong> <span class="sub">(' + esc(m.project) + ' · ' + esc(m.created) + ')</span></div>' +
-              '<div style="display:flex;gap:6px;align-items:center;">' + inputHtml + '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack / Dismiss</button></div>' +
+              '<div style="display:flex;gap:6px;align-items:center;">' + inputHtml + '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack / Dismiss</button></div>' +
               '</div>' +
               '<div style="margin-top:6px;font-size:13px;color:#fff;">"' + esc(mText) + '"</div>' +
               '</div>';
@@ -3431,7 +3460,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         }
       }
 
-      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log (' + commsArr.length + ')';
+      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log — ' + (h.project || 'workspace') + ' (' + commsArr.length + ')';
       if (commsTbody && !isTypingReply) {
         if (!commsArr.length) {
           commsTbody.innerHTML = '<tr><td colspan="3">(no messages in construct comms log)</td></tr>';
@@ -3443,11 +3472,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
               : '';
             const actHtml = '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
               (m.status === 'pending'
-                ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" placeholder="Reply..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')" />' +
-                  '<button class="crew-btn" onclick="replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')">⚡ Reply</button>'
+                ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" data-msg-id="' + esc(m.id) + '" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />' +
+                  '<button class="crew-btn" id="row-reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Reply</button>'
                 : '') +
-              (m.status !== 'delivered' ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack</button>' : '') +
-              '<button class="crew-btn" title="Delete message M#' + esc(m.id) + '" onclick="deleteCourier(' + esc(m.id) + ')">✕ Delete</button></div>';
+              (m.status !== 'delivered' ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
+              '<button class="crew-btn" title="Delete message M#' + esc(m.id) + '" onclick="deleteCourier(' + esc(m.id) + ',this)">✕ Delete</button></div>';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
               '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
               '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
@@ -3533,12 +3562,29 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
-    async function replyCourier(msgId, inputId) {
+    function handleReplyKey(ev, inputEl) {
+      if (ev && ev.key === 'Enter' && inputEl) {
+        ev.preventDefault();
+        const msgId = Number(inputEl.getAttribute('data-msg-id'));
+        const btnEl = inputEl.nextElementSibling;
+        if (msgId) void replyCourier(msgId, inputEl.id, btnEl);
+      }
+    }
+
+    async function replyCourier(msgId, inputId, btnEl) {
       const el = document.getElementById(inputId || ('reply-input-' + msgId));
-      const body = el ? String(el.value || '').trim() : '';
+      if (!el || el.disabled) return;
+      const body = String(el.value || '').trim();
       if (!body) return;
+      el.disabled = true;
+      el.style.opacity = '0.5';
+      const btn = btnEl || el.nextElementSibling;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Queued...';
+      }
       const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = 'Sending reply to M#' + msgId + '...';
+      if (toast) toast.textContent = '⏳ Reply queued for M#' + msgId + '...';
       try {
         const res = await fetch('http://127.0.0.1:47420/action', {
           method: 'POST',
@@ -3547,14 +3593,25 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         });
         const data = await res.json();
         if (data && data.ok && data.hud) {
-          if (el) el.value = '';
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Replied to M#' + msgId;
         }
-      } catch (_) {}
+      } catch (_) {
+        el.disabled = false;
+        el.style.opacity = '1';
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '⚡ Reply';
+        }
+      }
     }
 
-    async function ackCourier(msgId) {
+    async function ackCourier(msgId, btnEl) {
+      if (btnEl) {
+        if (btnEl.disabled) return;
+        btnEl.disabled = true;
+        btnEl.textContent = '✓...';
+      }
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Dismissing M#' + msgId + '...';
       try {
@@ -3568,10 +3625,17 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Acknowledged M#' + msgId;
         }
-      } catch (_) {}
+      } catch (_) {
+        if (btnEl) btnEl.disabled = false;
+      }
     }
 
-    async function deleteCourier(msgId) {
+    async function deleteCourier(msgId, btnEl) {
+      if (btnEl) {
+        if (btnEl.disabled) return;
+        btnEl.disabled = true;
+        btnEl.textContent = '✕...';
+      }
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Deleting M#' + msgId + '...';
       try {
@@ -3585,7 +3649,9 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Deleted M#' + msgId;
         }
-      } catch (_) {}
+      } catch (_) {
+        if (btnEl) btnEl.disabled = false;
+      }
     }
 
     async function upgradeConstructNow() {
@@ -3692,14 +3758,30 @@ function startStandaloneHudServer(port = 47420, file = dbPath()) {
             const proj = String(payload.project || '');
             const dir = String(payload.dir || '');
 
+            if (rawAction === 'shutdown') {
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, shutdown: true }));
+              setImmediate(() => {
+                try {
+                  server.close();
+                } catch (_) {}
+                process.exit(0);
+              });
+              return;
+            }
             if (rawAction === 'reply' && payload.id && payload.body) {
-              replyMessage(payload.id, payload.body, { via: payload.via, sessionId: sid }, file);
+              const m = replyMessage(payload.id, payload.body, { via: payload.via, sessionId: sid }, file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
               try {
                 generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
               } catch (_) {}
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, hud: snap }));
+              if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1' && m?.project) {
+                setImmediate(() => {
+                  syncProject(m.project, {}, file).catch(() => {});
+                });
+              }
               return;
             }
             if (rawAction === 'ack' && payload.id) {

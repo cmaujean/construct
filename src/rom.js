@@ -391,7 +391,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "discworld" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "discworld" | "reamde" | "irondruid" | "prydain" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates',
     '1. **Run Banner, Color Tags & Voice:**',
@@ -407,7 +407,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '3. **Phase Gates (`Recon -> Alignment Gate -> Blitz + Overwatch -> Archive`):**',
     '   - **Recon & Alignment:** **' + reconName + '**/**' + diagName + '** scouts first; **' + archName + '** maps invariants and **waits for the operator\'s green light** before turning **' + blitzName + '** loose ("Align & refine before pulling the trigger").',
     '   - **Execution & Overwatch:** **' + blitzName + '** implements the complete change at full depth (never a skeleton) and verifies the regression test fails against the unfixed state before restoring the fix; **' + secName + '**, **' + forName + '**, **' + velName + '**, and **' + uxName + '** inspect security, artifacts, latency, and UX; **' + bookName + '** logs the frame (`#seq`) and head.',
-    '4. **Parallel Subagents:** Spawn parallel child sessions (`subagent` in OpenCode, `Agent` in Claude Code) prefixed with `[ROM: <specialist_name>]` (auto-bound in <4ms over SQLite WAL).',
+    '4. **Parallel Subagents & Non-Blocking Comms:** Spawn parallel child sessions (`subagent` in OpenCode, `Agent` in Claude Code) prefixed with `[ROM: <specialist_name>]` (auto-bound in <4ms over SQLite WAL). Whenever sending/replying to Construct Comms or syncing MLS relays (`construct msg`, `construct reply`, `construct sync`, `construct pr`), offload the comms work to a background or parallel `subagent` (`[ROM: ' + velName + ']` or `--via <messenger>`) so the main loop never waits on relay roundtrips.',
     '',
     '## Slotted Crew Roster (' + rosterRoms.length + ' Active Specialists)',
     rosterBlocks + backupBlock + cameoBlock,
@@ -463,11 +463,14 @@ function compileUnassignedBootloaderPrompt(razorRom) {
     '     - label: `"laundry (SOE \'Q\' Division // The Capital Laundry Service)"`, description: `"Charles Stross (The Laundry Files). Whitehall occult spy thriller & BOFH computational demonology: Bob Howard, Pinky, Angleton, Mo, Brain, Persephone, Mhari, Holly, and The Stacks."`',
     '     - label: `"tolkien (The Council of Elrond & Fellowship Crew)"`, description: `"J.R.R. Tolkien (The Lord of the Rings). Rivendell lore, Ranger trail-craft, Mirror of Galadriel invariants, and Khazad-dum stonework: Gandalf, Aragorn, Galadriel, Gimli, Faramir, Legolas, Eowyn, Samwise, and Elrond."`',
     '     - label: `"discworld (Ankh-Morpork City Watch & Grand Trunk Clacks)"`, description: `"Sir Terry Pratchett (Discworld). Pseudopolis Yard cobbles, the Oblong Office, and Grand Trunk Clacks velocity: Ponder Stibbons, Sam Vimes, Lord Vetinari, Detritus, Cheery Littlebottom, Moist von Lipwig, Adora Belle Dearheart, Carrot, and The Librarian."`',
+    '     - label: `"reamde (Corporation 9592, T\'Rain & Tactical Overwatch)"`, description: `"Neal Stephenson (REAMDE). Pioneer Square MMORPG engine, GIS packet forensics, and Spetsnaz overwatch: Richard Forthrast, Zula, D-Squared, Sokolov, Csongor, Yuxia, Olivia Halifax-Lin, Pluto, and Devin Skraelin."`',
+    '     - label: `"irondruid (Third Eye Books, Tempe Pack & The World Tree)"`, description: `"Kevin Hearne (The Iron Druid Chronicles). Elemental bindings, telepathic wolfhound traces, and vampire contract law: Atticus, Oberon, The Morrigan, Owen Kennedy, Hal Hauk, Granuaile, Leif Helgarson, Brighid, and Ogma."`',
+    '     - label: `"prydain (Caer Dallben, Caer Dathyl & The Free Commots)"`, description: `"Lloyd Alexander (The Chronicles of Prydain). The Book of Three, Fflewddur Fflam\'s truth-testing harp, and Free Commots craft: Dallben, Taran, Gwydion, Coll, Fflewddur, Gurgi, Doli, Eilonwy, and Taliesin."`',
     '     - label: `"generic (The Standard Engineering Crew)"`, description: `"Zero-fiction professional specialist pipeline. Pure engineering roles without literary personas: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger."`',
     '   - **Question 2** (`header: "Crew Scope"`, `question: "Use this Crew for this session only, or set as your default until further notice?"`):',
     '     - label: `"Default until further notice (Recommended)"`, description: `"Boot future sessions directly into this Crew without asking"`',
     '     - label: `"This session only"`, description: `"Bind to this session tab only; new sessions will ask again"`',
-    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
+    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
   ].join('\n');
 }
 

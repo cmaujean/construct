@@ -173,9 +173,64 @@ const KNOWN_ROM_NAMES = new Set([
   "ankhmorpork",
   "nightwatch",
   "clacks",
+  "reamde",
+  "tgd",
+  "corporation9592",
+  "train",
+  "irondruid",
+  "tirnanog",
+  "thirdeye",
+  "prydain",
+  "caerdath",
+  "caerdallben",
   "generic",
   "standard",
   "plain",
+  // REAMDE bank (9 starters + 3 backups)
+  "richard",
+  "dodge",
+  "forthrast",
+  "zula",
+  "dsquared",
+  "sokolov",
+  "csongor",
+  "yuxia",
+  "olivia",
+  "pluto",
+  "skraelin",
+  "wallace",
+  "alkali",
+  "ivanov",
+  "marlon",
+  // Iron Druid bank (9 starters + 3 backups)
+  "atticus",
+  "siodhachan",
+  "oberon",
+  "morrigan",
+  "owen",
+  "hal",
+  "granuaile",
+  "leif",
+  "brighid",
+  "brigid",
+  "ogma",
+  "coyote",
+  "perun",
+  "starbuck",
+  // Prydain bank (9 starters + 3 backups)
+  "dallben",
+  "taran",
+  "gwydion",
+  "coll",
+  "fflewddur",
+  "fflam",
+  "gurgi",
+  "doli",
+  "eilonwy",
+  "taliesin",
+  "adaon",
+  "hevydd",
+  "kaw",
   // Discworld bank (9 starters + 3 backups)
   "ponder",
   "stibbons",
@@ -423,7 +478,7 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge
@@ -1380,6 +1435,14 @@ export default {
 
               if (rawAction === "ack" && payload.id) {
                 runConstruct(["ack", String(payload.id)])
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
+              if (rawAction === "delete-msg" && payload.id) {
+                runConstruct(["rm-msg", String(payload.id)])
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, hud: snap }))

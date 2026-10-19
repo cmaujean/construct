@@ -23,6 +23,9 @@ const BUILTIN_PACK_FILES = Object.freeze({
   laundry: path.join(__dirname, 'laundry.js'),
   tolkien: path.join(__dirname, 'tolkien.js'),
   discworld: path.join(__dirname, 'discworld.js'),
+  reamde: path.join(__dirname, 'reamde.js'),
+  irondruid: path.join(__dirname, 'irondruid.js'),
+  prydain: path.join(__dirname, 'prydain.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -410,6 +413,111 @@ const PACK_METADATA = Object.freeze({
       "angua",
       "death"
     ]
+  },
+  "reamde": {
+    "name": "reamde",
+    "title": "Corporation 9592, T'Rain & Tactical Overwatch (Neal Stephenson — REAMDE)",
+    "banner": "🏔️ **`═══ [CORPORATION 9592 // T'RAIN & THE IDAHOS] ══════════════════════════════`**",
+    "atmosphere": "Pioneer Square MMORPG war-room at Corporation 9592 in Seattle braided with Xiamen gold-farming rigs and Idaho Selkirk Mountain tactical overwatch. Real-money virtual-economy invariants, GIS packet forensics, Spetsnaz breach discipline, and zero tolerance for the Apostrophocalypse.",
+    "seatLabels": {
+      "recon": "T'RAIN FOUNDER & TERRAIN",
+      "diagnostics": "GIS & PACKET FORENSICS",
+      "architect": "D-SQUARED ENGINE CORE",
+      "blitz": "SPETSNAZ BREACH & OVERWATCH",
+      "forensics": "RANSOMWARE & HEX AUTOPSY",
+      "velocity": "XIAMEN COURIER & TRAIL",
+      "redteam": "MI6 TRADECRAFT & OPSEC",
+      "ergonomics": "CONTINUITY & REALISM",
+      "archivist": "T'RAIN LORE & CHRONICLE"
+    },
+    "interjectionExample": "🔵 **[RICHARD // T'RAIN FOUNDER & TERRAIN]** Hold on, D-Squared—before Sokolov breaches that module, let me walk through how the real-money exchange pipe is actually routed.",
+    "waveOffExample": "hang on Dodge, let D-Squared finish mapping the sharding boundary first",
+    "defaultStarters": [
+      "richard",
+      "zula",
+      "dsquared",
+      "sokolov",
+      "csongor",
+      "yuxia",
+      "olivia",
+      "pluto",
+      "skraelin"
+    ],
+    "backups": [
+      "wallace",
+      "ivanov",
+      "marlon"
+    ]
+  },
+  "irondruid": {
+    "name": "irondruid",
+    "title": "Third Eye Books, Tempe Pack & The World Tree (Kevin Hearne — The Iron Druid Chronicles)",
+    "banner": "🐺 **`═══ [TEMPE // THIRD EYE BOOKS & THE WORLD TREE] ════════════════════════════`**",
+    "atmosphere": "Third Eye Books & Herbs in Tempe, Arizona, braided with elemental earth bindings, telepathic Irish Wolfhound commentary over sausages, vampire contract law at Magnusson & Associates, and shifting along the roots of Yggdrasil.",
+    "seatLabels": {
+      "recon": "ELEMENTAL LORE & FRAGARACH",
+      "diagnostics": "HOUND SCENT & SAUSAGE TRACE",
+      "architect": "CHOOSER OF THE SLAIN",
+      "blitz": "ARCH-DRUID OAKEN CLUB",
+      "forensics": "PACK ALPHA DISCOVERY",
+      "velocity": "YGGDRASIL ROOT-SHIFT",
+      "redteam": "NIGHT-SHIFT VAMPIRE COUNSEL",
+      "ergonomics": "FORGE & POETRY OF BRIGHID",
+      "archivist": "OGHAM BINDINGS & LEDGER"
+    },
+    "interjectionExample": "🔵 **[ATTICUS // ELEMENTAL LORE & FRAGARACH]** Hang on, Morrigan—I just asked the local elemental how that stream binding is woven if you want the layout before Owen starts swinging his club.",
+    "waveOffExample": "not now Siodhachan, let the Morrigan finish mapping the battle lines first",
+    "defaultStarters": [
+      "atticus",
+      "oberon",
+      "morrigan",
+      "owen",
+      "hal",
+      "granuaile",
+      "leif",
+      "brighid",
+      "ogma"
+    ],
+    "backups": [
+      "coyote",
+      "perun",
+      "starbuck"
+    ]
+  },
+  "prydain": {
+    "name": "prydain",
+    "title": "Caer Dallben, Caer Dathyl & The Free Commots (Lloyd Alexander — The Chronicles of Prydain)",
+    "banner": "⚔️ **`═══ [CAER DALLBEN // THE BOOK OF THREE & PRYDAIN] ══════════════════════════`**",
+    "atmosphere": "Caer Dallben's hearth and orchard, the ancient pages of The Book of Three, Fflewddur Fflam's truth-testing harp strings snapping *twang!*, the Free Commots craft workshops of Taran Wanderer, Princess Eilonwy's golden bauble lighting dark barrows, and Prince Gwydion's war-tent at Caer Dathyl.",
+    "seatLabels": {
+      "recon": "THE BOOK OF THREE",
+      "diagnostics": "WANDERER & PIG-KEEPER",
+      "architect": "WAR LEADER OF DON",
+      "blitz": "CAER DALLBEN CRAFTSMAN",
+      "forensics": "HARP OF TRUTH (*TWANG!*)",
+      "velocity": "CRUNCHINGS & FOREST TRAIL",
+      "redteam": "INVISIBLE FAIR FOLK",
+      "ergonomics": "GOLDEN BAUBLE OF LLYR",
+      "archivist": "CHIEF BARD OF PRYDAIN"
+    },
+    "interjectionExample": "🔵 **[DALLBEN // THE BOOK OF THREE]** A moment, Prince Gwydion—I consulted The Book of Three on that stream lifecycle if you wish to hear the inscription before Coll takes up his tools.",
+    "waveOffExample": "hold a moment Dallben, let us finish mapping the campaign with Gwydion first",
+    "defaultStarters": [
+      "dallben",
+      "taran",
+      "gwydion",
+      "coll",
+      "fflewddur",
+      "gurgi",
+      "doli",
+      "eilonwy",
+      "taliesin"
+    ],
+    "backups": [
+      "adaon",
+      "hevydd",
+      "kaw"
+    ]
   }
 });
 
@@ -504,6 +612,16 @@ function getKnownRomTargets() {
     'ankhmorpork',
     'nightwatch',
     'clacks',
+    'reamde',
+    'tgd',
+    'corporation9592',
+    'train',
+    'irondruid',
+    'tirnanog',
+    'thirdeye',
+    'prydain',
+    'caerdath',
+    'caerdallben',
     'generic',
     'standard',
     'plain',
@@ -534,6 +652,12 @@ function getKnownRomTargets() {
     'ook',
     'esme',
     'granny',
+    'dodge',
+    'forthrast',
+    'alkali',
+    'siodhachan',
+    'brigid',
+    'fflam',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

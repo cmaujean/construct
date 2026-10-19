@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 131 ROMs across 11 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 167 ROMs across 14 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 131);
+    assert.equal(roms.length, 167);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl', 'tolkien']
+      ['amber', 'anathem', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'irondruid', 'laundry', 'nightcity', 'prydain', 'reamde', 'shadowrun', 'sprawl', 'tolkien']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -541,6 +541,24 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.ok(!subbedDiscworld.roster.includes('vetinari'));
     assert.equal(store.getRom('spike').name, 'adorabelle');
     assert.equal(store.getRom('ook').name, 'librarian');
+
+    const reamdeCrew = store.useRom('reamde', { sessionId: 'ses_reamde' });
+    assert.equal(reamdeCrew.isCrew, true);
+    assert.deepEqual(reamdeCrew.roster, ['richard', 'zula', 'dsquared', 'sokolov', 'csongor', 'yuxia', 'olivia', 'pluto', 'skraelin']);
+    assert.match(reamdeCrew.voice, /═══ \[CORPORATION 9592 \/\/ T'RAIN & THE IDAHOS\]/);
+    assert.equal(store.getRom('dodge').name, 'richard');
+
+    const ironDruidCrew = store.useRom('irondruid', { sessionId: 'ses_irondruid' });
+    assert.equal(ironDruidCrew.isCrew, true);
+    assert.deepEqual(ironDruidCrew.roster, ['atticus', 'oberon', 'morrigan', 'owen', 'hal', 'granuaile', 'leif', 'brighid', 'ogma']);
+    assert.match(ironDruidCrew.voice, /═══ \[TEMPE \/\/ THIRD EYE BOOKS & THE WORLD TREE\]/);
+    assert.equal(store.getRom('siodhachan').name, 'atticus');
+
+    const prydainCrew = store.useRom('prydain', { sessionId: 'ses_prydain' });
+    assert.equal(prydainCrew.isCrew, true);
+    assert.deepEqual(prydainCrew.roster, ['dallben', 'taran', 'gwydion', 'coll', 'fflewddur', 'gurgi', 'doli', 'eilonwy', 'taliesin']);
+    assert.match(prydainCrew.voice, /═══ \[CAER DALLBEN \/\/ THE BOOK OF THREE & PRYDAIN\]/);
+    assert.equal(store.getRom('fflam').name, 'fflewddur');
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1247,6 +1265,10 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.doesNotMatch(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
+      const scriptMatch = dash.html.match(/<script>([\s\S]*?)<\/script>/);
+      assert.ok(scriptMatch, 'dashboard HTML should contain a <script> block');
+      const vm = require('node:vm');
+      assert.doesNotThrow(() => new vm.Script(scriptMatch[1]), 'dashboard <script> block must be valid JavaScript');
       assert.match(dash.html, /CONSTRUCT UPDATE AVAILABLE \(2 new commits\)/);
       assert.match(dash.html, /upgradeConstructNow\(\)/);
       assert.match(dash.html, /UNREAD COURIER \[M#/);
@@ -1599,7 +1621,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 130);
+    assert.equal(initClaude.claudeAgentsCount, 166);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
@@ -1615,6 +1637,9 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vimes.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vetinari.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'adorabelle.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'sokolov.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'oberon.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fflewddur.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);
