@@ -77,7 +77,8 @@ function normalizeProject(project, wsRoot = '') {
       p = p.slice(normWs.length + 1);
     }
   }
-  return p.replace(/^~\/[^/]+\//, (m) => (m.toLowerCase() === '~/src/' ? '' : m)).replace(/^\/+|\/+$/g, '');
+  const cleaned = p.replace(/^~\/[^/]+\//, (m) => (m.toLowerCase() === '~/src/' ? '' : m)).replace(/^\/+|\/+$/g, '');
+  return cleaned.replace(/^psylogi\//i, 'psilogi/');
 }
 
 function validateKind(kind) {
@@ -350,10 +351,11 @@ function resolveProjectFromDirInDb(db, dirInput) {
 
   // 3. If operator configured a `workspace_root` and `targetDir` is inside it, derive relative key
   if (normWs && normTarget.startsWith(normWs + '/')) {
-    const rel = targetDir
+    const rawRel = targetDir
       .replace(/\\/g, '/')
       .replace(/\/+$/, '')
       .slice(expandHome(wsRoot).replace(/\\/g, '/').replace(/\/+$/, '').length + 1);
+    const rel = rawRel ? normalizeProject(rawRel) : '';
     if (rel) {
       const existing = db.prepare('SELECT project, repo FROM heads WHERE project = ?').get(rel);
       if (existing && (!existing.repo || existing.repo.startsWith('~/'))) {
