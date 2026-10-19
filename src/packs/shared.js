@@ -64,7 +64,7 @@ const SEATS = Object.freeze([
     "glyph": "🎨",
     "claudeColor": "cyan",
     "label": "UI & HUMAN FEEL",
-    "desc": "Visual Hierarchy, Interaction Flow & Ergonomics"
+    "desc": "Visual Hierarchy, Interaction Flow, Ergonomics & Docs Clarity"
   },
   {
     "id": "archivist",
@@ -72,7 +72,7 @@ const SEATS = Object.freeze([
     "glyph": "📓",
     "claudeColor": "blue",
     "label": "THE BOOK",
-    "desc": "Sequential Tape, Open Threads & Release Synthesis"
+    "desc": "Sequential Tape, Open Threads, Docs Parity & Release Synthesis"
   }
 ]);
 

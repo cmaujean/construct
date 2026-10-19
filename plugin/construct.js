@@ -33,6 +33,10 @@ function loadSharedMcpEngine() {
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
+        const srcDir = path.dirname(p)
+        for (const k of Object.keys(requireCjs.cache)) {
+          if (k.startsWith(srcDir)) delete requireCjs.cache[k]
+        }
         return requireCjs(p)
       } catch (_) {}
     }

@@ -11,36 +11,36 @@ const mcp = require('../src/mcp');
 
 const USAGE = `usage: construct <command> [args]
 
-Setup & Instruction Assimilation:
-  init [--rom <name>] [--claude] [--json]
-                              One-command setup for OpenCode (and Claude Code with --claude):
-                              generates DID identity, installs the OpenCode V2 plugin, wires
-                              active-rom.md (and ~/.claude/CLAUDE.md + MCP/hooks when --claude),
-                              and assimilates any existing global instruction files.
-  mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (exposes all 11
-                              construct_* tools to Claude Code, Cursor, Windsurf, Zed, etc.).
+Setup, Self-Update & Instruction Assimilation:
+  init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--all] [--json]
+                              One-command setup for OpenCode (plus Claude Code, Cursor, Gemini CLI,
+                              Windsurf, and Codex): generates DID identity, seeds all 15 Crew Banks
+                              (179 ROMs), installs plugins/hooks/MCP configs, and compiles active-rom.md.
+  upgrade [--check] [--json]  Check or fast-forward pull origin/main, reseed ROMs, and refresh plugins/hooks.
+  mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (tools, prompts, resources,
+                              and initialize.result.instructions for any MCP coding agent).
   claude-hook [context | pre-tool | subagent-start]
-                              Claude Code hook handler for SessionStart/UserPromptSubmit,
-                              SubagentStart (specialist ROM + live memory injection), and
-                              PreToolUse (Bash/PowerShell shell guard + Agent [ROM: x] routing).
+  cursor-hook [session-start | before-prompt | before-shell | post-tool]
+  gemini-hook [before-agent | session-start | before-tool]
+                              Lifecycle & shell-guard hook runners for Claude Code, Cursor, and Gemini CLI.
   assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
                               Scan a directory for existing AI instruction files (AGENTS.md,
                               CLAUDE.md, GEMINI.md, .cursorrules) and import agreements,
                               gotchas, and script commands into construct.db (never writes files
                               into the project repo).
 
-Sequential Tape & Project Continuity:
-  boot <project> [-n <tape_len>] [--json]
-                              Boot briefing for <project>: slotted ROM, active operator,
-                              current state head, open threads, and recent sequential tape.
+Sequential Tape, Provenance, GitHub Issues/PRs & HUD:
+  boot <project> [-n <tape_len>] [--session <id>] [--dir <path>] [--json]
+                              Boot briefing for <project>: slotted Crew/ROM, active operator,
+                              current state head, open threads, gotchas, and recent sequential tape.
   rec <project> <kind> "<summary>" [--detail <text>] [--verified <text>]
       [--parent <seq>] [--resolves <seq,seq>] [--open] [--refs <a,b>] [--ts <iso>] [--json]
                               Append a frame onto the sequential tape.
                               Kinds: ${store.KINDS.join(', ')}.
   head <project> [--state <text>] [--next <text>] [--repo <path>] [--ts <iso>] [--json]
                               Update or inspect a project's current state head.
-  resolve <seq[,seq]> [--by <seq>] [--reason "<text>"] [--verified <text>] [--kind <kind>]
-                              Close open thread(s).
+  resolve <seq[,seq]> [--by <seq>] [--reason "<text>"] [--verified <text>] [--close-gh]
+                              Close open thread(s) (and optionally close linked GitHub issues).
   reopen <seq>                Reopen a previously resolved frame.
   tape [<project>] [-n <limit>] [--kind <kind>] [--open] [--from <seq>] [--to <seq>] [--since <iso>] [--json]
                               Sequential playback of the tape (oldest -> newest within window).
@@ -48,22 +48,28 @@ Sequential Tape & Project Continuity:
                               Inspect frame #<seq> in full detail, its causal chain, and neighbors.
   search "<query>" [--project <project>] [--kind <kind>] [--open] [-n <limit>] [--json]
                               FTS5 BM25 search across the tape; prints #seq pointers for zoom.
+  why "<file_or_symbol>" [--project <project>] [--ask <user>] [--json]
+                              Unified provenance across CRDT tape authors, gotchas, and git log -S.
+  issues [sync <project> | publish <seq>] [--dir <repo_dir>]
+  pr [sync <project> | open <project> --title ".." | review <project> <pr_num> --approve | merge <project> <pr_num>] [--to <user>] [--via <messenger>]
+  hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
+  dashboard [--out <html_path>] [--project <proj>] [--session <session_id>]
+  hud-server [--port 47420]
   edit <seq> [--summary ..] [--detail ..] [--verified ..] [--kind ..] [--parent ..] [--refs ..]
                               Correct an existing frame out loud.
   projects [--json]           List all projects in the construct with open counts and last seq.
 
-Swappable & Tunable Personality ROMs & Crew Banks:
+Swappable & Tunable Personality ROMs & 15 Crew Banks (179 ROMs):
   rom [show [<name>]] [--json]
-  rom packs [--json]          List all Crew Banks (sprawl, anathem, generic, or custom) with their
-                              9 primary seat starters and bench backups.
+  rom packs [--json]          List all 15 Crew Banks (sprawl, nightcity, anathem, cryptonomicon,
+                              shadowrun, dresden, amber, laundry, tolkien, discworld, reamde,
+                              irondruid, prydain, clockwork, generic, or custom) and bench backups.
   rom list [--pack <bank>] [--json]
                               List all ROM constructs and dial settings (* = default/active).
-  rom use <name|bank|roster> [--session <id>]
-                              Slot a Crew Bank (sprawl, anathem, generic), a custom roster
-                              (erasmus,jad,cord), or a solo ROM for the current session only.
-  rom sub <backup_name> [--session <id>]
-                              Substitute a bench backup (e.g. marly, armitage, lodoghir, jules)
-                              into its matched seat in the current session's crew.
+  rom use <name|bank|roster> [--session <id>] [--project <proj>]
+                              Slot a Crew Bank, custom roster, or solo ROM for this session/project.
+  rom sub <backup_name> [--session <id>] [--project <proj>]
+                              Substitute a bench backup into its matched seat in the active crew.
   rom default <name|bank|off> Set or clear your "until further notice" default ROM or Crew Bank.
   rom tune <dial>=<0..1> [...] [--rom <name>]
                               Tune dials (${store.DIAL_KEYS.join(', ')}) and recompile active-rom.md.
@@ -82,18 +88,22 @@ Operator Agreements (Who the Construct is Talking To):
   user set <id> [--name ..] [--os-users a,b] [--experience ..] [--platform ..] [--calibration ..] [--use]
                               Register or update an operator's personal agreement.
 
-Machine & Project Gotchas:
+Machine & Project Gotchas (with 0-Token Shell Guards):
   gotcha list [--project <proj> | --all] [--json]
-  gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--tags a,b]
+  gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--guard "<regex>"] [--guard-os all|win32|linux|darwin] [--tags a,b]
   gotcha search "<query>" [--project <proj> | --all]
   gotcha rm <id>
 
-Construct-to-Construct Comms (e.g. Alice's Molly <-> Bob's Dixie):
-  msg <project> --to <user> "<message>"
-                              Queue a construct-to-construct message/question for <user>'s ROM.
-  reply <msg_id> "<answer>"   Reply to an incoming construct message with your active ROM.
-  ack <msg_id>                Mark a replied message as delivered to the sender.
-  inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered] [--json]
+Person-to-Person Construct Comms & Courier Cameos (--via <messenger>):
+  msg --to <user> [--via <messenger>] "<in-character message>"
+                              Send a person-to-person Courier dispatch across shared MLS groups.
+  drop <project> --to <user> [--via <messenger>] [--file <path> | --git-diff | --content ".."] [--note ".."]
+  apply-drop <msg_id> [--out <file> | --apply]
+  reply <msg_id> [--via <messenger>] "<in-character answer>"
+  ack <msg_id>                Mark a message as delivered.
+  hide-msg <msg_id[,id...]>   Hide message(s) from HUD/boot while keeping them searchable (--all).
+  purge-msg <msg_id[,id...]>  Obliterate message(s) locally and across relays via message_tombstone.
+  inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden] [--json]
 
 DIDComm v2 + MLS (RFC 9420) + HLC-CRDT Sync:
   did [--json]                Show this construct's cryptographic identity (did:key:z6Mk...).

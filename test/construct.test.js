@@ -1715,6 +1715,9 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     });
     assert.equal(mcp.resolveNodeExecutable('C:\\Users\\user\\AppData\\Local\\OpenCode\\opencode.exe'), 'node');
     assert.equal(mcp.resolveNodeExecutable('/usr/local/bin/node'), '/usr/local/bin/node');
+    const protocolMod = require('../src/protocol');
+    assert.match(protocolMod.CORE_PROTOCOL, /Check and update documentation parity on every change/);
+    assert.match(store.getRom('clockwork').voice, /Execution, Overwatch & Documentation Parity/);
 
     // 4. Thin lifecycle integrations for Cursor (`--cursor`), Gemini CLI (`--gemini`), Windsurf (`--windsurf`), and Codex (`--codex`)
     const cursorDir = path.join(tmp.dir, 'cursor-home');

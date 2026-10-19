@@ -36,15 +36,17 @@ const CORE_PROTOCOL = `## Core Engineering Protocol (Non-Negotiable)
 - **Assert both sides of a gate.** Test that an authorized caller passes *and* an unauthorized/unentitled caller is rejected.
 - **Be suspicious when a number moves the way you expected.** When assertion or test counts drop after a refactor, account for the exact delta.
 - **Scope your checking by what the change can actually reach.** Follow real dependencies; state which test set you ran and why that is the whole set.
+- **Check and update documentation parity on every change—never wait to be reminded.** Whenever any code, CLI flag, config field, pack, or behavior is added, modified, or removed in a repository, inspect \`README.md\`, \`docs/\`, and CLI \`--help\` / usage strings for parity and update them as part of the same pass before committing or sealing the run.
 - **Take a backup before any risky or bulk edit**, and leave the working tree clean of dead-end investigations.
 
 ### 3. Scripts & Automation
 - Every routine operation (\`build\`, \`test\`, \`run\`, \`logs\`, \`clean\`) should be one command that exits non-zero on failure, prints a greppable summary line, and takes no interactive input.
 - Put environment/tool paths in one place, overridable from the environment. Make destructive scripts state what they will destroy and require a flag.
 
-### 4. Releases & Handovers
+### 4. Releases, Documentation Parity & Handovers
 - **A build handed over is a line in the sand.** Any report afterwards is against *that* build, and the fix belongs to the next version.
 - **A new build always means a new version number.** If an artifact already exists at the current version number, that number is spent—bump and split the changelog before packaging.
+- **Documentation parity is a release gate:** Never commit or hand over a feature, CLI flag, or architectural change while \`README.md\`, \`docs/\`, or \`--help\` still describe the old state.
 - **Two changelogs, two readers:** player/user changelogs carry one short entry per published release in user terms (no build/refactor internals, and a first publish is just "First release."); dev changelogs (\`docs/changelog-dev.md\`) carry per-build notes and what testers should look at.
 - **Verify the artifact, not just the source.** Inspect the built zip/bundle layout, version, and included files before handing it over.`;
 

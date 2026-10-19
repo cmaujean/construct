@@ -5,6 +5,8 @@ global gotchas are managed by `construct` itself and loaded through `~/.config/o
 
 - **Run tests** with `npm test` (`node --test "test/*.test.js"`) after every change and report the
   pass/fail counts.
+- **Check and update documentation parity (`README.md` and CLI `--help`) on every change** before
+  committing or closing out a turn—never wait for the operator to remind you.
 - **Never test or probe against `~/.config/opencode/construct.db`**, which holds live sequential
   memory across every project. Always point `CONSTRUCT_DB`, `CONSTRUCT_ROM_FILE`, and
   `CONSTRUCT_IDENTITY_FILE` at temporary paths when experimenting or running tests.
