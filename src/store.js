@@ -3824,6 +3824,7 @@ function assimilateLdk(targetDir, options = {}, file = dbPath()) {
     setUser: (id, fields) => setUser(id, fields, file),
     listGotchas: (scope) => listGotchas(scope, file),
     addGotcha: (fields) => addGotcha(fields, file),
+    removeGotcha: (id) => removeGotcha(id, file),
     recordFrame: (fields) => recordFrame(fields, file),
     recordAssimilatedFiles: (proj, tracked) => recordAssimilatedFiles(proj, tracked, file),
   };

@@ -259,20 +259,25 @@ function assimilateDirectory(store, targetDir, options = {}) {
     // 1. Assimilate `agreements/*.md`
     const agreementsDir = path.join(ldkDir, 'agreements');
     if (fs.existsSync(agreementsDir)) {
-      const existingUsers = new Set(store.listUsers().map((u) => u.id));
+      const existingById = new Map(store.listUsers().map((u) => [u.id, u]));
       for (const entry of fs.readdirSync(agreementsDir)) {
         if (!entry.endsWith('.md')) continue;
         const fullPath = path.join(agreementsDir, entry);
         const parsed = parseAgreementMarkdown(fullPath, fs.readFileSync(fullPath, 'utf8'));
         if (!parsed) continue;
-        if (!existingUsers.has(parsed.id) || scope === 'global') {
+        const prev = existingById.get(parsed.id);
+        const shouldUpdate =
+          !prev ||
+          scope === 'global' ||
+          (!prev.active && parsed.calibration.length > (prev.calibration || '').length);
+        if (shouldUpdate) {
           store.setUser(parsed.id, {
             name: parsed.name,
             osUsers: parsed.osUsers,
             experience: parsed.experience,
             platform: parsed.platform,
             calibration: parsed.calibration,
-            active: existingUsers.size === 0 ? true : undefined,
+            active: existingById.size === 0 ? true : undefined,
           });
           result.usersImported.push(parsed.id);
         }
@@ -285,9 +290,17 @@ function assimilateDirectory(store, targetDir, options = {}) {
       : path.join(ldkDir, 'gotchas.md');
     if (fs.existsSync(gotchasFile)) {
       const parsedGotchas = parseGotchasMarkdown(fs.readFileSync(gotchasFile, 'utf8'));
-      const existingTitles = new Set(store.listGotchas(scope).map((g) => g.title.toLowerCase()));
+      const existingByTitle = new Map(store.listGotchas(scope).map((g) => [g.title.toLowerCase(), g]));
       for (const g of parsedGotchas) {
-        if (existingTitles.has(g.title.toLowerCase())) continue;
+        const key = g.title.toLowerCase();
+        const prev = existingByTitle.get(key);
+        if (prev) {
+          if (/^Found\s+\d{4}-\d{2}-\d{2}\b/i.test(String(prev.fix || '').trim()) && typeof store.removeGotcha === 'function') {
+            store.removeGotcha(prev.id);
+          } else {
+            continue;
+          }
+        }
         store.addGotcha({
           scope,
           title: g.title,
@@ -296,7 +309,7 @@ function assimilateDirectory(store, targetDir, options = {}) {
           fix: g.fix,
           created: g.created,
         });
-        existingTitles.add(g.title.toLowerCase());
+        existingByTitle.set(key, g);
         result.gotchasImported++;
       }
     }
