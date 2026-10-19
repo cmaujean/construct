@@ -1322,6 +1322,25 @@ async function main(argv) {
       return 0;
     }
 
+    case 'rm-msg':
+    case 'msg-rm':
+    case 'delete-msg': {
+      const ids = rest.join(',').split(',').map((s) => s.trim()).filter(Boolean);
+      if (!ids.length) throw new Error('usage: construct rm-msg <msg_id[,msg_id...]>');
+      const deleted = [];
+      for (const id of ids) {
+        deleted.push(store.deleteMessage(id));
+      }
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
+      }
+      if (o.json) console.log(JSON.stringify(deleted, null, 2));
+      else console.log(`deleted ${deleted.length} message(s): ${deleted.map((m) => `[M#${m.id}]`).join(', ')}`);
+      return 0;
+    }
+
     case 'inbox':
     case 'messages': {
       const msgs = store.listMessages({

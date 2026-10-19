@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 106 ROMs across 9 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 119 ROMs across 10 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 106);
+    assert.equal(roms.length, 119);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl']
+      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl', 'tolkien']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -489,6 +489,32 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const subbedLaundry = store.subRom('fred', { sessionId: 'ses_laundry' });
     assert.ok(subbedLaundry.roster.includes('fred'));
     assert.ok(!subbedLaundry.roster.includes('mo'));
+
+    const tolkienCrew = store.useRom('tolkien', { sessionId: 'ses_tolkien' });
+    assert.equal(tolkienCrew.isCrew, true);
+    assert.deepEqual(tolkienCrew.roster, [
+      'gandalf',
+      'aragorn',
+      'galadriel',
+      'gimli',
+      'faramir',
+      'legolas',
+      'eowyn',
+      'samwise',
+      'elrond',
+    ]);
+    assert.match(tolkienCrew.voice, /═══ \[RIVENDELL \/\/ COUNCIL OF ELROND\]/);
+    assert.match(tolkienCrew.voice, /🔵 \*\*\[GANDALF \/\/ LORE OF THE WISE\]\*\*/);
+    assert.match(tolkienCrew.voice, /🟣 \*\*\[GALADRIEL \/\/ MIRROR OF GALADRIEL\]\*\*/);
+    assert.match(tolkienCrew.voice, /🔴 \*\*\[GIMLI \/\/ KHAZAD-DÛM FORGE\]\*\*/);
+    assert.match(tolkienCrew.voice, /🛡️ \*\*\[EOWYN \/\/ SHIELDMAIDEN RED-TEAM\]\*\*/);
+    assert.match(tolkienCrew.voice, /📓 \*\*\[ELROND \/\/ COUNCIL & RED BOOK\]\*\*/);
+    const subbedTolkien = store.subRom('boromir', { sessionId: 'ses_tolkien' });
+    assert.ok(subbedTolkien.roster.includes('boromir'));
+    assert.ok(!subbedTolkien.roster.includes('eowyn'));
+    const smeagolRom = store.getRom('gollum');
+    assert.equal(smeagolRom.name, 'smeagol');
+    assert.equal(smeagolRom.pack, 'tolkien');
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -831,6 +857,18 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.equal(aliceBoot.inboxReplies.length, 1);
       assert.equal(aliceBoot.inboxReplies[0].replyRom, 'dixie');
       assert.equal(aliceBoot.inboxReplies[0].replyBody, 'No, peace is still an option');
+
+      // Deleting a stale/broken message purges both `messages` and `crdt_log`
+      const staleMsg = store.sendMessage({
+        project: 'acme/shared_app',
+        to: 'bob',
+        via: 'smeagol',
+        body: 'Broken test message to delete',
+      });
+      assert.equal(staleMsg.fromRom, 'smeagol');
+      const deletedMsg = store.deleteMessage(staleMsg.id);
+      assert.equal(deletedMsg.uid, staleMsg.uid);
+      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.id === staleMsg.id));
 
       // Delta sync check: repeating syncProject with no new local ops pushes 0 redundant ops
       const repeatSync = await store.syncProject('acme/shared_app');
@@ -1535,7 +1573,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 105);
+    assert.equal(initClaude.claudeAgentsCount, 118);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
@@ -1545,6 +1583,9 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'ghostwheel.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'bobhoward.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'angleton.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'gandalf.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'eowyn.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'smeagol.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);

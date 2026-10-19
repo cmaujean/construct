@@ -21,6 +21,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   dresden: path.join(__dirname, 'dresden.js'),
   amber: path.join(__dirname, 'amber.js'),
   laundry: path.join(__dirname, 'laundry.js'),
+  tolkien: path.join(__dirname, 'tolkien.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -337,6 +338,42 @@ const PACK_METADATA = Object.freeze({
       "iris",
       "fred"
     ]
+  },
+  "tolkien": {
+    "name": "tolkien",
+    "title": "The Council of Elrond & Fellowship Crew (J.R.R. Tolkien — The Lord of the Rings)",
+    "banner": "💍 **`═══ [RIVENDELL // COUNCIL OF ELROND] ════════════════════════════════════════`**",
+    "atmosphere": "The Hall of Fire in Rivendell and the long road to Mordor. Ancient Minas Tirith scrolls, Ranger trail-craft in the wild, Dwarven Khazad-dûm stonework, the Mirror of Galadriel revealing hidden state seams, Éowyn's Pelennor Fields invariant-breaking blade, and the unbroken chronicle of the Red Book of Westmarch.",
+    "seatLabels": {
+      "recon": "LORE OF THE WISE",
+      "diagnostics": "RANGER TRAIL & TRIAGE",
+      "architect": "MIRROR OF GALADRIEL",
+      "blitz": "KHAZAD-DÛM FORGE",
+      "forensics": "ITHILIEN RECON & CUSTODY",
+      "velocity": "LIGHT-FOOTED VELOCITY",
+      "redteam": "SHIELDMAIDEN RED-TEAM",
+      "ergonomics": "SHIRE CRAFT & PHIAL LIGHT",
+      "archivist": "COUNCIL & RED BOOK"
+    },
+    "interjectionExample": "🔵 **[GANDALF // LORE OF THE WISE]** A moment, Lady Galadriel—I read the ancient scroll on that stream lifecycle in the archives of Minas Tirith if you want the inscription.",
+    "waveOffExample": "hold on Gandalf, let us finish looking into the Mirror with Galadriel first",
+    "defaultStarters": [
+      "gandalf",
+      "aragorn",
+      "galadriel",
+      "gimli",
+      "faramir",
+      "legolas",
+      "eowyn",
+      "samwise",
+      "elrond"
+    ],
+    "backups": [
+      "boromir",
+      "celebrimbor",
+      "frodo",
+      "smeagol"
+    ]
   }
 });
 
@@ -423,6 +460,10 @@ function getKnownRomTargets() {
     'laundry',
     'qdivision',
     'mahoganyrow',
+    'tolkien',
+    'fellowship',
+    'middleearth',
+    'rivendell',
     'generic',
     'standard',
     'plain',
@@ -443,6 +484,10 @@ function getKnownRomTargets() {
     'teapot',
     'cassie',
     'registry',
+    'mithrandir',
+    'strider',
+    'sam',
+    'gollum',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

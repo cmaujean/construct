@@ -483,6 +483,10 @@ function resolveSingleRomRowInDb(db, name) {
     teapot: 'angleton',
     cassie: 'persephone',
     registry: 'stacks',
+    mithrandir: 'gandalf',
+    strider: 'aragorn',
+    sam: 'samwise',
+    gollum: 'smeagol',
   };
   const target = aliasMap[key] || key;
   return (
@@ -518,6 +522,10 @@ function getRomInDb(db, name) {
     laundry: 'laundry',
     qdivision: 'laundry',
     mahoganyrow: 'laundry',
+    tolkien: 'tolkien',
+    fellowship: 'tolkien',
+    middleearth: 'tolkien',
+    rivendell: 'tolkien',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
@@ -2054,6 +2062,7 @@ const PACK_DEFAULT_COURIER_MAP = Object.freeze({
   shadowrun: 'dodger',
   amber: 'random',
   laundry: 'persephone',
+  tolkien: 'legolas',
   generic: 'pulse',
 });
 
@@ -2243,6 +2252,23 @@ function ackMessage(idOrUid, file = dbPath()) {
         const replyHlc = crdt.nextHlc(identity.did, row.reply_hlc || row.hlc);
         db.prepare("UPDATE messages SET status = 'delivered', reply_hlc = ? WHERE id = ?").run(replyHlc, row.id);
         return crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
+      }),
+    file
+  );
+}
+
+function deleteMessage(idOrUid, file = dbPath()) {
+  return withDb(
+    (db) =>
+      tx(db, () => {
+        const key = String(idOrUid || '').replace(/^[#M]+/i, '').trim();
+        const row = /^\d+$/.test(key)
+          ? db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(key))
+          : db.prepare('SELECT * FROM messages WHERE uid = ?').get(key);
+        if (!row) throw new Error(`no construct message matching "${idOrUid}"`);
+        db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
+        db.prepare("DELETE FROM crdt_log WHERE entity = 'message' AND record_uid = ?").run(row.uid);
+        return crdt.hydrateMessage(row);
       }),
     file
   );
@@ -2528,6 +2554,7 @@ const PACK_EMBLEM_MAP = Object.freeze({
   dresden: '🕯️',
   amber: '🦄',
   laundry: '🐙',
+  tolkien: '💍',
   generic: '⚙️',
   core: '🔪',
 });
@@ -3030,18 +3057,16 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const replyBlock = m.replyBody
         ? `<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ${escapeHtml(m.replyGlyph || '📬')} ${escapeHtml(m.replyRom)} (${escapeHtml(m.toUser)}):</strong> "${escapeHtml(m.replyBody)}"</div>`
         : '';
-      const actionsBlock =
-        m.status !== 'delivered'
-          ? `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+      const actionsBlock = `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
                ${
                  m.status === 'pending'
                    ? `<input type="text" class="reply-input" id="row-reply-${m.id}" placeholder="Reply..." onkeydown="if(event.key==='Enter')replyCourier(${m.id},'row-reply-${m.id}')" />
                       <button class="crew-btn" onclick="replyCourier(${m.id},'row-reply-${m.id}')">⚡ Reply</button>`
                    : ''
                }
-               <button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack</button>
-             </div>`
-          : '';
+               ${m.status !== 'delivered' ? `<button class="crew-btn" onclick="ackCourier(${m.id})">✓ Ack</button>` : ''}
+               <button class="crew-btn" title="Delete message M#${m.id}" onclick="deleteCourier(${m.id})">✕ Delete</button>
+             </div>`;
       return `
       <tr>
         <td><code>M#${m.id}</code><div style="margin-top:3px;"><span class="badge ${stClass}">${escapeHtml(m.status)}</span></div><div class="sub">${escapeHtml(m.created || '')}</div></td>
@@ -3169,9 +3194,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   }
   input.reply-input:focus { outline: none; border-color: var(--accent); }
   #hud-toast { color: var(--ok); font-weight: 600; font-size: 11.5px; margin-left: 10px; }
-  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); }
+  .table-scroll { max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
   th, td { text-align: left; padding: 9px 11px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; background: #0f131b; }
+  th { color: var(--muted); font-weight: 600; background: #0f131b; position: sticky; top: 0; z-index: 1; }
   tr.active-row td { background: rgba(88, 166, 255, 0.07); }
   .sub { color: var(--muted); font-size: 11px; margin-top: 3px; }
   .badge { display: inline-block; padding: 2px 7px; border-radius: 4px; background: #1f2937; color: var(--accent); font-size: 11px; }
@@ -3225,11 +3251,15 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'dresden' ? 'active' : ''}" data-pack="dresden" onclick="switchCrew('use','dresden')">🕯️ Dresden</button>
       <button class="crew-btn ${hud.pack === 'amber' ? 'active' : ''}" data-pack="amber" onclick="switchCrew('use','amber')">🦄 Amber</button>
       <button class="crew-btn ${hud.pack === 'laundry' ? 'active' : ''}" data-pack="laundry" onclick="switchCrew('use','laundry')">🐙 Laundry</button>
+      <button class="crew-btn ${hud.pack === 'tolkien' ? 'active' : ''}" data-pack="tolkien" onclick="switchCrew('use','tolkien')">💍 Tolkien</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
       <span class="sub" style="align-self:center;margin-right:4px;">Bench Sub:</span>
       <button class="crew-btn" data-sub="toot" onclick="switchCrew('sub','toot')">⚡ Toot-Toot (Za-Lord)</button>
+      <button class="crew-btn" data-sub="boromir" onclick="switchCrew('sub','boromir')">🛡️ Boromir (Gondor)</button>
+      <button class="crew-btn" data-sub="celebrimbor" onclick="switchCrew('sub','celebrimbor')">🟣 Celebrimbor</button>
+      <button class="crew-btn" data-sub="frodo" onclick="switchCrew('sub','frodo')">🟠 Frodo</button>
       <button class="crew-btn" data-sub="caine" onclick="switchCrew('sub','caine')">🟠 Caine (Admiral)</button>
       <button class="crew-btn" data-sub="fred" onclick="switchCrew('sub','fred')">🔴 Fred (RHR)</button>
       <button class="crew-btn" data-sub="ebenezar" onclick="switchCrew('sub','ebenezar')">🟣 Ebenezar</button>
@@ -3254,22 +3284,28 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </div>
 
   <h2 id="hud-comms-heading">Construct Comms &amp; Courier Log — ${escapeHtml(hud.project)} (${commsList.length})</h2>
-  <table>
-    <thead><tr><th style="width:95px;">ID / Status</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply</th></tr></thead>
-    <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
-  </table>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th style="width:95px;">ID / Status</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply</th></tr></thead>
+      <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
+    </table>
+  </div>
 
   <h2 id="hud-open-heading">Open Verification Threads — ${escapeHtml(hud.project)} (${openThreads.length})</h2>
-  <table>
-    <thead><tr><th style="width:90px;">Seq</th><th>Summary &amp; Detail</th></tr></thead>
-    <tbody id="hud-open-tbody">${openRows || '<tr><td colspan="2">(none)</td></tr>'}</tbody>
-  </table>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th style="width:90px;">Seq</th><th>Summary &amp; Detail</th></tr></thead>
+      <tbody id="hud-open-tbody">${openRows || '<tr><td colspan="2">(none)</td></tr>'}</tbody>
+    </table>
+  </div>
 
   <h2 id="hud-tape-heading">Recent Sequential Tape — ${escapeHtml(hud.project)} (${recentTape.length} of ${hud.totalFrames || 0})</h2>
-  <table>
-    <thead><tr><th style="width:90px;">Seq</th><th style="width:95px;">Kind</th><th>Summary</th></tr></thead>
-    <tbody id="hud-tape-tbody">${tapeRows || '<tr><td colspan="3">(empty tape)</td></tr>'}</tbody>
-  </table>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th style="width:90px;">Seq</th><th style="width:95px;">Kind</th><th>Summary</th></tr></thead>
+      <tbody id="hud-tape-tbody">${tapeRows || '<tr><td colspan="3">(empty tape)</td></tr>'}</tbody>
+    </table>
+  </div>
 
   <h2 id="hud-gotchas-heading">Project Gotchas — ${escapeHtml(hud.project)} (${hud.gotchaCount || 0})</h2>
   <table>
@@ -3456,14 +3492,13 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
             const replyHtml = m.replyBody
               ? '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
               : '';
-            const actHtml = m.status !== 'delivered'
-              ? '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-                (m.status === 'pending'
-                  ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" placeholder="Reply..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')" />' +
-                    '<button class="crew-btn" onclick="replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')">⚡ Reply</button>'
-                  : '') +
-                '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack</button></div>'
-              : '';
+            const actHtml = '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+              (m.status === 'pending'
+                ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" placeholder="Reply..." onkeydown="if(event.key===\'Enter\')replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')" />' +
+                  '<button class="crew-btn" onclick="replyCourier(' + esc(m.id) + ',\'row-reply-' + esc(m.id) + '\')">⚡ Reply</button>'
+                : '') +
+              (m.status !== 'delivered' ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack</button>' : '') +
+              '<button class="crew-btn" title="Delete message M#' + esc(m.id) + '" onclick="deleteCourier(' + esc(m.id) + ')">✕ Delete</button></div>';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
               '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
               '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
@@ -3607,6 +3642,23 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       } catch (_) {}
     }
 
+    async function deleteCourier(msgId) {
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Deleting M#' + msgId + '...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'delete-msg', id: msgId, sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.hud) {
+          applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Deleted M#' + msgId;
+        }
+      } catch (_) {}
+    }
+
     async function upgradeConstructNow() {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Upgrading Construct (git pull + rom sync + install-plugin)...';
@@ -3723,6 +3775,16 @@ function startStandaloneHudServer(port = 47420, file = dbPath()) {
             }
             if (rawAction === 'ack' && payload.id) {
               ackMessage(payload.id, file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              return;
+            }
+            if (rawAction === 'delete-msg' && payload.id) {
+              deleteMessage(payload.id, file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
               try {
                 generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
@@ -5278,6 +5340,7 @@ module.exports = {
   sendMessage,
   replyMessage,
   ackMessage,
+  deleteMessage,
   listMessages,
   dropPatch,
   applyDrop,

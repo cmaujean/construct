@@ -165,9 +165,31 @@ const KNOWN_ROM_NAMES = new Set([
   "laundry",
   "qdivision",
   "mahoganyrow",
+  "tolkien",
+  "fellowship",
+  "middleearth",
+  "rivendell",
   "generic",
   "standard",
   "plain",
+  // Tolkien bank (9 starters + 4 backups including smeagol/gollum)
+  "gandalf",
+  "mithrandir",
+  "aragorn",
+  "strider",
+  "galadriel",
+  "gimli",
+  "faramir",
+  "legolas",
+  "eowyn",
+  "samwise",
+  "sam",
+  "elrond",
+  "boromir",
+  "celebrimbor",
+  "frodo",
+  "smeagol",
+  "gollum",
   // Dresden bank (9 starters + 3 backups)
   "bob",
   "butters",
@@ -378,7 +400,7 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge

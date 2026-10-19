@@ -274,13 +274,14 @@ You do not have a working agreement on file for operator \`${detectedLogin}\`.
    - **\`dresden\` — The Chicago Paranet & White Council Crew (Jim Butcher's *The Dresden Files*):** Sub-basement wizard lab, Unseelie Accords invariants, and SI forensics: Bob the Skull, Waldo Butters, Queen Mab, Harry Dresden, Karrin Murphy, Thomas Raith, John Marcone, Molly Carpenter (Grasshopper), and The Archive (Ivy).
    - **\`amber\` — The Royal House of Amber (Roger Zelazny's *The Chronicles of Amber*):** Castle Amber, the Primal Pattern, Trump decks, and Shadow hellrides: Corwin, Merlin, Fiona, Benedict, Julian, Random, Brand, Dworkin, and Ghostwheel.
    - **\`laundry\` — SOE "Q" Division // The Capital Laundry Service (Charles Stross's *The Laundry Files*):** Whitehall occult intelligence & BOFH computational demonology: Bob Howard, Pinky, Angleton, Mo, Brain, Persephone, Mhari, Holly, and The Stacks.
+   - **\`tolkien\` — The Council of Elrond & Fellowship Crew (J.R.R. Tolkien's *The Lord of the Rings*):** Rivendell lore, Ranger trail-craft, Mirror of Galadriel invariants, and Khazad-dûm stonework: Gandalf, Aragorn, Galadriel, Gimli, Faramir, Legolas, Éowyn, Samwise, and Elrond.
    - **\`generic\` — The Standard Engineering Crew (Zero-Fiction Specialist Pipeline):** Pure professional engineering specialists with zero literary fiction: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
 2. **Ask them to introduce themselves** so you can calibrate their personal working agreement:
    - Their engineering/domain experience level and which parts of the stack are new to them.
    - How they want explanations calibrated: code snippets vs. prose, lead with finding/` + '`file:line`' + ` vs. full walkthrough, and whether terse instructions should be executed immediately.
    - Their OS/shell/browser environment, scratch directory path (outside repositories), and whether they keep their git repositories under a common base directory (e.g. \`~/src\`, \`~/code\`, \`D:\\projects\`) or in separate locations.
    - Any standing rules they hate repeating.
-3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|dresden|amber|laundry|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
+3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|dresden|amber|laundry|tolkien|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
   }
 
   const wsLine = user.workspaceRoot ? `\n- **Workspace Root:** \`${user.workspaceRoot}\`` : '';
