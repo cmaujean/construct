@@ -4063,7 +4063,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           .prepare('SELECT * FROM crdt_log WHERE project = ? AND hlc > ? ORDER BY hlc ASC')
           .all(project, sinceHlc);
 
-        const ops = rows
+        const rawOps = rows
           .map((r) => ({
             opId: r.op_id,
             hlc: r.hlc,
@@ -4075,6 +4075,13 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           }))
           .filter((op) => op.project === project && (op.entity !== 'gotcha' || op.payload.scope === project));
 
+        // Deduplicate by `entity:recordUid`, keeping the latest HLC state for each record
+        const dedupedByRecord = new Map();
+        for (const op of rawOps) {
+          dedupedByRecord.set(`${op.entity}:${op.recordUid}`, op);
+        }
+        const ops = [...dedupedByRecord.values()].sort((a, b) => (a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : 0));
+
         const identity = crdt.loadOrCreateIdentity();
         const envelope = crdt.sealMlsApplicationMessage(group, identity, {
           project,
@@ -4082,8 +4089,43 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           ops,
         });
 
+        // Also build relay-safe chunk envelopes (<= 16 KB raw ops JSON per chunk -> < 28 KB Nostr event)
+        // so public NIP-01 relays with 64 KB frame ceilings accept large initial project syncs.
+        const MAX_CHUNK_JSON_BYTES = 16000;
+        const envelopes = [];
+        let currentChunk = [];
+        let currentBytes = 0;
+        for (const op of ops) {
+          const opBytes = JSON.stringify(op).length;
+          if (currentChunk.length > 0 && currentBytes + opBytes > MAX_CHUNK_JSON_BYTES) {
+            envelopes.push({
+              maxHlc: currentChunk[currentChunk.length - 1].hlc,
+              envelope: crdt.sealMlsApplicationMessage(group, identity, {
+                project,
+                opCount: currentChunk.length,
+                ops: currentChunk,
+              }),
+            });
+            currentChunk = [];
+            currentBytes = 0;
+          }
+          currentChunk.push(op);
+          currentBytes += opBytes;
+        }
+        if (currentChunk.length > 0) {
+          envelopes.push({
+            maxHlc: currentChunk[currentChunk.length - 1].hlc,
+            envelope: crdt.sealMlsApplicationMessage(group, identity, {
+              project,
+              opCount: currentChunk.length,
+              ops: currentChunk,
+            }),
+          });
+        }
+
         return {
           envelope,
+          envelopes,
           token: `construct://packet/${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`,
           opCount: ops.length,
           maxHlc: ops.length ? ops[ops.length - 1].hlc : sinceHlc,
@@ -4170,20 +4212,30 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     }
   }
 
-  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays
+  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays (chunked for <28KB NIP-01 relay limits)
   const exported = exportEncryptedPacket(
     project,
     { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '' },
     file
   );
   let pushedOk = 0;
+  let lastAckedHlc = '';
   if (exported.opCount > 0) {
-    const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, exported.envelope, options.timeoutMs || 4000);
-    pushedOk = pubRes.results.filter((r) => r.ok).length;
-    if (pushedOk > 0 && exported.maxHlc) {
+    const chunks = Array.isArray(exported.envelopes) && exported.envelopes.length
+      ? exported.envelopes
+      : [{ maxHlc: exported.maxHlc, envelope: exported.envelope }];
+    for (const chunk of chunks) {
+      const pubRes = await relay.publishEnvelopeToRelays(relays, routeTag, chunk.envelope, options.timeoutMs || 5000);
+      const ackCount = pubRes.results.filter((r) => r.ok).length;
+      if (ackCount > 0) {
+        pushedOk = Math.max(pushedOk, ackCount);
+        if (chunk.maxHlc) lastAckedHlc = chunk.maxHlc;
+      }
+    }
+    if (pushedOk > 0 && lastAckedHlc) {
       withDb((db) => {
         db.prepare('UPDATE mls_groups SET last_sync_hlc = ?, updated = ? WHERE project = ?').run(
-          exported.maxHlc,
+          lastAckedHlc,
           nowIso(),
           project
         );
