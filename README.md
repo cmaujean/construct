@@ -35,7 +35,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated 9-seat engineering crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with eight complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with nine complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
 - **You interact with it in plain English inside OpenCode or Claude Code.** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -56,11 +56,11 @@ cd construct && npm link
 construct init
 ```
 
-*(Using **Claude Code** alongside or instead of OpenCode? Run `construct init --claude` to configure `~/.claude/CLAUDE.md`, the `construct mcp` stdio server, all 93 color-badged specialist subagents in `~/.claude/agents/*.md`, and Claude Code's `SessionStart`, `UserPromptSubmit`, `SubagentStart`, and `PreToolUse` hooks against the same `construct.db`.)*
+*(Using **Claude Code** alongside or instead of OpenCode? Run `construct init --claude` to configure `~/.claude/CLAUDE.md`, the `construct mcp` stdio server, all 105 color-badged specialist subagents in `~/.claude/agents/*.md`, and Claude Code's `SessionStart`, `UserPromptSubmit`, `SubagentStart`, and `PreToolUse` hooks against the same `construct.db`.)*
 
 ### What `construct init` Does Automatically
 1. Generates your local cryptographic identity (`~/.config/opencode/identity.json`, a W3C `did:key:z6Mk...` Ed25519 + X25519 keypair).
-2. Creates `~/.config/opencode/construct.db` with all 94 built-in ROM constructs across the 8 modular Crew Banks and the Core Engineering Protocol.
+2. Creates `~/.config/opencode/construct.db` with all 106 built-in ROM constructs across the 9 modular Crew Banks and the Core Engineering Protocol.
 3. Scans for any existing global AI instruction files and imports your agreements and gotchas if found.
 4. Installs the OpenCode V2 plugin at `~/.config/opencode/plugins/construct.js` and adds `~/.config/opencode/active-rom.md` to `~/.config/opencode/opencode.jsonc` (and when `--claude` is passed, wires `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, and `~/.claude/agents/*.md`).
 
@@ -79,6 +79,7 @@ On your very first turn:
    - 🐉 **`shadowrun` (Seattle 2050s Shadowland Team):** Sixth World tactical arcology run where Awakened magic meets cyberware: Talon (Raven shaman), StreetDoc, FastJack, Hatchetman (Street Samurai), Rigger, Dodger (Excalibur decker), Harlequin, Siren (Face), Captain Chaos (Shadowland SysOp).
    - 🕯️ **`dresden` (The Chicago Paranet & White Council Crew):** Jim Butcher's *The Dresden Files*. Sub-basement wizard lab, Unseelie Accords invariants, and SI forensics: Bob the Skull, Waldo Butters, Queen Mab, Harry Dresden, Karrin Murphy, Thomas Raith, John Marcone, Molly Carpenter (Grasshopper), and The Archive (Ivy).
    - 🦄 **`amber` (The Royal House of Amber):** Roger Zelazny's *The Chronicles of Amber*. Castle Amber, the Primal Pattern, Trump decks, and Shadow hellrides: Corwin, Merlin, Fiona, Benedict, Julian, Random, Brand, Dworkin, and Ghostwheel.
+   - 🐙 **`laundry` (SOE "Q" Division // The Capital Laundry Service):** Charles Stross's *The Laundry Files*. Whitehall occult intelligence & BOFH computational demonology: Bob Howard, Pinky, Angleton, Mo, Brain, Persephone, Mhari, Holly, and The Stacks.
    - ⚙️ **`generic` (The Standard Engineering Crew):** Zero-fiction professional specialist pipeline: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
 2. **Introduce yourself in chat** so Construct can calibrate your personal working agreement:
    - **Your background and experience** (for example: *"I have 20 years of backend C# and Go experience, and I am new to Flutter. Do not explain backend basics to me; do explain Flutter widget lifecycle quirks."* Or: *"I am a product designer with minimal coding experience; I rely on you to verify everything because I cannot read the code myself."*)
@@ -121,7 +122,7 @@ In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex o
 
 Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument and specialized **Bench / Seconds**) from **Swappable Crew Banks (`packs`)**. Each bank lives in its own lazy-loaded module under `src/packs/<bank>.js` (so normal turns load `0` inactive pack files into memory, and only your session's active 9 seats are queried from SQLite).
 
-Out of the box, Construct ships with **94 deep ROM constructs** across eight Crew Banks:
+Out of the box, Construct ships with **106 deep ROM constructs** across nine Crew Banks:
 - 🌃 **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 starters + 3 bench seconds).
 - 🦾 **`nightcity` (`afterlife` / `cyberpunk`):** *Cyberpunk 2077 / Phantom Liberty* Afterlife Edgerunners (9 starters + 3 bench seconds).
 - 🏛️ **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 starters + 3 bench seconds).
@@ -129,21 +130,22 @@ Out of the box, Construct ships with **94 deep ROM constructs** across eight Cre
 - 🐉 **`shadowrun` (`shadowland`):** Sixth World 2050s Seattle Shadowland Team (9 starters + 3 bench seconds).
 - 🕯️ **`dresden` (`paranet`):** Jim Butcher's *The Dresden Files* Chicago Paranet & White Council Crew (9 starters + 3 bench seconds).
 - 🦄 **`amber` (`kolvir` / `pattern`):** Roger Zelazny's *The Chronicles of Amber* Royal House of Amber (9 starters + 3 bench seconds).
+- 🐙 **`laundry` (`qdivision` / `mahoganyrow`):** Charles Stross's *The Laundry Files* SOE "Q" Division & Capital Laundry Service (9 starters + 3 bench seconds).
 - ⚙️ **`generic` (`standard` / `plain`):** Zero-fiction principal engineering pipeline (9 starters + `razor`).
 
-### The 9-Seat Crew Matrix Across All Eight Built-In Banks
+### The 9-Seat Crew Matrix Across All Nine Built-In Banks
 
-| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `dresden` | `amber` | `generic` |
-|---|---|---|---|---|---|---|---|---|---|
-| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`bob`** | **`corwin`** | **`guide`** |
-| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`butters`** | **`merlin`** *(bench: **`caine`**)* | **`trace`** |
-| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`mab`** *(bench: **`ebenezar`**)* | **`fiona`** | **`arch`** |
-| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`harry`** | **`benedict`** | **`strike`** |
-| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`murphy`** | **`julian`** | **`audit`** |
-| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`thomas`** *(bench: **`toot`**)* | **`random`** | **`pulse`** |
-| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`marcone`** *(bench: **`michael`**)* | **`brand`** *(bench: **`eric`**)* | **`redteam`** |
-| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`grasshopper`** | **`dworkin`** *(bench: **`flora`**)* | **`ux`** |
-| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ivy`** (`archive`) | **`ghostwheel`** (`ghost`) | **`ledger`** |
+| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `dresden` | `amber` | `laundry` | `generic` |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`bob`** | **`corwin`** | **`bobhoward`** (`howard`) | **`guide`** |
+| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`butters`** | **`merlin`** *(bench: **`caine`**)* | **`pinky`** *(bench: **`bridget`**)* | **`trace`** |
+| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`mab`** *(bench: **`ebenezar`**)* | **`fiona`** | **`angleton`** (`teapot`, *bench: **`iris`**)* | **`arch`** |
+| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`harry`** | **`benedict`** | **`mo`** *(bench: **`fred`**)* | **`strike`** |
+| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`murphy`** | **`julian`** | **`brain`** | **`audit`** |
+| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`thomas`** *(bench: **`toot`**)* | **`random`** | **`persephone`** (`cassie`) | **`pulse`** |
+| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`marcone`** *(bench: **`michael`**)* | **`brand`** *(bench: **`eric`**)* | **`mhari`** | **`redteam`** |
+| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`grasshopper`** | **`dworkin`** *(bench: **`flora`**)* | **`holly`** | **`ux`** |
+| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ivy`** (`archive`) | **`ghostwheel`** (`ghost`) | **`stacks`** (`registry`) | **`ledger`** |
 
 ### The Room Dynamic, Phase Gates, Cross-Bank Cameos & Parallel Overwatch
 
@@ -197,7 +199,7 @@ Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
 - To add a personal or custom Crew Bank without touching the Construct repository, drop a `<bank>.js` file into `~/.config/opencode/packs/` (or set `CONSTRUCT_PACKS_DIR`).
 - Construct discovers it automatically on the next turn and registers its bank name, starter names, and bench backups across OpenCode and Claude Code.
 
-> **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, and `amber`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Jim Butcher, Roger Zelazny, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
+> **Note on Literary & Creative Homage:** The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, and `laundry`) are non-commercial fan homages written to celebrate the authors, world-builders, and designers who shaped how our generation thinks about systems, networks, and craft (William Gibson, Neal Stephenson, Jim Butcher, Roger Zelazny, Charles Stross, Mike Pondsmith, CD Projekt Red, and the creators of *Shadowrun*). All calibration examples and engineering prompts are original software-engineering material, and Construct is licensed under MIT + Commons Clause v1.0 (forbidding commercial sale). Because each pack is a self-contained module, if any author, publisher, or rightsholder ever prefers that a specific homage pack not be bundled in the public repository, open an issue or reach out to `christopher@maujean.org` and that pack file will be removed promptly without affecting the engine or the `generic` engineering crew.
 
 ### Live OpenCode HUD & Interactive Review Pane Switcher (`construct hud` & `construct dashboard`)
 
@@ -481,11 +483,12 @@ You are free to use, modify, and share Construct for personal or internal work, 
 
 ### Literary & Creative Homage Policy
 
-The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, and `amber`) are non-commercial fan homages written out of love and respect for the authors, world-builders, and game designers who shaped how our generation thinks about systems, networks, and craft:
+The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, and `laundry`) are non-commercial fan homages written out of love and respect for the authors, world-builders, and game designers who shaped how our generation thinks about systems, networks, and craft:
 - **William Gibson** (*Neuromancer*, *Count Zero*, *Mona Lisa Overdrive*)
 - **Neal Stephenson** (*Anathem*, *Cryptonomicon*)
 - **Jim Butcher** (*The Dresden Files*)
 - **Roger Zelazny** (*The Chronicles of Amber*)
+- **Charles Stross** (*The Laundry Files*)
 - **Mike Pondsmith, R. Talsorian Games & CD Projekt Red** (*Cyberpunk 2020 / Cyberpunk 2077 / Phantom Liberty*)
 - **Jordan Weisman & the creators of *Shadowrun*** (*Sixth World*)
 
