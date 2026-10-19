@@ -268,7 +268,7 @@ const MCP_TOOLS = Object.freeze([
       properties: {
         action: {
           type: 'string',
-          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'dashboard', 'issues-sync', 'issues-publish'],
+          enum: ['did', 'invite', 'join', 'sync', 'export', 'import', 'assimilate', 'init', 'upgrade', 'upgrade-check', 'dashboard', 'issues-sync', 'issues-publish'],
         },
         target: {
           type: 'string',
@@ -423,6 +423,8 @@ function executeMcpTool(name, input = {}) {
     case 'construct_sync': {
       if (input.action === 'did') return runConstructCli(['did']);
       if (input.action === 'init') return runConstructCli(['init']);
+      if (input.action === 'upgrade') return runConstructCli(['upgrade']);
+      if (input.action === 'upgrade-check') return runConstructCli(['upgrade', '--check']);
       if (input.action === 'dashboard') {
         const args = ['dashboard'];
         if (input.target) args.push('--out', String(input.target));

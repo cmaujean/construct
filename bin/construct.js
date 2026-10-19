@@ -163,6 +163,7 @@ const OPTIONS = {
   setup: { type: 'string' },
   'remove-files': { type: 'boolean' },
   claude: { type: 'boolean' },
+  check: { type: 'boolean' },
   port: { type: 'string' },
   open: { type: 'boolean' },
   closed: { type: 'boolean' },
@@ -209,6 +210,7 @@ function printBoot(data) {
     sessionRomPrompt = '',
     shadowedFiles = [],
     driftedFiles = [],
+    upstreamUpdate = null,
     user,
     detectedLogin,
     head,
@@ -289,6 +291,18 @@ function printBoot(data) {
     for (const d of driftedFiles) {
       console.log(`  [!] ${d.relPath} (${d.absPath}) -> Review changes with the operator and run "construct assimilate" to absorb & re-shadow.`);
     }
+  }
+
+  if (upstreamUpdate && upstreamUpdate.behindCount > 0) {
+    console.log(
+      `\nCONSTRUCT UPGRADE AVAILABLE (${upstreamUpdate.behindCount} new commit(s) on origin/main: ${upstreamUpdate.localSha || 'local'} -> ${upstreamUpdate.remoteSha || 'origin/main'}):`
+    );
+    for (const c of upstreamUpdate.commits || []) {
+      console.log(`  * ${c}`);
+    }
+    console.log(
+      '  -> Prompt the operator (or call the `question` tool) to ask if they want to upgrade Construct now (`construct upgrade` or `tools.construct.sync({ action: "upgrade" })`).'
+    );
   }
 
   if (inboxPending.length) {
@@ -701,6 +715,27 @@ function main(argv) {
         if (res.assimilated.length) {
           console.log(`  assimilated ${res.assimilated.length} global instruction folder(s)`);
         }
+      }
+      return 0;
+    }
+
+    case 'upgrade':
+    case 'self-update': {
+      if (o.check || rest[0] === 'check') {
+        const st = store.checkConstructUpstream({ force: true });
+        if (o.json) console.log(JSON.stringify(st, null, 2));
+        else if (st.behindCount > 0) {
+          console.log(`construct update available: ${st.behindCount} new commit(s) (${st.localSha} -> ${st.remoteSha})`);
+          for (const c of st.commits) console.log(`  * ${c}`);
+        } else {
+          console.log(`construct is up to date (${st.localSha || 'HEAD'})`);
+        }
+        return 0;
+      }
+      const res = store.upgradeConstruct({ configDir: o.dir });
+      if (o.json) console.log(JSON.stringify(res, null, 2));
+      else {
+        console.log(`upgraded construct (${res.previousSha} -> ${res.currentSha}): synced ROMs -> ${res.romFile}, plugin -> ${res.pluginPath}`);
       }
       return 0;
     }

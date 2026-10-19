@@ -996,13 +996,13 @@ export default {
 
       editor.add({
         name: "sync",
-        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), or HTML dashboard generation.",
+        description: "DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues <-> Threads sync (`issues-sync` / `issues-publish`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.",
         input: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "dashboard", "issues-sync", "issues-publish"],
+              enum: ["did", "invite", "join", "sync", "export", "import", "assimilate", "init", "upgrade", "upgrade-check", "dashboard", "issues-sync", "issues-publish"],
             },
             target: {
               type: "string",
@@ -1022,6 +1022,8 @@ export default {
         execute: async (input) => {
           if (input.action === "did") return { content: runConstruct(["did"]) }
           if (input.action === "init") return { content: runConstruct(["init"]) }
+          if (input.action === "upgrade") return { content: runConstruct(["upgrade"]) }
+          if (input.action === "upgrade-check") return { content: runConstruct(["upgrade", "--check"]) }
           if (input.action === "dashboard") {
             const args = ["dashboard"]
             if (input.target) args.push("--out", String(input.target))
@@ -1236,6 +1238,14 @@ export default {
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
+              if (rawAction === "upgrade") {
+                const out = runConstruct(["upgrade"])
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, upgraded: out, hud: snap }))
                 return
               }
 

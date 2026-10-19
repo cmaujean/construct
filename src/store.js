@@ -223,6 +223,12 @@ function initSchema(db) {
       updated  TEXT NOT NULL,
       PRIMARY KEY (project, rel_path)
     );
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key     TEXT PRIMARY KEY,
+      value   TEXT NOT NULL,
+      updated TEXT NOT NULL
+    );
   `);
 
   const headCols = db.prepare('PRAGMA table_info(heads)').all().map((c) => c.name);
@@ -1124,6 +1130,34 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       }
     }
 
+    // Throttled (15-minute) non-blocking background Construct upstream update check
+    const upstreamUpdate = getCachedConstructUpstreamInDb(db);
+    let upstreamCheckTriggered = false;
+    if (allowAutoSync) {
+      const lastUpTs = Date.parse(upstreamUpdate?.checkedAt || '') || 0;
+      const upThrottleMs = Number(options.upstreamCheckThrottleMs ?? 15 * 60 * 1000);
+      if (Date.now() - lastUpTs >= upThrottleMs) {
+        const now = nowIso();
+        setCachedConstructUpstreamInDb(db, {
+          ...(upstreamUpdate || { behindCount: 0, localSha: '', remoteSha: '', commits: [] }),
+          checkedAt: now,
+        });
+        upstreamCheckTriggered = true;
+        if (!options.dryRunAutoSync) {
+          try {
+            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+            const child = spawn(process.execPath, [binScript, 'upgrade', '--check'], {
+              detached: true,
+              stdio: 'ignore',
+              windowsHide: true,
+              env: { ...process.env, CONSTRUCT_DB: file },
+            });
+            child.unref();
+          } catch (_) {}
+        }
+      }
+    }
+
     return {
       rom,
       romSlotted,
@@ -1135,6 +1169,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       head,
       autoSyncTriggered,
       ghIssuesSyncTriggered,
+      upstreamCheckTriggered,
+      upstreamUpdate,
       hasMlsGroup: Boolean(mlsRow),
       stats: {
         totalFrames: Number(statsRow?.total || 0),
@@ -2790,6 +2826,11 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       };
     }
 
+    const upstreamUpdate = getCachedConstructUpstreamInDb(db);
+    if (upstreamUpdate?.behindCount > 0) {
+      pillParts.push(`⬆️${upstreamUpdate.behindCount} update`);
+    }
+
     return {
       sessionId,
       dir: dir || headRow?.repo || '',
@@ -2818,7 +2859,8 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       inboxReplyCount,
       driftCount,
       hasMlsGroup: Boolean(mlsRow),
-      pill,
+      upstreamUpdate,
+      pill: pillParts.join(' · '),
       tabBadge,
       tabs,
       projectRoms,
@@ -2892,6 +2934,24 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       </tr>`
     )
     .join('');
+
+  const upInfo = hud.upstreamUpdate || { behindCount: 0, localSha: '', remoteSha: '', commits: [] };
+  const upgradeAlertHtml =
+    upInfo.behindCount > 0
+      ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <span class="badge" style="background:rgba(88,166,255,0.22);color:#fff;font-weight:700;">⬆️ CONSTRUCT UPDATE AVAILABLE (${upInfo.behindCount} new commit${upInfo.behindCount === 1 ? '' : 's'})</span>
+          <span class="sub" style="margin-left:6px;">(${escapeHtml(upInfo.localSha || 'local')} -&gt; ${escapeHtml(upInfo.remoteSha || 'origin/main')})</span>
+        </div>
+        <button class="crew-btn active" onclick="upgradeConstructNow()">⚡ Upgrade Construct Now</button>
+      </div>
+      ${
+        Array.isArray(upInfo.commits) && upInfo.commits.length
+          ? `<div class="sub" style="margin-top:6px;color:#e6edf3;">${upInfo.commits.map((c) => '&bull; ' + escapeHtml(c)).join('<br/>')}</div>`
+          : ''
+      }`
+      : '';
 
   const commsList = Array.isArray(hud.comms) ? hud.comms : [];
   const activeOpId = String(hud.operatorId || '').toLowerCase();
@@ -3049,6 +3109,13 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     padding: 12px 14px;
     margin-bottom: 14px;
   }
+  .upgrade-alert-box {
+    background: rgba(88, 166, 255, 0.14);
+    border: 2px solid var(--accent);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
+  }
   .courier-alert-item + .courier-alert-item {
     margin-top: 10px;
     padding-top: 10px;
@@ -3090,6 +3157,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     </div>
   </div>
 
+  <div id="hud-upgrade-alert-wrap" class="upgrade-alert-box" style="display:${upInfo.behindCount > 0 ? 'block' : 'none'};">${upgradeAlertHtml}</div>
   <div id="hud-courier-alert-wrap" class="courier-alert-box" style="display:${unreadComms.length ? 'block' : 'none'};">${unreadAlertHtml}</div>
 
   <div class="roster-bar">
@@ -3281,11 +3349,31 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
       const commsHeading = document.getElementById('hud-comms-heading');
       const commsTbody = document.getElementById('hud-comms-tbody');
+      const upgradeWrap = document.getElementById('hud-upgrade-alert-wrap');
       const alertWrap = document.getElementById('hud-courier-alert-wrap');
       const commsArr = Array.isArray(h.comms) ? h.comms : [];
       const opId = String(h.operatorId || '').toLowerCase();
       const activeEl = document.activeElement;
       const isTypingReply = Boolean(activeEl && activeEl.classList && activeEl.classList.contains('reply-input'));
+
+      if (upgradeWrap) {
+        const up = h.upstreamUpdate || { behindCount: 0, commits: [] };
+        if (!up.behindCount || up.behindCount <= 0) {
+          upgradeWrap.style.display = 'none';
+          upgradeWrap.innerHTML = '';
+        } else {
+          upgradeWrap.style.display = 'block';
+          const commitsHtml = Array.isArray(up.commits) && up.commits.length
+            ? '<div class="sub" style="margin-top:6px;color:#e6edf3;">' + up.commits.map((c) => '&bull; ' + esc(c)).join('<br/>') + '</div>'
+            : '';
+          upgradeWrap.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">' +
+            '<div><span class="badge" style="background:rgba(88,166,255,0.22);color:#fff;font-weight:700;">⬆️ CONSTRUCT UPDATE AVAILABLE (' + esc(up.behindCount) + ' new commit' + (up.behindCount === 1 ? '' : 's') + ')</span>' +
+            '<span class="sub" style="margin-left:6px;">(' + esc(up.localSha || 'local') + ' -&gt; ' + esc(up.remoteSha || 'origin/main') + ')</span></div>' +
+            '<button class="crew-btn active" onclick="upgradeConstructNow()">⚡ Upgrade Construct Now</button>' +
+            '</div>' + commitsHtml;
+        }
+      }
 
       if (alertWrap && !isTypingReply) {
         const unread = commsArr.filter((m) =>
@@ -3475,6 +3563,23 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Acknowledged M#' + msgId;
+        }
+      } catch (_) {}
+    }
+
+    async function upgradeConstructNow() {
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Upgrading Construct (git pull + rom sync + install-plugin)...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'upgrade', sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          if (data.hud) applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Construct upgraded to latest!';
         }
       } catch (_) {}
     }
@@ -4289,6 +4394,137 @@ function initConstruct(options = {}, file = dbPath()) {
   };
 }
 
+function getCachedConstructUpstreamInDb(db) {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'construct_upstream'").get();
+    if (row && row.value) {
+      return JSON.parse(row.value);
+    }
+  } catch (_) {}
+  return { behindCount: 0, localSha: '', remoteSha: '', commits: [], checkedAt: '' };
+}
+
+function setCachedConstructUpstreamInDb(db, statusObj) {
+  const now = nowIso();
+  const payload = {
+    behindCount: Number(statusObj?.behindCount || 0),
+    localSha: String(statusObj?.localSha || ''),
+    remoteSha: String(statusObj?.remoteSha || ''),
+    commits: Array.isArray(statusObj?.commits) ? statusObj.commits : [],
+    checkedAt: statusObj?.checkedAt || now,
+  };
+  db.prepare(
+    `INSERT INTO meta (key, value, updated)
+     VALUES ('construct_upstream', ?, ?)
+     ON CONFLICT(key) DO UPDATE SET
+       value = excluded.value,
+       updated = excluded.updated`
+  ).run(JSON.stringify(payload), now);
+  return payload;
+}
+
+function checkConstructUpstream(options = {}, file = dbPath()) {
+  const repoDir = options.repoDir || path.resolve(__dirname, '..');
+  const throttleMs = Number(options.throttleMs ?? 15 * 60 * 1000);
+
+  if (!options.force) {
+    const cached = withDb((db) => getCachedConstructUpstreamInDb(db), file);
+    const lastTs = Date.parse(cached?.checkedAt || '') || 0;
+    if (Date.now() - lastTs < throttleMs) {
+      return cached;
+    }
+  }
+
+  const execGit =
+    options.execGitFn ||
+    ((args) =>
+      execFileSync('git', ['-C', repoDir, ...args], {
+        encoding: 'utf8',
+        timeout: 6000,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim());
+
+  let localSha = '';
+  let remoteSha = '';
+  let behindCount = 0;
+  let commits = [];
+
+  try {
+    if (options.fetch !== false) {
+      try {
+        execGit(['fetch', 'origin', 'main', '--quiet']);
+      } catch (_) {}
+    }
+    localSha = execGit(['rev-parse', '--short', 'HEAD']);
+    remoteSha = execGit(['rev-parse', '--short', 'origin/main']);
+    behindCount = Number(execGit(['rev-list', '--count', 'HEAD..origin/main']) || 0);
+    if (behindCount > 0) {
+      const logOut = execGit(['log', '--oneline', '-n', '5', 'HEAD..origin/main']);
+      commits = logOut ? logOut.split(/\r?\n/).filter(Boolean) : [];
+    }
+  } catch (_) {}
+
+  const statusObj = {
+    behindCount,
+    localSha,
+    remoteSha,
+    commits,
+    checkedAt: nowIso(),
+  };
+
+  return withDb((db) => tx(db, () => setCachedConstructUpstreamInDb(db, statusObj)), file);
+}
+
+function upgradeConstruct(options = {}, file = dbPath()) {
+  const repoDir = options.repoDir || path.resolve(__dirname, '..');
+  const configDir = options.configDir || path.join(os.homedir(), '.config', 'opencode');
+  const execGit =
+    options.execGitFn ||
+    ((args) =>
+      execFileSync('git', ['-C', repoDir, ...args], {
+        encoding: 'utf8',
+        timeout: 15000,
+        windowsHide: true,
+      }).trim());
+
+  let previousSha = '';
+  try {
+    previousSha = execGit(['rev-parse', '--short', 'HEAD']);
+  } catch (_) {}
+
+  const pullOutput = execGit(['pull', '--ff-only', 'origin', 'main']);
+
+  let currentSha = previousSha;
+  try {
+    currentSha = execGit(['rev-parse', '--short', 'HEAD']);
+  } catch (_) {}
+
+  // Reseed built-in ROMs, recompile active-rom.md, and reinstall OpenCode plugin files
+  const syncRes = withDb((db) => {
+    romMod.reseedBuiltInRoms(db);
+    setCachedConstructUpstreamInDb(db, {
+      behindCount: 0,
+      localSha: currentSha,
+      remoteSha: currentSha,
+      commits: [],
+      checkedAt: nowIso(),
+    });
+    return syncActiveRomInDb(db);
+  }, file);
+
+  const pluginPath = installPluginFile(configDir);
+
+  return {
+    upgraded: previousSha !== currentSha || Boolean(pullOutput),
+    previousSha,
+    currentSha,
+    pullOutput,
+    romFile: syncRes.path,
+    pluginPath,
+  };
+}
+
 module.exports = {
   KINDS,
   DEFAULT_DB,
@@ -4337,6 +4573,17 @@ module.exports = {
   removeGotcha,
   sendMessage,
   replyMessage,
+  ackMessage,
+  listMessages,
+  dropPatch,
+  applyDrop,
+  whyTarget,
+  syncGithubIssues,
+  publishThreadToGithub,
+  getHudSnapshot,
+  generateDashboardHtml,
+  checkConstructUpstream,
+  upgradeConstruct,
   ackMessage,
   listMessages,
   dropPatch,

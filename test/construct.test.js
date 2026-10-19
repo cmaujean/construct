@@ -1110,15 +1110,59 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.match(cliCourierBoot, /⚡ \*\*\[TOOT \/\/ COURIER FROM ALICE\]\*\*/);
       assert.match(cliCourierBoot, /COURIER CAMEO & STICKY FRONTIER RULE/);
 
+      // 4g. Construct upstream update check (`checkConstructUpstream`) & self-update (`upgradeConstruct`)
+      const upStatus = store.checkConstructUpstream({
+        force: true,
+        execGitFn: (args) => {
+          if (args[0] === 'fetch') return '';
+          if (args[0] === 'rev-parse' && args[2] === 'HEAD') return '111aaaa';
+          if (args[0] === 'rev-parse' && args[2] === 'origin/main') return '222bbbb';
+          if (args[0] === 'rev-list') return '2';
+          if (args[0] === 'log') return '222bbbb feat: add new pack\n199cccc fix: hud sync';
+          return '';
+        },
+      });
+      assert.equal(upStatus.behindCount, 2);
+      assert.equal(upStatus.localSha, '111aaaa');
+      assert.equal(upStatus.remoteSha, '222bbbb');
+      assert.equal(upStatus.commits.length, 2);
+
+      const cliUpgradeBoot = execFileSync(process.execPath, [CLI, 'boot', 'acme/shared_app', '--session', 'ses_tab_a'], {
+        env: { ...process.env, CONSTRUCT_NO_AUTOSYNC: '1' },
+        encoding: 'utf8',
+      });
+      assert.match(cliUpgradeBoot, /CONSTRUCT UPGRADE AVAILABLE \(2 new commit\(s\) on origin\/main: 111aaaa -> 222bbbb\)/);
+      assert.match(cliUpgradeBoot, /222bbbb feat: add new pack/);
+
       const dashFile = path.join(bobHome, 'dashboard.html');
       const dash = store.generateDashboardHtml({ outFile: dashFile, project: 'acme/shared_app', sessionId: 'ses_tab_a' });
       assert.ok(fs.existsSync(dashFile));
       assert.match(dash.html, /CONSTRUCT \/\/ SEQUENTIAL MEMORY HUD/);
       assert.match(dash.html, /TARGET TAB &amp; PROJECT SCOPE/);
+      assert.match(dash.html, /CONSTRUCT UPDATE AVAILABLE \(2 new commits\)/);
+      assert.match(dash.html, /upgradeConstructNow\(\)/);
       assert.match(dash.html, /UNREAD COURIER \[M#/);
       assert.match(dash.html, /replyCourier\(/);
       assert.match(dash.html, /ackCourier\(/);
       assert.match(dash.html, /Construct Comms &amp; Courier Log — acme\/shared_app/);
+
+      // Running `upgradeConstruct` pulls, syncs ROMs, reinstalls plugin, and clears `behindCount` to 0
+      let currentMockHead = '111aaaa';
+      const upRes = store.upgradeConstruct({
+        configDir: path.join(bobHome, '.config', 'opencode'),
+        execGitFn: (args) => {
+          if (args[0] === 'rev-parse') return currentMockHead;
+          if (args[0] === 'pull') {
+            currentMockHead = '222bbbb';
+            return 'Fast-forward';
+          }
+          return '';
+        },
+      });
+      assert.equal(upRes.upgraded, true);
+      assert.equal(upRes.previousSha, '111aaaa');
+      assert.equal(upRes.currentSha, '222bbbb');
+      assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).upstreamUpdate.behindCount, 0);
       assert.match(dash.html, /⚡ toot/);
       assert.match(dash.html, /Za-Lord says #111 is merged and ready for review!/);
       assert.match(dash.html, /acme\/shared_app/);
