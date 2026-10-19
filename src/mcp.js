@@ -21,8 +21,12 @@ const protocol = require('./protocol');
 
 const CONSTRUCT_BIN = path.join(__dirname, '..', 'bin', 'construct.js');
 
+function resolveNodeExecutable(execPath = process.execPath) {
+  return /node(?:\.exe)?$/i.test(String(execPath || '')) ? execPath : 'node';
+}
+
 function runConstructCli(args) {
-  return execFileSync(process.execPath, [CONSTRUCT_BIN, ...args], {
+  return execFileSync(resolveNodeExecutable(), [CONSTRUCT_BIN, ...args], {
     encoding: 'utf8',
     timeout: 10000,
     windowsHide: true,
@@ -1028,5 +1032,6 @@ module.exports = {
   validateShellCommand,
   buildFrontierVoiceLock,
   detectPreSlotRomDirective,
+  resolveNodeExecutable,
   runClaudeHook,
 };

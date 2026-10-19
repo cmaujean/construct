@@ -1713,6 +1713,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       action: 'use',
       target: 'irondruid',
     });
+    assert.equal(mcp.resolveNodeExecutable('C:\\Users\\user\\AppData\\Local\\OpenCode\\opencode.exe'), 'node');
+    assert.equal(mcp.resolveNodeExecutable('/usr/local/bin/node'), '/usr/local/bin/node');
 
     // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
     const subStartNamed = mcp.runClaudeHook(

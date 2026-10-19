@@ -1160,7 +1160,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
           if (!options.dryRunAutoSync) {
             try {
               const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
-              const child = spawn(process.execPath, [binScript, 'sync', grp.project], {
+              const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
+              const child = spawn(nodeCmd, [binScript, 'sync', grp.project], {
                 detached: true,
                 stdio: 'ignore',
                 windowsHide: true,
@@ -1195,7 +1196,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
         if (!options.dryRunAutoSync) {
           try {
             const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
-            const child = spawn(process.execPath, [binScript, 'issues', 'sync', project], {
+            const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
+            const child = spawn(nodeCmd, [binScript, 'issues', 'sync', project], {
               detached: true,
               stdio: 'ignore',
               windowsHide: true,
@@ -3806,7 +3808,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   if (!process.env.CONSTRUCT_DB && !options.noServerSpawn) {
     try {
       const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
-      const child = spawn(process.execPath, [binScript, 'hud-server'], {
+      const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
+      const child = spawn(nodeCmd, [binScript, 'hud-server'], {
         detached: true,
         stdio: 'ignore',
         windowsHide: true,
