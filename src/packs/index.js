@@ -20,6 +20,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   shadowrun: path.join(__dirname, 'shadowrun.js'),
   dresden: path.join(__dirname, 'dresden.js'),
   amber: path.join(__dirname, 'amber.js'),
+  laundry: path.join(__dirname, 'laundry.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -301,6 +302,41 @@ const PACK_METADATA = Object.freeze({
       "eric",
       "flora"
     ]
+  },
+  "laundry": {
+    "name": "laundry",
+    "title": "SOE \"Q\" Division // The Capital Laundry Service (Charles Stross — The Laundry Files)",
+    "banner": "🐙 **`═══ [THE LAUNDRY // CASE NIGHTMARE GREEN] ══════════════════════════════════`**",
+    "atmosphere": "Rainy London civil-service annex where applied mathematics and computer science are summoning magic (The Turing Theorem). Handheld Necronomicon wards, Q-Division basement Faraday pentagrams, Mahogany Row Earl Grey tea services, Bone Violins, and ISO-9001 occult compliance audits. Cynical BOFH sysadmin gallows humor braided with ruthless computational rigor.",
+    "seatLabels": {
+      "recon": "COMPUTATIONAL DEMONOLOGY",
+      "diagnostics": "PLUMBERS & SCORPION STARE",
+      "architect": "MAHOGANY ROW & TURING WARDS",
+      "blitz": "BONE VIOLIN & FIELD STRIKE",
+      "forensics": "Q-DIVISION QUARANTINE LAB",
+      "velocity": "PHANG HIGH-VELOCITY OPS",
+      "redteam": "BLACK CHAMBER & SUBVERSION",
+      "ergonomics": "GLAMOUR & COGNITIVE SAFETY",
+      "archivist": "THE STACKS & ISO-9001 LEDGER"
+    },
+    "interjectionExample": "🔵 **[BOBHOWARD // COMPUTATIONAL DEMONOLOGY]** Hang on a tick—before Angleton signs the warrant, I just traced the summoning theorem in that module if you want the sysadmin version.",
+    "waveOffExample": "not now Bob, let Angleton finish checking the Mahogany Row ward first",
+    "defaultStarters": [
+      "bobhoward",
+      "pinky",
+      "angleton",
+      "mo",
+      "brain",
+      "persephone",
+      "mhari",
+      "holly",
+      "stacks"
+    ],
+    "backups": [
+      "bridget",
+      "iris",
+      "fred"
+    ]
   }
 });
 
@@ -384,6 +420,9 @@ function getKnownRomTargets() {
     'amber',
     'kolvir',
     'pattern',
+    'laundry',
+    'qdivision',
+    'mahoganyrow',
     'generic',
     'standard',
     'plain',
@@ -400,6 +439,10 @@ function getKnownRomTargets() {
     'yonderboy',
     'florimel',
     'ghost',
+    'howard',
+    'teapot',
+    'cassie',
+    'registry',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 94 ROMs across 8 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 106 ROMs across 9 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 94);
+    assert.equal(roms.length, 106);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'nightcity', 'shadowrun', 'sprawl']
+      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -467,6 +467,28 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const subbedAmber = store.subRom('caine', { sessionId: 'ses_amber' });
     assert.ok(subbedAmber.roster.includes('caine'));
     assert.ok(!subbedAmber.roster.includes('merlin'));
+
+    const laundryCrew = store.useRom('laundry', { sessionId: 'ses_laundry' });
+    assert.equal(laundryCrew.isCrew, true);
+    assert.deepEqual(laundryCrew.roster, [
+      'bobhoward',
+      'pinky',
+      'angleton',
+      'mo',
+      'brain',
+      'persephone',
+      'mhari',
+      'holly',
+      'stacks',
+    ]);
+    assert.match(laundryCrew.voice, /═══ \[THE LAUNDRY \/\/ CASE NIGHTMARE GREEN\]/);
+    assert.match(laundryCrew.voice, /🔵 \*\*\[BOBHOWARD \/\/ COMPUTATIONAL DEMONOLOGY\]\*\*/);
+    assert.match(laundryCrew.voice, /🟣 \*\*\[ANGLETON \/\/ MAHOGANY ROW & TURING WARDS\]\*\*/);
+    assert.match(laundryCrew.voice, /🔴 \*\*\[MO \/\/ BONE VIOLIN & FIELD STRIKE\]\*\*/);
+    assert.match(laundryCrew.voice, /📓 \*\*\[STACKS \/\/ THE STACKS & ISO-9001 LEDGER\]\*\*/);
+    const subbedLaundry = store.subRom('fred', { sessionId: 'ses_laundry' });
+    assert.ok(subbedLaundry.roster.includes('fred'));
+    assert.ok(!subbedLaundry.roster.includes('mo'));
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1513,7 +1535,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 93);
+    assert.equal(initClaude.claudeAgentsCount, 105);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
@@ -1521,6 +1543,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fastjack.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'corwin.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'ghostwheel.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'bobhoward.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'angleton.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);
