@@ -1029,10 +1029,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
         .map((s) => String(s).trim().toLowerCase())
     );
     const allPendingRows = db
-      .prepare(
-        "SELECT * FROM messages WHERE status = 'pending' AND (project = ? OR project = 'global') ORDER BY hlc ASC"
-      )
-      .all(project);
+      .prepare("SELECT * FROM messages WHERE status = 'pending' ORDER BY hlc ASC")
+      .all();
     const inboxPending = allPendingRows
       .filter((row) => {
         const toLower = String(row.to_user || '').trim().toLowerCase();
@@ -1048,10 +1046,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       });
 
     const inboxReplies = db
-      .prepare(
-        "SELECT * FROM messages WHERE status = 'replied' AND (project = ? OR project = 'global') ORDER BY reply_hlc ASC"
-      )
-      .all(project)
+      .prepare("SELECT * FROM messages WHERE status = 'replied' ORDER BY reply_hlc ASC")
+      .all()
       .filter((row) => {
         const fromLower = String(row.from_user || '').trim().toLowerCase();
         if (recipientAliases.has(fromLower)) return true;
@@ -2790,12 +2786,10 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       fix: g.fix || '',
     }));
 
-    const msgRows = project
-      ? db
-          .prepare("SELECT * FROM messages WHERE project = ? OR project = 'global' ORDER BY id DESC LIMIT 20")
-          .all(project)
-          .map(crdt.hydrateMessage)
-      : db.prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 20').all().map(crdt.hydrateMessage);
+    const msgRows = db
+      .prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 25')
+      .all()
+      .map(crdt.hydrateMessage);
 
     const commsItems = msgRows.map((m) => {
       const fromCourier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
@@ -3030,7 +3024,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       return `
       <tr>
         <td><code>M#${m.id}</code><div style="margin-top:3px;"><span class="badge ${stClass}">${escapeHtml(m.status)}</span></div><div class="sub">${escapeHtml(m.created || '')}</div></td>
-        <td><strong>${escapeHtml(m.fromGlyph || '📬')} ${escapeHtml(m.fromRom)}</strong><div class="sub">${escapeHtml(m.fromUser)} -&gt; ${escapeHtml(m.toUser)}</div></td>
+        <td><strong>${escapeHtml(m.fromGlyph || '📬')} ${escapeHtml(m.fromRom)}</strong><div class="sub">${escapeHtml(m.fromUser)} -&gt; ${escapeHtml(m.toUser)}</div><div class="sub"><span class="badge">${escapeHtml(m.project || 'global')}</span></div></td>
         <td>"${escapeHtml(m.body)}"${replyBlock}${actionsBlock}</td>
       </tr>`;
     })
@@ -3427,7 +3421,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         }
       }
 
-      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log — ' + (h.project || 'workspace') + ' (' + commsArr.length + ')';
+      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log (' + commsArr.length + ')';
       if (commsTbody && !isTypingReply) {
         if (!commsArr.length) {
           commsTbody.innerHTML = '<tr><td colspan="3">(no messages in construct comms log)</td></tr>';
@@ -3446,7 +3440,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
                 '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ')">✓ Ack</button></div>'
               : '';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
-              '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div></td>' +
+              '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
               '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
           }).join('');
         }

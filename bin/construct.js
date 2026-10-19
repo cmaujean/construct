@@ -1275,6 +1275,9 @@ async function main(argv) {
         try {
           await store.syncProject(m.project);
         } catch (_) {}
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
       }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`queued [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project}): "${m.body}"`);
@@ -1290,6 +1293,9 @@ async function main(argv) {
         try {
           await store.syncProject(m.project);
         } catch (_) {}
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
       }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`replied to [M#${m.id}] (${m.toUser}/${m.replyRom} -> ${m.fromUser}/${m.fromRom}): "${m.replyBody}"`);
@@ -1299,6 +1305,11 @@ async function main(argv) {
     case 'ack': {
       if (!rest[0]) throw new Error('usage: construct ack <msg_id>');
       const m = store.ackMessage(rest[0]);
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
+      }
       if (o.json) console.log(JSON.stringify(m, null, 2));
       else console.log(`acknowledged delivery of [M#${m.id}]`);
       return 0;
