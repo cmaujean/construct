@@ -1144,9 +1144,16 @@ async function main(argv) {
     case 'dashboard':
     case 'view': {
       const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session, dir: o.dir, project: o.project || rest[0] });
-      if (o.json) console.log(JSON.stringify({ outFile: res.outFile, hud: res.hud, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
+      if (o.json) console.log(JSON.stringify({ outFile: res.outFile, projectOutFile: res.projectOutFile, hud: res.hud, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
       else console.log(`dashboard written to ${res.outFile} (${res.projectCount} project(s), ${res.openCount} open thread(s))`);
       return 0;
+    }
+
+    case 'hud-server': {
+      const port = o.port ? Number(o.port) : 47420;
+      const srv = await store.startStandaloneHudServer(port);
+      if (!srv) return 0; // Port already bound by active instance
+      return new Promise(() => {}); // Keep alive in background
     }
 
     case 'hud':

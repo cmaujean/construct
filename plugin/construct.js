@@ -1235,6 +1235,11 @@ export default {
 
     courierPollTimer = setInterval(() => {
       try {
+        if (hudServer && !hudServer.listening) {
+          try {
+            hudServer.listen(47420, "127.0.0.1")
+          } catch (_) {}
+        }
         const snap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
         if (!snap) return
         if (snap.hasMlsGroup && snap.project && snap.project !== "workspace" && Date.now() - lastBgSyncMs >= 60000) {

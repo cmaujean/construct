@@ -3625,7 +3625,142 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     path.join(os.homedir(), '.config', 'opencode', 'construct-hud.html');
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, html, 'utf8');
-  return { outFile, html, hud, projectCount: projects.length, openCount: hud.openCount };
+
+  // Also write a per-project pinned HUD file (`construct-hud-<project_slug>.html` with `autoFollow = false`)
+  // so each OpenCode project tab can preview its own isolated HUD file without another tab overwriting it.
+  let projectOutFile = outFile;
+  if (!options.outFile && hud.project && hud.project !== 'workspace') {
+    const slug = String(hud.project)
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+    if (slug) {
+      projectOutFile = path.join(os.homedir(), '.config', 'opencode', `construct-hud-${slug}.html`);
+      const pinnedHtml = html.replace('let autoFollow = true;', 'let autoFollow = false;');
+      fs.writeFileSync(projectOutFile, pinnedHtml, 'utf8');
+    }
+  }
+
+  // Ensure the local loopback HUD server (`127.0.0.1:47420`) is running even if an OpenCode Location plugin unloaded
+  if (!process.env.CONSTRUCT_DB && !options.noServerSpawn) {
+    try {
+      const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+      const child = spawn(process.execPath, [binScript, 'hud-server'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      child.unref();
+    } catch (_) {}
+  }
+
+  return { outFile, projectOutFile, html, hud, projectCount: projects.length, openCount: hud.openCount };
+}
+
+function startStandaloneHudServer(port = 47420, file = dbPath()) {
+  const http = require('node:http');
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/hud')) {
+        try {
+          const parsedUrl = new URL(req.url, `http://127.0.0.1:${port}`);
+          const qSid = parsedUrl.searchParams.get('sessionID') || '';
+          const qProj = parsedUrl.searchParams.get('project') || '';
+          const qDir = parsedUrl.searchParams.get('dir') || '';
+          const snap = getHudSnapshot({ sessionId: qSid, project: qProj, dir: qDir }, file);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true, hud: snap }));
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: err.message }));
+        }
+        return;
+      }
+      if (req.method === 'POST' && req.url?.startsWith('/action')) {
+        let body = '';
+        req.on('data', (chunk) => {
+          if (body.length < 16384) body += chunk;
+        });
+        req.on('end', () => {
+          try {
+            const payload = JSON.parse(body || '{}');
+            const rawAction = String(payload.action || 'use').trim().toLowerCase();
+            const sid = String(payload.sessionID || '');
+            const proj = String(payload.project || '');
+            const dir = String(payload.dir || '');
+
+            if (rawAction === 'reply' && payload.id && payload.body) {
+              replyMessage(payload.id, payload.body, { via: payload.via, sessionId: sid }, file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              return;
+            }
+            if (rawAction === 'ack' && payload.id) {
+              ackMessage(payload.id, file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              return;
+            }
+            if (rawAction === 'upgrade') {
+              const up = upgradeConstruct({}, file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, upgraded: up, hud: snap }));
+              return;
+            }
+
+            const act = rawAction === 'sub' ? 'sub' : 'use';
+            const target = String(payload.target || '').trim().toLowerCase();
+            if (target && /^[a-z0-9_-]+(?:,[a-z0-9_-]+)*$/i.test(target)) {
+              const opts = { sessionId: sid, project: proj !== 'workspace' ? proj : '', dir };
+              if (act === 'sub') subRom(target, opts, file);
+              else useRom(target, opts, file);
+              const snap = getHudSnapshot(opts, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              return;
+            }
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'invalid target' }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end();
+    });
+    server.on('error', () => {
+      resolve(null);
+    });
+    server.listen(port, '127.0.0.1', () => {
+      resolve(server);
+    });
+  });
 }
 
 // --- GitHub Issues <-> Construct Open Threads Bridge (`construct issues [sync | publish]`) ---
@@ -5135,6 +5270,7 @@ module.exports = {
   mergeGithubPr,
   getHudSnapshot,
   generateDashboardHtml,
+  startStandaloneHudServer,
   checkConstructUpstream,
   upgradeConstruct,
   ackMessage,
