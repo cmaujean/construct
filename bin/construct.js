@@ -905,7 +905,7 @@ async function main(argv) {
             for (const p of projects) {
               const firstLine = (p.state || '').split(/\r?\n/)[0] || '';
               console.log(
-                `${p.project.padEnd(28)} ${shortTs(p.updated).padEnd(11)} ${String(p.frameCount).padStart(3)} frames  ${String(p.openCount).padStart(2)} open  ${firstLine.slice(0, 70)}`
+                `${p.project.padEnd(28)} ${shortTs(p.updated).padEnd(11)} ${String(p.frameCount).padStart(3)} frames  ${String(p.openCount).padStart(2)} open  ${firstLine}`
               );
             }
           }
@@ -1335,7 +1335,7 @@ async function main(argv) {
           for (const p of projects) {
             const firstLine = (p.state || '').split(/\r?\n/)[0] || '';
             console.log(
-              `${p.project.padEnd(28)} ${shortTs(p.updated).padEnd(11)} ${String(p.frameCount).padStart(3)} frames  ${String(p.openCount).padStart(2)} open  ${firstLine.slice(0, 70)}`
+              `${p.project.padEnd(28)} ${shortTs(p.updated).padEnd(11)} ${String(p.frameCount).padStart(3)} frames  ${String(p.openCount).padStart(2)} open  ${firstLine}`
             );
           }
         }

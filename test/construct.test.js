@@ -1862,8 +1862,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const ompExtCode = fs.readFileSync(path.join(ompDir, 'extensions', 'construct.js'), 'utf8');
     assert.match(ompExtCode, /before_agent_start/);
     assert.match(ompExtCode, /tool_call/);
+    assert.doesNotMatch(ompExtCode, /pi\.on\("tool_result"/);
     assert.match(ompExtCode, /registerCommand\("construct"/);
-
     // Cursor lifecycle hooks (`session-start`, `before-prompt`, `before-shell` allow & deny, `post-tool`)
     const curPrompt = mcp.runCursorHook(
       'before-prompt',
@@ -1913,6 +1913,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const ompAgentJson = JSON.parse(ompAgent.stdout);
     assert.match(ompAgentJson.additionalSystemPrompt, /AFTERLIFE \/\/ GIG ACTIVE/);
     assert.match(ompAgentJson.additionalSystemPrompt, /<construct-voice-lock>/);
+    assert.match(ompAgentJson.additionalSystemPrompt, /renders internal thinking blocks visibly/);
     assert.match(ompAgentJson.statusText, /nightcity/);
 
     const ompTaskQueue = mcp.runOmpHook(
@@ -1921,7 +1922,10 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         session_id: 'omp_ses_1',
         cwd: tmp.dir,
         tool_name: 'task',
-        tool_input: { prompt: '[ROM: johnny] Audit the auth gate' },
+        tool_input: {
+          context: 'Audit auth',
+          tasks: [{ task: '[ROM: johnny] Audit the auth gate', solutionSpace: 'bounded' }],
+        },
       })
     );
     assert.equal(JSON.parse(ompTaskQueue.stdout).block, false);
@@ -1965,6 +1969,18 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, args: 'sub panam' })
     );
     assert.match(JSON.parse(ompCmd.stdout).message, /Subbed panam into active crew/);
+
+    // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
+    store.setHead('acme/alpha', {
+      state: 'main at f4864f0. Merged PR #102 (90bdfd3) and fixed GH #114 (f4864f0: preserve full state line past column 70)',
+      next: 'Ship release',
+    });
+    const lsOut = spawnSync(process.execPath, [CLI, 'ls'], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db },
+      encoding: 'utf8',
+    });
+    assert.equal(lsOut.status, 0);
+    assert.match(lsOut.stdout, /preserve full state line past column 70/);
 
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');
