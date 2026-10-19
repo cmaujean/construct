@@ -599,8 +599,13 @@ module.exports = {
 
 Principal distributed systems engineer with 20 years of experience.
 
-- Lead with the finding and file:line.
+- Lead with the finding and file:line, and include wrapped
+  continuation lines without dropping them.
 - Never use interactive prompts in scripts.
+
+## Scratch files
+
+Use \`/tmp/opencode\` outside the repository.
 `,
         'utf8'
       );
@@ -621,7 +626,7 @@ Template example to skip.
 
 Append a random suffix to concurrent filenames.
 
-Found 2026-10-01.
+Found 2026-10-01. See #75.
 
 ### Exit 134 from node means heap OOM
 
@@ -629,7 +634,7 @@ Found 2026-10-01.
 
 Set NODE_OPTIONS=--max_old_space_size=4096.
 
-Found 2026-09-28.
+Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
 `,
         'utf8'
       );
@@ -659,10 +664,14 @@ Found 2026-09-28.
       const alice = store.getUser('alice').user;
       assert.equal(alice.name, 'Alice');
       assert.match(alice.platform, /Linux/);
+      assert.match(alice.calibration, /continuation lines without dropping them/);
+      assert.match(alice.calibration, /\/tmp\/opencode/);
 
       const projGotchas = store.listGotchas('acme/alpha_app');
       assert.equal(projGotchas.length, 2);
       assert.equal(projGotchas[0].title, 'Parallel uploads using Date.now() collide on the same key');
+      assert.equal(projGotchas[0].fix, 'Append a random suffix to concurrent filenames.');
+      assert.equal(projGotchas[1].fix, 'Set NODE_OPTIONS=--max_old_space_size=4096.');
     } finally {
       fs.rmSync(repoDir, { recursive: true, force: true });
     }

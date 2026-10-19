@@ -2394,9 +2394,12 @@ function detectFocusedDirFromOpenCodeLog() {
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
       if (!line) continue;
-      if (line.includes('snapshot\\\\') || line.includes('.local\\\\share\\\\opencode')) continue;
-      // Match UI tab-focus VCS/file-tree spawns (`git.EXE` or `rg.exe --files`) or prompt executions
-      if (line.includes('command=') && (line.includes('git.EXE') || line.includes('rg.exe') || line.includes('powershell.EXE'))) {
+      if (line.includes('snapshot\\\\') || line.includes('.local\\\\share\\\\opencode') || line.includes('.local/share/opencode')) continue;
+      // Match UI tab-focus VCS/file-tree spawns (`git`/`git.EXE`, `rg`/`rg.exe`, or shell executions)
+      if (
+        line.includes('command=') &&
+        (/\b(?:git(?:\.exe)?|rg(?:\.exe)?|powershell(?:\.exe)?|bash|sh)\b/i.test(line))
+      ) {
         const cwdMatch = line.match(/\bcwd="([^"]+)"/);
         if (cwdMatch && cwdMatch[1]) {
           return cwdMatch[1].replace(/\\\\/g, '/').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -3816,6 +3819,7 @@ function recordAssimilatedFiles(projectInput, files = [], file = dbPath()) {
 function assimilateLdk(targetDir, options = {}, file = dbPath()) {
   const facade = {
     normalizeProject,
+    resolveProjectFromDir: (dir) => resolveProjectFromDir(dir, file),
     listUsers: () => listUsers(file),
     setUser: (id, fields) => setUser(id, fields, file),
     listGotchas: (scope) => listGotchas(scope, file),
