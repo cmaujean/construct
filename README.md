@@ -343,7 +343,9 @@ Not all of your projects are shared with the same people. Construct enforces har
 
 Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted MLS sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
 
-Once you connect with a collaborator on *any* shared project, Construct Comms are **person-to-person (`--to <user>`)** rather than locked to a single repository: sending a message to `--to bob` writes a single deduplicated message `uid` and routes it automatically across your shared MLS channels regardless of which repository tab you or Bob currently have open.
+Once you connect with a collaborator on *any* shared project (which automatically establishes a divorced `@comms` personal comms link alongside the project link) -- or connect with a friend who does **not** share any project repository with you via **`construct invite comms`** -- Construct Comms are **100% person-to-person (`--to <user>`)**:
+- **Project MLS links (`<owner>/<repo>`):** Carry *only* project archival state (`frames`, project `gotchas`, `heads`).
+- **Personal Comms MLS links (`@comms`):** Carry *only* person-to-person Courier messages (`message`, `message_tombstone`). If you want to exchange Courier Cameos with someone without sharing a git repository, run `construct invite comms` and have them run `construct join "<construct://invite/...>"` (no `--dir` or `workspace_root` required).
 
 ### How Courier Cameos Work in Practice
 
@@ -476,9 +478,10 @@ construct gotcha rm <id>
 
 # DIDComm v2 + MLS + CRDT sync, Encrypted Patch Drops & Person-to-Person Courier Comms
 construct did
-construct invite <project> [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
+construct invite [comms | <project>] [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
 construct join "<construct://invite/...#...>" [--dir <target_dir>]
-construct sync <project> [--relays wss://...]
+construct sync <project|comms> [--relays wss://...]
+construct site [--out <docs_dir>]
 construct relay [--port 8787]
 construct msg --to <user> [--via <messenger>] "<in-character message>"
 construct drop <project> --to <user> [--via <messenger>] [--file <path> | --git-diff | --content ".."] [--note ".."]

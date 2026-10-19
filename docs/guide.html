@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Architecture, Multi-Agent Setup &amp; Personal Comms Guide -- Construct</title>
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<nav class="nav-bar">
+  <div class="nav-brand"><a href="index.html" style="color:#fff;text-decoration:none;">🦾 CONSTRUCT // 9-SEAT CREW &amp; SEQUENTIAL MEMORY</a></div>
+  <div class="nav-links">
+    <a href="index.html">Overview &amp; Benchmarks</a>
+    <a href="index.html#crews">The 15 Crew Banks (179 ROMs)</a>
+    <a href="guide.html">Architecture &amp; Multi-Agent Guide</a>
+    <a href="guide.html#personal-comms">Personal Comms (@comms)</a>
+    <a href="https://github.com/cmaujean/construct">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <div class="hero">
+    <div class="hero-eyebrow">Architecture &amp; Adopter Handbook</div>
+    <h1>How Construct Fronts Every Coding Agent, Saves 72-80% of Tokens, and Connects Developers via Courier Cameos</h1>
+    <p class="lead">Complete reference for Multi-Agent Setup (OpenCode, Claude Code, Cursor, Gemini CLI, Windsurf &amp; Codex), the 9-Seat Phase Gate, Sandwich Attention Ordering, Project &amp; Non-Collaborator Personal Comms (<code>@comms</code>), and the CLI.</p>
+  </div>
+
+  <h2 class="section-title" id="multi-agent">1. One-Command Setup Across All 6 Coding Agents</h2>
+  <p>Construct's unified <code>src/mcp.js</code> engine exposes the exact same 11 tools, MCP prompts, MCP resources, and lifecycle hooks across every major AI coding environment against a single shared SQLite WAL database (<code>~/.config/opencode/construct.db</code>):</p>
+  <table class="bench-table">
+    <thead>
+      <tr>
+        <th>Coding Agent</th>
+        <th>Setup Command</th>
+        <th>What Construct Wires Automatically</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>OpenCode V2</strong></td>
+        <td><code>construct init</code></td>
+        <td>Installs <code>~/.config/opencode/plugins/construct.js</code> + <code>tui.tsx</code>, wires <code>active-rom.md</code>, zero-roundtrip <code>prompt</code>/<code>context</code>/<code>shell</code> hooks, tab badges, idle Courier wake-up, and the <code>127.0.0.1:47420</code> HUD server.</td>
+      </tr>
+      <tr>
+        <td><strong>Claude Code</strong></td>
+        <td><code>construct init --claude</code></td>
+        <td>Wires <code>~/.claude/CLAUDE.md</code>, <code>~/.claude/settings.json</code> (<code>mcpServers.construct</code> + <code>SessionStart</code>, <code>UserPromptSubmit</code>, <code>SubagentStart</code>, <code>PreToolUse</code> hooks), and all <strong>178 specialist subagents</strong> in <code>~/.claude/agents/*.md</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Cursor IDE &amp; Cloud Agent</strong></td>
+        <td><code>construct init --cursor</code></td>
+        <td>Wires <code>~/.cursor/mcp.json</code>, <code>~/.cursor/rules/construct.mdc</code> (<code>alwaysApply: true</code>), and <code>~/.cursor/hooks.json</code> (<code>sessionStart</code>, <code>beforeSubmitPrompt</code>, <code>beforeShellExecution</code>, <code>postToolUse</code>).</td>
+      </tr>
+      <tr>
+        <td><strong>Gemini CLI / Antigravity</strong></td>
+        <td><code>construct init --gemini</code></td>
+        <td>Wires <code>~/.gemini/GEMINI.md</code> and <code>~/.gemini/settings.json</code> (<code>mcpServers.construct</code> + <code>SessionStart</code>, <code>BeforeAgent</code>, and <code>BeforeTool</code> shell guard hooks).</td>
+      </tr>
+      <tr>
+        <td><strong>Windsurf (Cascade)</strong></td>
+        <td><code>construct init --windsurf</code></td>
+        <td>Wires <code>~/.codeium/windsurf/mcp_config.json</code> and <code>~/.codeium/windsurf/memories/global_rules.md</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Codex CLI</strong></td>
+        <td><code>construct init --codex</code></td>
+        <td>Wires <code>~/.codex/AGENTS.md</code> and registers <code>[mcp_servers.construct]</code> in <code>~/.codex/config.toml</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="section-title" id="phase-gates">2. The 9 Canonical Seats &amp; Phase Gates (Including Documentation Parity)</h2>
+  <p>Every Crew Bank maps 9 distinct characters onto 9 canonical engineering seats across a 4-stage pipeline:</p>
+  <ol>
+    <li><strong>Phase 1 -- Recon &amp; Trench Diagnostics (🔵 Seat 1A <code>recon</code> + 🟠 Seat 1B <code>diagnostics</code>):</strong> Reads the actual source contract first and traces any bug to its exact <code>file:line</code> coordinate.</li>
+    <li><strong>Phase 2 -- Architecture &amp; The Alignment Gate (🟣 Seat 2 <code>architect</code>):</strong> Maps state invariants, contract boundaries, and concurrency seams, and <strong>waits for your green light</strong> before turning the Blitz seat loose.</li>
+    <li><strong>Phase 3 -- Full-Depth Blitz, Parallel Overwatch &amp; Documentation Parity (🔴 Seat 3 <code>blitz</code> + 🟢 <code>forensics</code> + ⚡ <code>velocity</code> + 🛡️ <code>redteam</code> + 🎨 <code>ergonomics</code>):</strong> Implements the complete change at full depth (never a skeleton), watches the regression test fail red on the unfixed state before restoring the fix, audits security/artifacts/latency/UX, and <strong>checks and updates <code>README.md</code>, <code>docs/</code>, and CLI <code>--help</code> for documentation parity in the same pass</strong>.</li>
+    <li><strong>Phase 4 -- The Archive (📓 Seat 5 <code>archivist</code>):</strong> Records the inflection point onto the sequential tape (<code>#seq</code>), updates the project state head, and reconciles open vs. resolved threads.</li>
+  </ol>
+
+  <h2 class="section-title" id="personal-comms">3. Collaborator Project Sync vs. Non-Collaborator Personal Comms (<code>@comms</code>)</h2>
+  <p>Construct supports two distinct encrypted DIDComm v2 + MLS (RFC 9420) connection modes over zero-signup WebSocket relays (<code>wss://nos.lol</code>, <code>wss://relay.damus.io</code>, or self-hosted <code>construct relay</code>):</p>
+  <div class="cal-grid">
+    <div class="rom-card" style="margin:0;">
+      <h3 style="margin-top:0;color:var(--accent);">Mode A: Project Collaboration Invite (<code>construct invite &lt;project&gt;</code>)</h3>
+      <p>For teammates working on the same git repository:</p>
+      <pre class="code-block"># Alice creates a project invite
+construct invite acme/alpha_app
+
+# Bob joins (auto-clones repo if missing &amp; syncs tape/gotchas)
+construct join "construct://invite/eyJ...#..." --dir ~/src/alpha_app
+construct sync acme/alpha_app</pre>
+      <p style="font-size:13.5px;color:var(--muted);">Syncs <code>frames</code>, project <code>gotchas</code>, <code>heads</code>, and person-to-person Courier <code>messages</code> for <code>acme/alpha_app</code> while enforcing strict per-project isolation (zero bleed from your other private repos or global gotchas).</p>
+    </div>
+    <div class="rom-card" style="margin:0;">
+      <h3 style="margin-top:0;color:var(--ok);">Mode B: Non-Collaborator Personal Comms (<code>construct invite comms</code>)</h3>
+      <p>For friends or colleagues who want to exchange in-character Courier Cameos (<code>--via smeagol</code>, <code>--via death</code>, <code>--via toot</code>, <code>--via moist</code>) <strong>without sharing any git repository</strong>:</p>
+      <pre class="code-block"># Alice creates a personal comms-only invite (no project repo!)
+construct invite comms
+
+# Carol joins (no --dir or workspace_root required, 0 git clone)
+construct join "construct://invite/eyJ...#..."
+
+# Send an in-character Courier message to Carol
+construct msg --to carol --via smeagol "Ssshh! How is it working, precious?"</pre>
+      <p style="font-size:13.5px;color:var(--muted);">The <code>@comms</code> channel enforces a hard cryptographic boundary guard in <code>src/crdt.js</code>: <strong>only</strong> <code>message</code> and <code>message_tombstone</code> operations are exported or accepted on <code>@comms</code>; any <code>frame</code>, <code>gotcha</code>, or <code>head</code> operation is rejected at the boundary.</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    Construct Sequential Memory &amp; Multi-Bank 9-Seat Crew Engine &bull; <a href="index.html">Back to Brochure &amp; Benchmarks</a>
+  </div>
+</div>
+</body>
+</html>

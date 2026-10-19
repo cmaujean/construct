@@ -924,21 +924,111 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         body: 'Ssshh, precious! Broken test message to hide, gollum!',
       });
       assert.equal(staleMsg.fromRom, 'smeagol');
-      const packetWithStale = store.exportEncryptedPacket('acme/shared_app');
+      // Project packets are 100% divorced from personal comms (`0` message ops on `acme/shared_app`)
+      assert.ok(store.exportEncryptedPacket('acme/shared_app').ops.every((op) => op.entity !== 'message'));
+      const packetWithStale = store.exportEncryptedPacket('comms');
       const hiddenMsg = store.hideMessage(staleMsg.id);
       assert.equal(hiddenMsg.uid, staleMsg.uid);
       assert.equal(hiddenMsg.status, 'hidden');
-      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.id === staleMsg.id));
-      assert.ok(store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.id === staleMsg.id));
+      assert.ok(!store.listMessages().some((m) => m.id === staleMsg.id));
+      assert.ok(store.listMessages({ includeHidden: true }).some((m) => m.id === staleMsg.id));
       store.importEncryptedPacket(packetWithStale.envelope);
-      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.uid === staleMsg.uid));
+      assert.ok(!store.listMessages().some((m) => m.uid === staleMsg.uid));
 
       // Purging a message (`store.purgeMessage`) removes it from `messages` completely (even with `includeHidden: true`)
       // and writes a permanent `message_tombstone` into `crdt_log` so relay re-imports cannot resurrect it
       store.purgeMessage(staleMsg.id);
-      assert.ok(!store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.uid === staleMsg.uid));
+      assert.ok(!store.listMessages({ includeHidden: true }).some((m) => m.uid === staleMsg.uid));
       store.importEncryptedPacket(packetWithStale.envelope);
-      assert.ok(!store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.uid === staleMsg.uid));
+      assert.ok(!store.listMessages({ includeHidden: true }).some((m) => m.uid === staleMsg.uid));
+
+      // Non-Collaborator Personal Comms (`construct invite comms` / `store.createInvite('comms')`):
+      // Allows two operators to connect purely for person-to-person Courier Comms without sharing a git repo,
+      // without requiring `--dir` or `workspace_root` on `joinInvite`, and rejecting any non-message CRDT ops on `@comms`.
+      const commsInvite = store.createInvite('comms', { relays: relaySrv.url });
+      assert.equal(commsInvite.project, '@comms');
+      assert.equal(commsInvite.commsOnly, true);
+      assert.equal(commsInvite.gitUrl, '');
+
+      const carolHome = fs.mkdtempSync(path.join(os.tmpdir(), 'construct-carol-'));
+      try {
+        process.env.CONSTRUCT_DB = path.join(carolHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(carolHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(carolHome, 'active-rom.md');
+        delete process.env.CONSTRUCT_SRC_ROOT;
+        process.env.CONSTRUCT_USER = 'carol';
+        store.setUser('carol', { name: 'Carol', osUsers: 'carol', active: true });
+
+        // Carol has NO workspace_root and passes NO targetDir, yet joinInvite succeeds because it's a @comms invite
+        const carolJoin = store.joinInvite(commsInvite.inviteUri);
+        assert.equal(carolJoin.commsOnly, true);
+        assert.equal(carolJoin.cloned, false);
+        assert.equal(carolJoin.group.project, '@comms');
+
+        // Carol sends a Courier message to Alice over `@comms`
+        store.sendMessage({
+          to: 'alice',
+          via: 'gurgi',
+          body: 'Oh, joy and jubilation! Personal comms message from Carol with zero shared git repo!',
+        });
+        await store.syncProject('comms');
+
+        // Verify a forged `frame` op inside a `@comms` packet is rejected at the boundary
+        const carolId = store.getIdentity();
+        const commsGroupRow = {
+          project: '@comms',
+          groupId: commsInvite.groupId,
+          epoch: commsInvite.epoch,
+          epochSecret: require('../src/crdt').parseAndVerifyDidCommInvite(commsInvite.inviteUri).body.epochSecret,
+          members: [],
+        };
+        const forgedCommsFrameEnv = require('../src/crdt').sealMlsApplicationMessage(commsGroupRow, carolId, {
+          project: '@comms',
+          opCount: 1,
+          ops: [
+            {
+              opId: `${require('../src/crdt').nextHlc(carolId.did)}:frame:forged-comms-frame`,
+              hlc: require('../src/crdt').nextHlc(carolId.did),
+              project: '@comms',
+              authorDid: carolId.did,
+              entity: 'frame',
+              recordUid: 'forged-comms-frame',
+              payload: {
+                uid: 'forged-comms-frame',
+                hlc: require('../src/crdt').nextHlc(carolId.did),
+                project: '@comms',
+                kind: 'finding',
+                summary: 'Forged frame on @comms must be rejected',
+              },
+            },
+          ],
+        });
+
+        // Switch back to Alice and sync `@comms`
+        process.env.CONSTRUCT_DB = path.join(aliceHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(aliceHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(aliceHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = aliceSrc;
+        process.env.CONSTRUCT_USER = 'alice';
+
+        const forgedCommsRes = store.importEncryptedPacket(forgedCommsFrameEnv);
+        assert.equal(forgedCommsRes.appliedOps, 0);
+
+        await store.syncProject('comms');
+        const aliceBootAfterCarol = store.bootProject('acme/shared_app');
+        assert.ok(
+          aliceBootAfterCarol.inboxPending.some((m) => m.fromUser === 'carol' && m.fromRom === 'gurgi'),
+          'Alice should receive Carols Gurgi courier over @comms even when booting acme/shared_app'
+        );
+      } finally {
+        store.closeAllDbs();
+        fs.rmSync(carolHome, { recursive: true, force: true });
+        process.env.CONSTRUCT_DB = path.join(aliceHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(aliceHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(aliceHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = aliceSrc;
+        process.env.CONSTRUCT_USER = 'alice';
+      }
 
       // Invite URI encryption check: stripping the `#...` fragment key fails to unwrap `epochSecret`
       const crdtMod = require('../src/crdt');
@@ -1789,6 +1879,21 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     );
     assert.equal(JSON.parse(gemToolDeny.stdout).decision, 'deny');
     assert.match(JSON.parse(gemToolDeny.stdout).reason, /Gotcha #3/);
+
+    // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
+    const siteOutDir = path.join(tmp.dir, 'docs-site');
+    const siteRes = store.generateDocsSite({ outDir: siteOutDir });
+    assert.equal(siteRes.crewPages.length, 15);
+    assert.ok(fs.existsSync(path.join(siteOutDir, 'index.html')));
+    assert.ok(fs.existsSync(path.join(siteOutDir, 'guide.html')));
+    assert.ok(fs.existsSync(path.join(siteOutDir, 'assets', 'style.css')));
+    assert.ok(fs.existsSync(path.join(siteOutDir, '.nojekyll')));
+    for (const p of store.listPacks()) {
+      const crewFile = path.join(siteOutDir, 'crews', `${p.pack}.html`);
+      assert.ok(fs.existsSync(crewFile), `missing crew page for ${p.pack}`);
+      const crewHtml = fs.readFileSync(crewFile, 'utf8');
+      assert.doesNotMatch(crewHtml, /—/, `crew page ${p.pack}.html must not contain em dashes`);
+    }
 
     // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
     const subStartNamed = mcp.runClaudeHook(

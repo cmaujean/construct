@@ -339,6 +339,18 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
   }
 
   const encryptedEpochSecret = wrapInviteEpochSecret(group.epochSecret, wrapSeedBytes, group.groupId);
+  let encryptedCommsGroup = null;
+  if (repoMeta.commsGroup && repoMeta.commsGroup.groupId && repoMeta.commsGroup.epochSecret) {
+    encryptedCommsGroup = {
+      groupId: repoMeta.commsGroup.groupId,
+      epoch: repoMeta.commsGroup.epoch || 1,
+      encryptedEpochSecret: wrapInviteEpochSecret(
+        repoMeta.commsGroup.epochSecret,
+        wrapSeedBytes,
+        repoMeta.commsGroup.groupId
+      ),
+    };
+  }
 
   const payload = {
     type: 'https://didcomm.org/out-of-band/2.0/invitation',
@@ -349,6 +361,7 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
     body: {
       goal_code: 'construct.mls.join',
       project: group.project,
+      commsOnly: Boolean(repoMeta.commsOnly),
       gitUrl: repoMeta.gitUrl || '',
       branch: repoMeta.branch || '',
       setupCommands: Array.isArray(repoMeta.setupCommands) ? repoMeta.setupCommands : [],
@@ -356,6 +369,7 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
       epoch: group.epoch,
       wrapMode,
       encryptedEpochSecret,
+      commsGroup: encryptedCommsGroup,
       relays: group.relays,
       inviterMember: {
         did: identity.did,
@@ -424,6 +438,13 @@ function parseAndVerifyDidCommInvite(inviteUri, recipientIdentity = null) {
       wrapSeedBytes,
       payload.body.groupId
     );
+    if (payload.body.commsGroup && payload.body.commsGroup.encryptedEpochSecret) {
+      payload.body.commsGroup.epochSecret = unwrapInviteEpochSecret(
+        payload.body.commsGroup.encryptedEpochSecret,
+        wrapSeedBytes,
+        payload.body.commsGroup.groupId
+      );
+    }
   }
 
   return payload;
@@ -702,24 +723,32 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
     if (op.payload.replyHlc && !isHlcWithinDrift(op.payload.replyHlc, nowMs)) continue;
 
     if (allowedProject) {
-      const sameProjectOrRenamedOwner = (candidate, target) => {
-        if (!candidate || candidate === 'global') return false;
-        if (candidate === target) return true;
-        const cParts = String(candidate).toLowerCase().split('/');
-        const tParts = String(target).toLowerCase().split('/');
-        if (cParts.length === 2 && tParts.length === 2 && cParts[1] === tParts[1]) {
-          return true;
+      const isCommsOnly =
+        allowedProject === '@comms' ||
+        allowedProject === 'comms' ||
+        String(allowedProject).toLowerCase().startsWith('@comms/');
+      if (isCommsOnly) {
+        if (op.entity !== 'message' && op.entity !== 'message_tombstone') continue;
+      } else {
+        const sameProjectOrRenamedOwner = (candidate, target) => {
+          if (!candidate || candidate === 'global') return false;
+          if (candidate === target) return true;
+          const cParts = String(candidate).toLowerCase().split('/');
+          const tParts = String(target).toLowerCase().split('/');
+          if (cParts.length === 2 && tParts.length === 2 && cParts[1] === tParts[1]) {
+            return true;
+          }
+          return false;
+        };
+        if (!sameProjectOrRenamedOwner(op.project, allowedProject)) continue;
+        if (op.entity === 'gotcha' && op.payload.scope && !sameProjectOrRenamedOwner(op.payload.scope, allowedProject)) continue;
+        if (op.entity === 'frame' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
+        if (op.entity === 'message' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
+        op.project = allowedProject;
+        if (op.payload && typeof op.payload === 'object') {
+          if (typeof op.payload.project === 'string') op.payload.project = allowedProject;
+          if (typeof op.payload.scope === 'string') op.payload.scope = allowedProject;
         }
-        return false;
-      };
-      if (!sameProjectOrRenamedOwner(op.project, allowedProject)) continue;
-      if (op.entity === 'gotcha' && op.payload.scope && !sameProjectOrRenamedOwner(op.payload.scope, allowedProject)) continue;
-      if (op.entity === 'frame' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
-      if (op.entity === 'message' && op.payload.project && !sameProjectOrRenamedOwner(op.payload.project, allowedProject)) continue;
-      op.project = allowedProject;
-      if (op.payload && typeof op.payload === 'object') {
-        if (typeof op.payload.project === 'string') op.payload.project = allowedProject;
-        if (typeof op.payload.scope === 'string') op.payload.scope = allowedProject;
       }
     }
     // Advance local HLC past remote HLC so causal ordering holds

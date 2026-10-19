@@ -107,11 +107,13 @@ Person-to-Person Construct Comms & Courier Cameos (--via <messenger>):
 
 DIDComm v2 + MLS (RFC 9420) + HLC-CRDT Sync:
   did [--json]                Show this construct's cryptographic identity (did:key:z6Mk...).
-  invite <project> [--relays wss://...]
-                              Generate a signed DIDComm v2 OOB invitation bundling the MLS Welcome key.
-  join <invite_uri>           Verify and join a project's MLS group from a construct://invite/... URI.
-  sync <project> [--relays wss://...] [--json]
+  invite [comms | <project>] [--relays wss://...]
+                              Generate a signed DIDComm v2 OOB invitation (creates a personal @comms
+                              link when 'comms' or omitted, or bundles both <project> + @comms).
+  join <invite_uri>           Verify and join a project + @comms (or @comms-only) MLS invite URI.
+  sync <project|comms> [--relays wss://...] [--json]
                               Live pull + decrypt + CRDT merge + seal + push over WebSocket relays.
+  site [--out <dir>]          Generate the 17-page GitHub Pages Brochure & Docs Hub into docs/.
   relay [--port 8787]         Run a lightweight zero-knowledge WebSocket ciphertext relay.
   packet export <project> [--since <hlc>]
                               Export CRDT ops sealed in an MLS ChaCha20-Poly1305 + Ed25519 packet.
@@ -1352,7 +1354,7 @@ async function main(argv) {
       const m = store.sendMessage({ project, to: o.to, via: o.via || o.rom, sessionId: o.session, body });
       if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
         try {
-          await store.syncProject(m.project);
+          await store.syncProject('comms');
         } catch (_) {}
         try {
           store.generateDashboardHtml();
@@ -1370,7 +1372,7 @@ async function main(argv) {
       const m = store.replyMessage(msgId, replyBody, { via: o.via || o.rom, sessionId: o.session });
       if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
         try {
-          await store.syncProject(m.project);
+          await store.syncProject('comms');
         } catch (_) {}
         try {
           store.generateDashboardHtml();
@@ -1462,9 +1464,17 @@ async function main(argv) {
       return 0;
     }
 
+    case 'site':
+    case 'docs-site': {
+      const res = store.generateDocsSite({ outDir: o.out || o.dir });
+      if (o.json) console.log(JSON.stringify(res, null, 2));
+      else console.log(`generated Construct docs site in ${res.outDir} (${res.crewPages.length} crew pages + index.html + guide.html)`);
+      return 0;
+    }
+
     case 'invite': {
-      if (!rest[0]) throw new Error('usage: construct invite <project> [--dir <repo_dir>] [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]');
-      const res = store.createInvite(rest[0], {
+      const targetProj = rest[0] || 'comms';
+      const res = store.createInvite(targetProj, {
         repoDir: o.dir,
         relays: o.relays,
         gitUrl: o['git-url'],

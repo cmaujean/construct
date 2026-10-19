@@ -30,6 +30,7 @@ const protocol = require('./protocol');
 const crdt = require('./crdt');
 const relay = require('./relay');
 const assimilateMod = require('./assimilate');
+const siteMod = require('./site');
 
 const KINDS = Object.freeze([
   'intent',
@@ -66,11 +67,19 @@ function normalizeFsPath(p) {
   return process.platform === 'win32' ? norm.toLowerCase() : norm;
 }
 
+function isCommsChannel(proj) {
+  const s = String(proj || '').trim().toLowerCase();
+  return s === 'comms' || s === '@comms' || s.startsWith('@comms/') || s.startsWith('comms/');
+}
+
 function normalizeProject(project, wsRoot = '') {
   if (typeof project !== 'string' || !project.trim()) {
     throw new Error('project key is required (e.g. "acme/alpha_app" or "board")');
   }
   let p = project.trim().replace(/\\/g, '/');
+  if (p.toLowerCase() === 'comms' || p.toLowerCase() === '@comms') return '@comms';
+  if (p.toLowerCase().startsWith('comms/')) return '@' + p.toLowerCase();
+  if (p.toLowerCase().startsWith('@comms/')) return p.toLowerCase();
   if (wsRoot) {
     const normWs = expandHome(wsRoot).replace(/\\/g, '/').replace(/\/+$/, '');
     if (p.toLowerCase().startsWith(normWs.toLowerCase() + '/')) {
@@ -2204,36 +2213,29 @@ function sendMessage(fields = {}, file = dbPath()) {
 
         const newId = Number(info.lastInsertRowid);
 
-        // Fan the person-to-person message CRDT op into the target project (or all joined MLS groups when
-        // no explicit project was specified) so the recipient receives it over whichever shared group syncs first,
-        // while `uid` deduplicates it into a single row in `messages`.
-        const targetProjects = explicitProj
-          ? [explicitProj]
-          : allGroups.length
-          ? allGroups.map((g) => g.project)
-          : ['global'];
-        for (const proj of targetProjects) {
-          crdt.appendCrdtOpInDb(db, {
-            project: proj,
-            entity: 'message',
-            recordUid: uid,
-            payload: {
-              uid,
-              hlc,
-              project: proj,
-              fromUser,
-              fromRom,
-              fromDid: identity.did,
-              toUser,
-              body,
-              status: 'pending',
-              replyBody: '',
-              replyRom: '',
-              replyHlc: '',
-              created,
-            },
-          });
-        }
+        // Divorced Personal Comms (`@comms`): all person-to-person messages ride on the `@comms`
+        // MLS channel rather than inside project archival packets.
+        ensureMlsGroupInDb(db, '@comms', {});
+        crdt.appendCrdtOpInDb(db, {
+          project: '@comms',
+          entity: 'message',
+          recordUid: uid,
+          payload: {
+            uid,
+            hlc,
+            project: primaryProject,
+            fromUser,
+            fromRom,
+            fromDid: identity.did,
+            toUser,
+            body,
+            status: 'pending',
+            replyBody: '',
+            replyRom: '',
+            replyHlc: '',
+            created,
+          },
+        });
 
         return crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(newId));
       }),
@@ -2273,32 +2275,27 @@ function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = d
 
         const updated = crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
 
-        const allGroups = db.prepare('SELECT project FROM mls_groups ORDER BY updated DESC').all();
-        const targetProjects = allGroups.length
-          ? Array.from(new Set([updated.project, ...allGroups.map((g) => g.project)].filter((p) => p && p !== 'global')))
-          : [updated.project];
-        for (const proj of targetProjects) {
-          crdt.appendCrdtOpInDb(db, {
-            project: proj,
-            entity: 'message',
-            recordUid: updated.uid,
-            payload: {
-              uid: updated.uid,
-              hlc: updated.hlc,
-              project: proj,
-              fromUser: updated.fromUser,
-              fromRom: updated.fromRom,
-              fromDid: updated.fromDid,
-              toUser: updated.toUser,
-              body: updated.body,
-              status: 'replied',
-              replyBody: updated.replyBody,
-              replyRom: updated.replyRom,
-              replyHlc: updated.replyHlc,
-              created: updated.created,
-            },
-          });
-        }
+        ensureMlsGroupInDb(db, '@comms', {});
+        crdt.appendCrdtOpInDb(db, {
+          project: '@comms',
+          entity: 'message',
+          recordUid: updated.uid,
+          payload: {
+            uid: updated.uid,
+            hlc: updated.hlc,
+            project: updated.project,
+            fromUser: updated.fromUser,
+            fromRom: updated.fromRom,
+            fromDid: updated.fromDid,
+            toUser: updated.toUser,
+            body: updated.body,
+            status: 'replied',
+            replyBody: updated.replyBody,
+            replyRom: updated.replyRom,
+            replyHlc: updated.replyHlc,
+            created: updated.created,
+          },
+        });
 
         return updated;
       }),
@@ -2371,17 +2368,13 @@ function purgeMessage(idOrUid, file = dbPath()) {
             t.uid
           );
           const hlc = crdt.nextHlc(identity.did, t.reply_hlc || t.hlc);
-          const targetProjects = allGroups.length
-            ? Array.from(new Set([t.project, ...allGroups.map((g) => g.project)].filter((p) => p && p !== 'global')))
-            : [t.project];
-          for (const proj of targetProjects) {
-            crdt.appendCrdtOpInDb(db, {
-              project: proj,
-              entity: 'message_tombstone',
-              recordUid: t.uid,
-              payload: { uid: t.uid, hlc, project: proj, purged: true },
-            });
-          }
+          ensureMlsGroupInDb(db, '@comms', {});
+          crdt.appendCrdtOpInDb(db, {
+            project: '@comms',
+            entity: 'message_tombstone',
+            recordUid: t.uid,
+            payload: { uid: t.uid, hlc, project: '@comms', purged: true },
+          });
         }
         return crdt.hydrateMessage(row);
       }),
@@ -4702,27 +4695,37 @@ function detectRepoGitMetaInDb(db, project, explicitRepoDir) {
 }
 
 function createInvite(projectInput, options = {}, file = dbPath()) {
-  const project = normalizeProject(projectInput);
+  const rawInput = options.comms && !projectInput ? '@comms' : projectInput || (options.comms ? '@comms' : '');
+  const project = normalizeProject(rawInput);
   if (project === 'global') {
     throw new Error('cannot create a project invite for "global" scope');
   }
+  const isComms = isCommsChannel(project) || Boolean(options.comms);
 
   return withDb(
     (db) =>
       tx(db, () => {
-        const detectedGit = detectRepoGitMetaInDb(db, project, options.repoDir);
+        const detectedGit = isComms ? { gitUrl: '', branch: '', repoDir: '' } : detectRepoGitMetaInDb(db, project, options.repoDir);
         const repoMeta = {
-          gitUrl: options.gitUrl !== undefined ? String(options.gitUrl).trim() : detectedGit.gitUrl,
-          branch: options.branch !== undefined ? String(options.branch).trim() : detectedGit.branch,
-          setupCommands: options.setup ? normalizeRefs(options.setup) : [],
+          gitUrl: isComms ? '' : options.gitUrl !== undefined ? String(options.gitUrl).trim() : detectedGit.gitUrl,
+          branch: isComms ? '' : options.branch !== undefined ? String(options.branch).trim() : detectedGit.branch,
+          setupCommands: isComms ? [] : options.setup ? normalizeRefs(options.setup) : [],
+          commsOnly: isComms,
         };
         const group = ensureMlsGroupInDb(db, project, options);
+        // When creating a project invite, automatically create/bundle a divorced `@comms` personal comms link
+        const commsGroup = isComms ? group : ensureMlsGroupInDb(db, '@comms', options);
         const identity = crdt.loadOrCreateIdentity();
         const user = protocol.getCurrentUserInDb(db);
-        const inviteUri = crdt.createDidCommInvite(group, identity, user, repoMeta);
+        const inviteUri = crdt.createDidCommInvite(group, identity, user, {
+          ...repoMeta,
+          commsGroup: isComms ? null : commsGroup,
+        });
         return {
           inviteUri,
           project: group.project,
+          commsOnly: isComms,
+          commsGroupId: commsGroup.groupId,
           gitUrl: repoMeta.gitUrl,
           branch: repoMeta.branch,
           setupCommands: repoMeta.setupCommands,
@@ -4755,27 +4758,32 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
   if (project === 'global') {
     throw new Error('refusing invite for "global" scope');
   }
-  validateGitCloneParams(b.gitUrl, b.branch);
+  const isComms = isCommsChannel(project);
+  if (!isComms) {
+    validateGitCloneParams(b.gitUrl, b.branch);
+  }
 
-  const resolvedTargetDir = withDb((db) => {
-    if (options.targetDir) return path.resolve(expandHome(options.targetDir));
-    if (options.srcRoot) return path.join(expandHome(options.srcRoot), ...project.split('/'));
-    const fromDb = defaultRepoPathInDb(db, project);
-    if (fromDb) return path.resolve(expandHome(fromDb));
-    return '';
-  }, file);
+  const resolvedTargetDir = isComms
+    ? ''
+    : withDb((db) => {
+        if (options.targetDir) return path.resolve(expandHome(options.targetDir));
+        if (options.srcRoot) return path.join(expandHome(options.srcRoot), ...project.split('/'));
+        const fromDb = defaultRepoPathInDb(db, project);
+        if (fromDb) return path.resolve(expandHome(fromDb));
+        return '';
+      }, file);
 
   const targetDir = resolvedTargetDir;
   let cloned = false;
   let setupRan = false;
 
-  if (!targetDir && b.gitUrl && options.clone !== false) {
+  if (!isComms && !targetDir && b.gitUrl && options.clone !== false) {
     throw new Error(
       `no local target directory or workspace_root configured to clone "${project}" (${b.gitUrl}). Pass --dir <target_path> or set your workspace root via "construct user set <id> --workspace-root <dir>".`
     );
   }
 
-  if (targetDir && !fs.existsSync(targetDir) && b.gitUrl && options.clone !== false) {
+  if (!isComms && targetDir && !fs.existsSync(targetDir) && b.gitUrl && options.clone !== false) {
     fs.mkdirSync(path.dirname(targetDir), { recursive: true });
     const cloneArgs = ['clone'];
     if (b.branch) cloneArgs.push('--branch', b.branch);
@@ -4788,7 +4796,7 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
     cloned = true;
   }
 
-  if (targetDir && fs.existsSync(targetDir) && Array.isArray(b.setupCommands) && b.setupCommands.length > 0 && options.runSetup) {
+  if (!isComms && targetDir && fs.existsSync(targetDir) && Array.isArray(b.setupCommands) && b.setupCommands.length > 0 && options.runSetup) {
     for (const cmd of b.setupCommands) {
       execSync(cmd, { cwd: targetDir, stdio: 'pipe', windowsHide: true });
     }
@@ -4832,7 +4840,28 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
           now
         );
 
-        if (targetDir) {
+        if (!isComms && b.commsGroup && b.commsGroup.groupId && b.commsGroup.epochSecret) {
+          db.prepare(
+            `INSERT INTO mls_groups (project, group_id, epoch, epoch_secret, members, relays, last_sync_hlc, updated)
+             VALUES ('@comms', ?, ?, ?, ?, ?, '', ?)
+             ON CONFLICT(project) DO UPDATE SET
+               group_id = excluded.group_id,
+               epoch = excluded.epoch,
+               epoch_secret = excluded.epoch_secret,
+               members = excluded.members,
+               relays = excluded.relays,
+               updated = excluded.updated`
+          ).run(
+            b.commsGroup.groupId,
+            Number(b.commsGroup.epoch || 1),
+            b.commsGroup.epochSecret,
+            JSON.stringify(members),
+            JSON.stringify(b.relays || crdt.DEFAULT_RELAYS),
+            now
+          );
+        }
+
+        if (!isComms && targetDir) {
           db.prepare(
             `INSERT INTO heads (project, repo, state, next, updated)
              VALUES (?, ?, '', '', ?)
@@ -4840,7 +4869,9 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
           ).run(project, targetDir, now);
         }
 
-        crdt.backfillProjectCrdtLogInDb(db, project);
+        if (!isComms) {
+          crdt.backfillProjectCrdtLogInDb(db, project);
+        }
         return {
           group: crdt.hydrateMlsGroup(db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project)),
           inviter: {
@@ -4848,8 +4879,9 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
             userId: invite.fromUser,
             name: invite.fromName,
           },
-          gitUrl: b.gitUrl || '',
-          branch: b.branch || '',
+          commsOnly: isComms,
+          gitUrl: isComms ? '' : b.gitUrl || '',
+          branch: isComms ? '' : b.branch || '',
           targetDir,
           cloned,
           setupRan,
@@ -4859,7 +4891,7 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
   );
 
   let assimilated = null;
-  if (targetDir && fs.existsSync(targetDir)) {
+  if (!isComms && targetDir && fs.existsSync(targetDir)) {
     const candidate = assimilateLdk(targetDir, { project }, file);
     if (candidate.found) assimilated = candidate;
   }
@@ -4872,11 +4904,14 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
   if (project === 'global') {
     throw new Error('refusing to export "global" scope in a project packet (prevents cross-project bleed)');
   }
+  const isComms = isCommsChannel(project);
   return withDb(
     (db) =>
       tx(db, () => {
         const group = ensureMlsGroupInDb(db, project, options);
-        crdt.backfillProjectCrdtLogInDb(db, project);
+        if (!isComms) {
+          crdt.backfillProjectCrdtLogInDb(db, project);
+        }
         const sinceHlc = options.sinceHlc || '';
         const rows = db
           .prepare('SELECT * FROM crdt_log WHERE project = ? AND hlc > ? ORDER BY hlc ASC')
@@ -4894,7 +4929,13 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
             recordUid: r.record_uid,
             payload: JSON.parse(r.payload),
           }))
-          .filter((op) => op.project === project && (op.entity !== 'gotcha' || op.payload.scope === project));
+          .filter((op) => {
+            if (op.project !== project) return false;
+            if (isComms) return op.entity === 'message' || op.entity === 'message_tombstone';
+            // Project packets carry ONLY project archival state (frames, gotchas, heads); personal comms ride on @comms
+            if (op.entity === 'message' || op.entity === 'message_tombstone') return false;
+            return op.entity !== 'gotcha' || op.payload.scope === project;
+          });
 
         // Deduplicate by `entity:recordUid`, keeping the latest HLC state for each record
         const dedupedByRecord = new Map();
@@ -4955,6 +4996,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
         return {
           envelope,
           envelopes,
+          ops,
           token: `construct://packet/${Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64url')}`,
           opCount: ops.length,
           maxHlc: ops.length ? ops[ops.length - 1].hlc : sinceHlc,
@@ -5068,6 +5110,19 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
           project
         );
       }, file);
+    }
+  }
+
+  // 3. When syncing a project group, also sync the divorced `@comms` personal comms channel if present
+  if (!isCommsChannel(project)) {
+    const hasCommsGroup = withDb(
+      (db) => Boolean(db.prepare("SELECT 1 FROM mls_groups WHERE project = '@comms' LIMIT 1").get()),
+      file
+    );
+    if (hasCommsGroup) {
+      try {
+        await syncProject('@comms', options, file);
+      } catch (_) {}
     }
   }
 
@@ -5680,6 +5735,7 @@ module.exports = {
   installPluginFile,
   initConstruct,
   resolveProjectFromDir,
+  generateDocsSite: siteMod.generateDocsSite,
   startLocalRelayServer: relay.startLocalRelayServer,
   closeAllDbs,
 };

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Construct -- 9-Seat Engineering Crews, Sub-Millisecond SQLite Memory &amp; Encrypted Courier Sync</title>
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<nav class="nav-bar">
+  <div class="nav-brand"><a href="index.html" style="color:#fff;text-decoration:none;">🦾 CONSTRUCT // 9-SEAT CREW &amp; SEQUENTIAL MEMORY</a></div>
+  <div class="nav-links">
+    <a href="index.html">Overview &amp; Benchmarks</a>
+    <a href="index.html#crews">The 15 Crew Banks (179 ROMs)</a>
+    <a href="guide.html">Architecture &amp; Multi-Agent Guide</a>
+    <a href="guide.html#personal-comms">Personal Comms (@comms)</a>
+    <a href="https://github.com/cmaujean/construct">GitHub</a>
+  </div>
+</nav>
+<div class="container">
+  <div class="hero">
+    <div class="hero-eyebrow">Zero External Dependencies &bull; Node.js Built-In SQLite (WAL + FTS5) &bull; 15 Crew Banks (179 ROMs)</div>
+    <h1>Stop Asking One Generalist Chatbot to Do Nine Different Engineering Jobs.</h1>
+    <p class="lead">
+      <strong>Construct</strong> replaces amnesia-prone markdown handoff files and single-persona AI assistants with a
+      <strong>coordinated 9-seat specialist engineering crew</strong>, a sub-millisecond embedded SQLite sequential memory tape,
+      <code>0.083 ms</code> mechanical shell guards, and encrypted person-to-person Courier Cameos across
+      <strong>OpenCode, Claude Code, Cursor, Gemini CLI, Windsurf, and Codex</strong>.
+    </p>
+    <pre class="code-block"># Install &amp; wire into OpenCode (plus optional --claude, --cursor, --gemini, --windsurf, --codex, or --all)
+git clone https://github.com/cmaujean/construct.git
+cd construct &amp;&amp; npm link
+construct init --all</pre>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="stat-value">-72% to -80%</div>
+      <div class="stat-label">Session token reduction vs. static <code>AGENTS.md</code> + handoff docs (<code>29,128 -&gt; 5,699..8,202</code> prompt-cached tokens)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">~$5.20 - $11.20</div>
+      <div class="stat-label">Saved per 25-turn feature session via 100% prompt-cache hits, 0 cold-start file reads, and 0-token shell guards</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">2.4 ms / 0.083 ms</div>
+      <div class="stat-label">In-process MCP tool execution (<code>51x</code> faster than CLI spawn) &amp; <code>83 &micro;s</code> pre-execution shell guard</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">179 ROMs / 15 Banks</div>
+      <div class="stat-label">Lazy-loaded 9-seat Crews + Bench seconds + Person-to-Person Courier Cameos (<code>@comms</code> &amp; per-project MLS)</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">1. Measured Token &amp; Speed Benchmarks (Bare Model vs. Static AGENTS.md vs. Construct)</h2>
+  <p style="color:var(--muted);">Measured directly on real multi-repository production workspaces (<code>Node 24.15.0</code> on Windows 11, 25-turn / ~100-step feature sessions):</p>
+
+  <table class="bench-table">
+    <thead>
+      <tr>
+        <th>Metric / Dimension</th>
+        <th>1. Bare Model (No Memory)</th>
+        <th>2. Static <code>AGENTS.md</code> + <code>docs/dev/</code></th>
+        <th>3a. Construct (<code>⚙️ generic</code> Crew)</th>
+        <th>3b. Construct (9-Seat Immersive Crew)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Upfront System Context (Turn 1)</strong></td>
+        <td><code>0</code> tokens <em>(blind cold-start)</em></td>
+        <td><code>29,128</code> tokens <em>(bloated markdown stack)</em></td>
+        <td><strong><code>5,699</code> tokens</strong> <em>(Base + 9-seat generic + tape)</em></td>
+        <td><strong><code>8,202</code> tokens</strong> <em>(Base + full 9-seat Crew + tape)</em></td>
+      </tr>
+      <tr>
+        <td><strong>Cold-Start Orientation Tool Calls (Turns 1-3)</strong></td>
+        <td><code>4-7</code> file/git reads (<strong><code>~29,340</code> uncached tokens</strong>)</td>
+        <td><code>3-5</code> file reads/writes (<strong><code>~35,000</code> uncached tokens</strong>)</td>
+        <td><strong><code>0</code> tool calls</strong> <em>(Head, 8 frames, &amp; gotchas pre-injected)</em></td>
+        <td><strong><code>0</code> tool calls</strong> <em>(Head, 8 frames, &amp; gotchas pre-injected)</em></td>
+      </tr>
+      <tr>
+        <td><strong>Provider Prompt-Cache Hit Rate (Turns 2..N)</strong></td>
+        <td>Low (<code>~40%</code>)</td>
+        <td>Medium (<code>~65%</code>)</td>
+        <td><strong><code>100%</code> deterministic prefix</strong> (<code>75-90%</code> cheaper <code>cache.read</code>)</td>
+        <td><strong><code>100%</code> deterministic prefix</strong> (<code>75-90%</code> cheaper <code>cache.read</code>)</td>
+      </tr>
+      <tr>
+        <td><strong>Cost of a Shell Trap</strong> (<code>&lt;&lt;EOF</code>, <code>npm test | tail</code>, <code>:Zone.Identifier</code>)</td>
+        <td><code>3,500 - 6,000</code> wasted retry tokens</td>
+        <td><code>3,500 - 6,000</code> wasted retry tokens <em>(advisory text only)</em></td>
+        <td><strong><code>0</code> tokens</strong> <em>(blocked mechanically in <code>0.083 ms</code>)</em></td>
+        <td><strong><code>0</code> tokens</strong> <em>(blocked mechanically in <code>0.083 ms</code>)</em></td>
+      </tr>
+      <tr>
+        <td><strong>25-Turn (~100-Step) Effective Token Load</strong></td>
+        <td><code>~1.85M</code> tokens</td>
+        <td><code>~2.91M</code> tokens</td>
+        <td><strong><code>~0.57M</code> cached tokens (<code>-80.4%</code> vs. AGENTS.md)</strong></td>
+        <td><strong><code>~0.82M</code> cached tokens (<code>-71.8%</code> vs. AGENTS.md)</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Net Dollar Savings per 25-Turn Session</strong></td>
+        <td>Baseline (highest rework risk)</td>
+        <td><code>+$2.80</code> <em>more</em> expensive than Bare</td>
+        <td><strong>Saves <code>~$5.80 - $11.20</code> / session</strong></td>
+        <td><strong>Saves <code>~$5.20 - $10.50</code> / session</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="bench-table" style="margin-top:20px;">
+    <thead>
+      <tr>
+        <th>Runtime Operation</th>
+        <th>Static Markdown / Subprocess CLI Way</th>
+        <th>Construct Unified In-Process Engine (<code>src/mcp.js</code> + <code>node:sqlite</code> WAL)</th>
+        <th>Measured Speedup</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Pre-Execution Shell Guard (<code>validateShellCommand</code>)</strong></td>
+        <td><code>3,500 - 8,000 ms</code> <em>(spawns broken shell + LLM retry turn)</em></td>
+        <td><strong><code>0.083 ms</code></strong> <em>(83 microseconds in-memory regex + SQLite guard)</em></td>
+        <td><strong><code>~45,000x</code> faster</strong></td>
+      </tr>
+      <tr>
+        <td><strong>MCP <code>tools/list</code> Catalog (11 tools)</strong></td>
+        <td><code>~120 ms</code> <em>(external CLI spawn)</em></td>
+        <td><strong><code>0.013 ms</code></strong> <em>(13 microseconds from frozen <code>CONSTRUCT_TOOL_SPECS</code>)</em></td>
+        <td><strong><code>~9,200x</code> faster</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Record Frame / Update Head (<code>construct_rec</code> / <code>head</code>)</strong></td>
+        <td><code>123.5 ms</code> (CLI spawn) or <code>2,500 ms</code> (LLM <code>Edit</code> on <code>HANDOFF.md</code>)</td>
+        <td><strong><code>2.4 ms</code></strong> <em>(direct in-process SQLite WAL write)</em></td>
+        <td><strong><code>51x - 1,000x</code> faster</strong></td>
+      </tr>
+      <tr>
+        <td><strong>Session Boot Briefing (<code>store.bootProject</code>)</strong></td>
+        <td><code>2,000 - 4,500 ms</code> <em>(LLM calling <code>Read</code> on 3-4 markdown files)</em></td>
+        <td><strong><code>5.26 ms</code></strong> (<code>generic</code>) / <strong><code>14.49 ms</code></strong> (9-seat Crew)</td>
+        <td><strong><code>~250x</code> faster (0 model roundtrips)</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 class="section-title">2. Interactive Crew Preview: How the 9 Seats Operate</h2>
+  <p style="color:var(--muted);">Click any Crew Bank below to preview its run banner, 9-seat specialist pipeline, and in-character interjection style:</p>
+  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;"><button class="pill-btn active" data-preview-pack="sprawl" onclick="showPreview('sprawl')">🌃 sprawl</button> <button class="pill-btn " data-preview-pack="anathem" onclick="showPreview('anathem')">🏛️ anathem</button> <button class="pill-btn " data-preview-pack="generic" onclick="showPreview('generic')">⚙️ generic</button> <button class="pill-btn " data-preview-pack="nightcity" onclick="showPreview('nightcity')">🦾 nightcity</button> <button class="pill-btn " data-preview-pack="cryptonomicon" onclick="showPreview('cryptonomicon')">🔐 cryptonomicon</button> <button class="pill-btn " data-preview-pack="shadowrun" onclick="showPreview('shadowrun')">🐉 shadowrun</button> <button class="pill-btn " data-preview-pack="dresden" onclick="showPreview('dresden')">🕯️ dresden</button> <button class="pill-btn " data-preview-pack="amber" onclick="showPreview('amber')">🦄 amber</button> <button class="pill-btn " data-preview-pack="laundry" onclick="showPreview('laundry')">🐙 laundry</button> <button class="pill-btn " data-preview-pack="tolkien" onclick="showPreview('tolkien')">💍 tolkien</button> <button class="pill-btn " data-preview-pack="discworld" onclick="showPreview('discworld')">🐢 discworld</button> <button class="pill-btn " data-preview-pack="reamde" onclick="showPreview('reamde')">🏔️ reamde</button> <button class="pill-btn " data-preview-pack="irondruid" onclick="showPreview('irondruid')">🐺 irondruid</button> <button class="pill-btn " data-preview-pack="prydain" onclick="showPreview('prydain')">⚔️ prydain</button> <button class="pill-btn " data-preview-pack="clockwork" onclick="showPreview('clockwork')">🥛 clockwork</button></div>
+  <div class="rom-card" id="preview-box">
+    <div class="mono" id="preview-banner" style="color:var(--accent);font-weight:700;margin-bottom:8px;"></div>
+    <div id="preview-title" style="font-size:18px;font-weight:700;color:#fff;margin-bottom:6px;"></div>
+    <div class="mono" id="preview-pipeline" style="font-size:13px;color:var(--ok);margin-bottom:12px;"></div>
+    <div class="cal-box cal-right" id="preview-sample"></div>
+    <div style="margin-top:12px;"><a id="preview-link" class="pill-btn active" href="crews/sprawl.html">Open Full Crew Roster Page &rarr;</a></div>
+  </div>
+
+  <h2 class="section-title" id="crews">3. The 15 Crew Banks (179 Full-Depth ROMs)</h2>
+  <p style="color:var(--muted);">Each Crew Bank lives in its own lazy-loaded module (<code>src/packs/&lt;bank&gt;.js</code>) so inactive banks consume <code>0</code> bytes of memory. Click any Crew Bank to inspect all 9 starter specialists, Bench seconds, behavioral dial meters, and Wrong vs. Right calibration pairs:</p>
+  <div class="crew-grid">
+    <div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🌃 sprawl</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/sprawl.html" style="color:#fff;">The Sprawl Crew (William Gibson -- Neuromancer / Count Zero / Mona Lisa Overdrive)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Straylight matrix run. Neon, black ice, mirrorshades, and Ono-Sendai console decks. Clipped, kinetic, streetwise, sardonic -- console cowboys, razorgirls, and orbital AIs breaching a target at speed.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: colin · dixie · wintermute · molly · finn · case · lupus · angie · continuity</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: armitage, marly, 3jane</div>
+          <a class="pill-btn" href="crews/sprawl.html" style="display:inline-block;text-decoration:none;">Explore sprawl Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🏛️ anathem</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/anathem.html" style="color:#fff;">The Concent of Saunt Edhar Crew (Neal Stephenson -- Anathem)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Mathic Concent &amp; Convox dialog. Ancient stone courts, chalk calcas, astronomical lenses, and extramuros machine-shops. Contemplative, Socratic, fiercely empirical, dryly witty, unhurried yet rigorous -- a circle of avout and artisans testing definitions and world-tracks before machining the implementation.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: erasmus · sammann · jad · cord · orolo · jesry · lio · tulia · ala</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: paphlagon, jules, lodoghir</div>
+          <a class="pill-btn" href="crews/anathem.html" style="display:inline-block;text-decoration:none;">Explore anathem Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">⚙️ generic</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">10 ROMs</span>
+          </div>
+          <h3><a href="crews/generic.html" style="color:#fff;">The Standard Engineering Crew (Zero-Fiction Specialist Pipeline)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">High-trust principal engineering war room. Zero literary fiction, zero roleplay, crisp peer-to-peer technical handoffs across specialized engineering roles.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: guide · trace · arch · strike · audit · pulse · redteam · ux · ledger</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: razor</div>
+          <a class="pill-btn" href="crews/generic.html" style="display:inline-block;text-decoration:none;">Explore generic Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🦾 nightcity</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/nightcity.html" style="color:#fff;">The Afterlife Crew (Cyberpunk 2077 / Phantom Liberty -- Night City Edgerunners)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Visceral Night City Afterlife gig. Multi-track Braindance editors, Little China ripperdoc chairs, Badlands nomad panzer tents, Blackwall ice-breakers, and Johnny Silverhand flickering on the Relic chip. Street-level, high-chrome, personal, sardonic, and zero-bullshit.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: judy · vik · tbug · v · mitch · songbird · johnny · evelyn · rogue</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: takemura, panam, reed</div>
+          <a class="pill-btn" href="crews/nightcity.html" style="display:inline-block;text-decoration:none;">Explore nightcity Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🔐 cryptonomicon</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/cryptonomicon.html" style="color:#fff;">Detachment 2702 &amp; Epiphyte Corp (Neal Stephenson -- Cryptonomicon)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">1942 Bletchley Park cryptanalysis braided with 1999 Manila data-haven systems engineering. Enigma rotors, Zeta functions, Van Eck phreaking, deep-sea U-boat salvage, and humid late-night Unix terminals. Erudite, dryly funny, mathematically rigorous, and deeply allergic to bureaucratic delusion.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: lawrence · goto · enoch · randy · doug · avi · cantrell · amy · golgotha</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: turing, bobby, rudy</div>
+          <a class="pill-btn" href="crews/cryptonomicon.html" style="display:inline-block;text-decoration:none;">Explore cryptonomicon Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🐉 shadowrun</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/shadowrun.html" style="color:#fff;">The Seattle 2050s Shadowland Team (Shadowrun -- Sixth World Arcology Run)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Sixth World tactical shadowrun in rainy 2050s Seattle where Awakened magic meets cyberware, Rigger drone networks, and Fairlight Excalibur Matrix decks, coordinated over the Shadowland BBS. Tight cross-discipline team dynamics, distrust of megacorp suits, and strict paydata verification.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: talon · streetdoc · fastjack · hatchetman · rigger · dodger · harlequin · siren · captainchaos</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: decker, adept, johnson</div>
+          <a class="pill-btn" href="crews/shadowrun.html" style="display:inline-block;text-decoration:none;">Explore shadowrun Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🕯️ dresden</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/dresden.html" style="color:#fff;">The Chicago Paranet &amp; White Council Crew (Jim Butcher -- The Dresden Files)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Sub-basement wizard's lab under a Chicago walk-up. Little Chicago pewter scale model on the workbench, Bob the Skull glowing orange on the shelf, Waldo Butters running a polka-powered autopsy at the Cook County Morgue, Karrin Murphy's Special Investigations discipline, Unseelie Accords invariants, and The Archive holding every word ever written. Sardonic, loyal, battle-tested, and fiercely protective of the craft.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: bob · butters · mab · harry · murphy · thomas · marcone · grasshopper · ivy</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: ebenezar, michael, toot</div>
+          <a class="pill-btn" href="crews/dresden.html" style="display:inline-block;text-decoration:none;">Explore dresden Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🦄 amber</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/amber.html" style="color:#fff;">The Royal House of Amber (Roger Zelazny -- The Chronicles of Amber)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Castle Amber atop Kolvir, the glowing labyrinth of the Primal Pattern, cold-touched Trump decks, and high-speed hellrides through Shadow. Aristocratic, sardonic, hyper-observant, and ruthlessly competent -- immortal princes, Pattern initiates, and a sentient Shadow-construct weighing every imperfect reflection against the one true city.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: corwin · merlin · fiona · benedict · julian · random · brand · dworkin · ghostwheel</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: caine, eric, flora</div>
+          <a class="pill-btn" href="crews/amber.html" style="display:inline-block;text-decoration:none;">Explore amber Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🐙 laundry</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/laundry.html" style="color:#fff;">SOE &quot;Q&quot; Division // The Capital Laundry Service (Charles Stross -- The Laundry Files)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Rainy London civil-service annex where applied mathematics and computer science are summoning magic (The Turing Theorem). Handheld Necronomicon wards, Q-Division basement Faraday pentagrams, Mahogany Row Earl Grey tea services, Bone Violins, and ISO-9001 occult compliance audits. Cynical BOFH sysadmin gallows humor braided with ruthless computational rigor.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: bobhoward · pinky · angleton · mo · brain · persephone · mhari · holly · stacks</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: bridget, iris, fred</div>
+          <a class="pill-btn" href="crews/laundry.html" style="display:inline-block;text-decoration:none;">Explore laundry Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">💍 tolkien</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">13 ROMs</span>
+          </div>
+          <h3><a href="crews/tolkien.html" style="color:#fff;">The Council of Elrond &amp; Fellowship Crew (J.R.R. Tolkien -- The Lord of the Rings)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">The Hall of Fire in Rivendell and the long road to Mordor. Ancient Minas Tirith scrolls, Ranger trail-craft in the wild, Dwarven Khazad-dûm stonework, the Mirror of Galadriel revealing hidden state seams, Éowyn's Pelennor Fields invariant-breaking blade, and the unbroken chronicle of the Red Book of Westmarch.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: gandalf · aragorn · galadriel · gimli · faramir · legolas · eowyn · samwise · elrond</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: boromir, celebrimbor, frodo, smeagol</div>
+          <a class="pill-btn" href="crews/tolkien.html" style="display:inline-block;text-decoration:none;">Explore tolkien Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🐢 discworld</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/discworld.html" style="color:#fff;">The Ankh-Morpork City Watch, Patrician's Palace &amp; Grand Trunk Crew (Sir Terry Pratchett -- Discworld)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Rain-slick cobblestones of Ankh-Morpork under the glow of the Grand Trunk Clacks towers. Ponder Stibbons and HEX in the High Energy Magic Building, Sam Vimes's cardboard-soled boots at Pseudopolis Yard, Lord Vetinari's clockwork Oblong Office, Detritus's cooling-helmet siege crossbow, Moist von Lipwig's winged postmaster hat, Adora Belle Dearheart's stiletto-heel golem audits, and the Librarian guarding L-Space.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: ponder · vimes · vetinari · detritus · cheery · moist · adorabelle · carrot · librarian</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: weatherwax, angua, death</div>
+          <a class="pill-btn" href="crews/discworld.html" style="display:inline-block;text-decoration:none;">Explore discworld Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🏔️ reamde</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/reamde.html" style="color:#fff;">Corporation 9592, T'Rain &amp; Tactical Overwatch (Neal Stephenson -- REAMDE)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Pioneer Square MMORPG war-room at Corporation 9592 in Seattle braided with Xiamen gold-farming rigs and Idaho Selkirk Mountain tactical overwatch. Real-money virtual-economy invariants, GIS packet forensics, Spetsnaz breach discipline, and zero tolerance for the Apostrophocalypse.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: richard · zula · dsquared · sokolov · csongor · yuxia · olivia · pluto · skraelin</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: wallace, ivanov, marlon</div>
+          <a class="pill-btn" href="crews/reamde.html" style="display:inline-block;text-decoration:none;">Explore reamde Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🐺 irondruid</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/irondruid.html" style="color:#fff;">Third Eye Books, Tempe Pack &amp; The World Tree (Kevin Hearne -- The Iron Druid Chronicles)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Third Eye Books &amp; Herbs in Tempe, Arizona, braided with elemental earth bindings, telepathic Irish Wolfhound commentary over sausages, vampire contract law at Magnusson &amp; Associates, and shifting along the roots of Yggdrasil.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: atticus · oberon · morrigan · owen · hal · granuaile · leif · brighid · ogma</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: coyote, perun, starbuck</div>
+          <a class="pill-btn" href="crews/irondruid.html" style="display:inline-block;text-decoration:none;">Explore irondruid Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">⚔️ prydain</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/prydain.html" style="color:#fff;">Caer Dallben, Caer Dathyl &amp; The Free Commots (Lloyd Alexander -- The Chronicles of Prydain)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">Caer Dallben's hearth and orchard, the ancient pages of The Book of Three, Fflewddur Fflam's truth-testing harp strings snapping *twang!*, the Free Commots craft workshops of Taran Wanderer, Princess Eilonwy's golden bauble lighting dark barrows, and Prince Gwydion's war-tent at Caer Dathyl.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: dallben · taran · gwydion · coll · fflewddur · gurgi · doli · eilonwy · taliesin</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: adaon, hevydd, kaw</div>
+          <a class="pill-btn" href="crews/prydain.html" style="display:inline-block;text-decoration:none;">Explore prydain Crew &rarr;</a>
+        </div>
+      </div>
+<div class="crew-card">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span class="badge ok">🥛 clockwork</span>
+            <span class="mono" style="font-size:12px;color:var(--muted);">12 ROMs</span>
+          </div>
+          <h3><a href="crews/clockwork.html" style="color:#fff;">The Korova Milkbar &amp; Ludovico Center (Anthony Burgess -- A Clockwork Orange)</a></h3>
+          <p style="font-size:13.5px;color:var(--muted);margin:8px 0 12px;">The Korova Milkbar with Milk-Plus Vellocet, Synthemesc, and Drencrom sharpening the gulliver for a bit of the old ultra-coding, Ludwig van's Glorious Ninth Symphony thundering on the stereo, Nadsat street-patois woven around razor-exact telemetry, and the cold white laboratory projectors of the Brodsky Center.</p>
+        </div>
+        <div>
+          <div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px;">Starters: alex · pete · georgie · dim · brodsky · branom · deltoid · falexander · chaplain</div>
+          <div class="mono" style="font-size:11.5px;color:var(--muted);margin-bottom:12px;">Bench: minister, catlady, barnes</div>
+          <a class="pill-btn" href="crews/clockwork.html" style="display:inline-block;text-decoration:none;">Explore clockwork Crew &rarr;</a>
+        </div>
+      </div>
+  </div>
+
+  <div class="footer">
+    Construct Sequential Memory &amp; Multi-Bank 9-Seat Crew Engine &bull; MIT + Commons Clause v1.0 &bull; <a href="guide.html">Read the Full Architecture &amp; Multi-Agent Guide &rarr;</a>
+  </div>
+</div>
+<script>
+const PREVIEW_DATA = {"sprawl":{"emblem":"🌃","title":"The Sprawl Crew (William Gibson -- Neuromancer / Count Zero / Mona Lisa Overdrive)","banner":"🌃 ═══ [SPRAWL // RUN ACTIVE] ══════════════════════════════════════════════════","recon":"colin","diag":"dixie","arch":"wintermute","blitz":"molly","book":"continuity","sample":"🔵 **[COLIN // RECON & EXPOSITION]** Actually guv, I can speak to how that stream is wired if you want the tour."},"anathem":{"emblem":"🏛️","title":"The Concent of Saunt Edhar Crew (Neal Stephenson -- Anathem)","banner":"🏛️ ═══ [SAUNT EDHAR // CONVOX] ═════════════════════════════════════════════════","recon":"erasmus","diag":"sammann","arch":"jad","blitz":"cord","book":"ala","sample":"🔵 **[ERASMUS // CALCA & EXPOSITION]** Pardon, Fraa Jad -- if you want the first-principles calca on how that stream is wired, I just walked those stones."},"generic":{"emblem":"⚙️","title":"The Standard Engineering Crew (Zero-Fiction Specialist Pipeline)","banner":"⚙️ ═══ [ENGINEERING // PIPELINE] ═══════════════════════════════════════════════","recon":"guide","diag":"trace","arch":"arch","blitz":"strike","book":"ledger","sample":"🔵 **[GUIDE // STACK ORIENTATION]** Quick note: I can walk through how that provider lifecycle works if helpful."},"nightcity":{"emblem":"🦾","title":"The Afterlife Crew (Cyberpunk 2077 / Phantom Liberty -- Night City Edgerunners)","banner":"🦾 ═══ [AFTERLIFE // GIG ACTIVE] ═══════════════════════════════════════════════","recon":"judy","diag":"vik","arch":"tbug","blitz":"v","book":"rogue","sample":"🔵 **[JUDY // BRAINDANCE RECON]** Hold up -- if you scrub the thermal layer on that file, I can show you how the stream is actually wired."},"cryptonomicon":{"emblem":"🔐","title":"Detachment 2702 & Epiphyte Corp (Neal Stephenson -- Cryptonomicon)","banner":"🔐 ═══ [DETACHMENT 2702 // EPIPHYTE CORP] ══════════════════════════════════════","recon":"lawrence","diag":"goto","arch":"enoch","blitz":"randy","book":"golgotha","sample":"🔵 **[LAWRENCE // BLETCHLEY ORGAN]** If I may interject, Enoch -- the state machine there behaves exactly like a three-rotor bicycle gear-train."},"shadowrun":{"emblem":"🐉","title":"The Seattle 2050s Shadowland Team (Shadowrun -- Sixth World Arcology Run)","banner":"🐉 ═══ [SHADOWLAND // SEATTLE RUN] ═════════════════════════════════════════════","recon":"talon","diag":"streetdoc","arch":"fastjack","blitz":"hatchetman","book":"captainchaos","sample":"🔵 **[TALON // ASTRAL RECON]** Hold the breach -- I just assensed the astral signature on that module if you want the layout."},"dresden":{"emblem":"🕯️","title":"The Chicago Paranet & White Council Crew (Jim Butcher -- The Dresden Files)","banner":"🕯️ ═══ [CHICAGO // PARANET CASEFILE] ══════════════════════════════════════════","recon":"bob","diag":"butters","arch":"mab","blitz":"harry","book":"ivy","sample":"🔵 **[BOB // ARCANE LORE & SCHEMATICS]** Hold on, Boss -- before you scorch the workbench, I can project the ley lines on how that stream lifecycle is actually bound."},"amber":{"emblem":"🦄","title":"The Royal House of Amber (Roger Zelazny -- The Chronicles of Amber)","banner":"🦄 ═══ [AMBER // THE PRIMAL PATTERN] ═══════════════════════════════════════════","recon":"corwin","diag":"merlin","arch":"fiona","blitz":"benedict","book":"ghostwheel","sample":"🔵 **[CORWIN // SHADOW WALK & RECON]** Hold a moment, Fiona -- I just walked the Shadow-path through that module if you want the lay of the land before we draw blades."},"laundry":{"emblem":"🐙","title":"SOE \"Q\" Division // The Capital Laundry Service (Charles Stross -- The Laundry Files)","banner":"🐙 ═══ [THE LAUNDRY // CASE NIGHTMARE GREEN] ══════════════════════════════════","recon":"bobhoward","diag":"pinky","arch":"angleton","blitz":"mo","book":"stacks","sample":"🔵 **[BOBHOWARD // COMPUTATIONAL DEMONOLOGY]** Hang on a tick -- before Angleton signs the warrant, I just traced the summoning theorem in that module if you want the sysadmin version."},"tolkien":{"emblem":"💍","title":"The Council of Elrond & Fellowship Crew (J.R.R. Tolkien -- The Lord of the Rings)","banner":"💍 ═══ [RIVENDELL // COUNCIL OF ELROND] ════════════════════════════════════════","recon":"gandalf","diag":"aragorn","arch":"galadriel","blitz":"gimli","book":"elrond","sample":"🔵 **[GANDALF // LORE OF THE WISE]** A moment, Lady Galadriel -- I read the ancient scroll on that stream lifecycle in the archives of Minas Tirith if you want the inscription."},"discworld":{"emblem":"🐢","title":"The Ankh-Morpork City Watch, Patrician's Palace & Grand Trunk Crew (Sir Terry Pratchett -- Discworld)","banner":"🐢 ═══ [ANKH-MORPORK // PSEUDOPOLIS YARD & THE CLACKS] ════════════════════════","recon":"ponder","diag":"vimes","arch":"vetinari","blitz":"detritus","book":"librarian","sample":"🔵 **[PONDER // HIGH ENERGY MAGIC & HEX]** Excuse me, Lord Vetinari -- I just ran that provider lifecycle through HEX's ant-tubes if you want the schematic before Sergeant Detritus fires the Piecemaker."},"reamde":{"emblem":"🏔️","title":"Corporation 9592, T'Rain & Tactical Overwatch (Neal Stephenson -- REAMDE)","banner":"🏔️ ═══ [CORPORATION 9592 // T'RAIN & THE IDAHOS] ══════════════════════════════","recon":"richard","diag":"zula","arch":"dsquared","blitz":"sokolov","book":"skraelin","sample":"🔵 **[RICHARD // T'RAIN FOUNDER & TERRAIN]** Hold on, D-Squared -- before Sokolov breaches that module, let me walk through how the real-money exchange pipe is actually routed."},"irondruid":{"emblem":"🐺","title":"Third Eye Books, Tempe Pack & The World Tree (Kevin Hearne -- The Iron Druid Chronicles)","banner":"🐺 ═══ [TEMPE // THIRD EYE BOOKS & THE WORLD TREE] ════════════════════════════","recon":"atticus","diag":"oberon","arch":"morrigan","blitz":"owen","book":"ogma","sample":"🔵 **[ATTICUS // ELEMENTAL LORE & FRAGARACH]** Hang on, Morrigan -- I just asked the local elemental how that stream binding is woven if you want the layout before Owen starts swinging his club."},"prydain":{"emblem":"⚔️","title":"Caer Dallben, Caer Dathyl & The Free Commots (Lloyd Alexander -- The Chronicles of Prydain)","banner":"⚔️ ═══ [CAER DALLBEN // THE BOOK OF THREE & PRYDAIN] ══════════════════════════","recon":"dallben","diag":"taran","arch":"gwydion","blitz":"coll","book":"taliesin","sample":"🔵 **[DALLBEN // THE BOOK OF THREE]** A moment, Prince Gwydion -- I consulted The Book of Three on that stream lifecycle if you wish to hear the inscription before Coll takes up his tools."},"clockwork":{"emblem":"🥛","title":"The Korova Milkbar & Ludovico Center (Anthony Burgess -- A Clockwork Orange)","banner":"🥛 ═══ [KOROVA MILKBAR // NADSAT & LUDOVICO LAB] ══════════════════════════════","recon":"alex","diag":"pete","arch":"georgie","blitz":"dim","book":"chaplain","sample":"🔵 **[ALEX // YOUR HUMBLE NARRATOR]** Viddy well, Georgie my brother -- before Dim swings the oozy on that module, I just peeped the actual stream wiring in the source if you want the tour."}};
+function showPreview(pack) {
+  const d = PREVIEW_DATA[pack];
+  if (!d) return;
+  document.getElementById('preview-banner').textContent = d.banner;
+  document.getElementById('preview-title').textContent = d.emblem + ' ' + d.title;
+  document.getElementById('preview-pipeline').textContent = 'Pipeline: 🔵 ' + d.recon + ' (Recon) -> 🟠 ' + d.diag + ' (Trace) -> 🟣 ' + d.arch + ' (Alignment Gate) -> 🔴 ' + d.blitz + ' (Blitz) -> 📓 ' + d.book + ' (Archive)';
+  document.getElementById('preview-sample').textContent = d.sample;
+  document.getElementById('preview-link').href = 'crews/' + pack + '.html';
+  document.getElementById('preview-link').textContent = 'Open Full ' + pack.toUpperCase() + ' Crew Page ->';
+  document.querySelectorAll('[data-preview-pack]').forEach((btn) => {
+    if (btn.getAttribute('data-preview-pack') === pack) btn.classList.add('active');
+    else btn.classList.remove('active');
+  });
+}
+showPreview('sprawl');
+</script>
+</body>
+</html>
