@@ -902,21 +902,33 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.equal(aliceBoot.inboxReplies[0].replyRom, 'dixie');
       assert.equal(aliceBoot.inboxReplies[0].replyBody, 'No, peace is still an option');
 
-      // Deleting a stale/broken message purges both `messages` and `crdt_log`
-      const staleMsg = store.sendMessage({
-        project: 'acme/shared_app',
-        to: 'bob',
-        via: 'smeagol',
-        body: 'Broken test message to delete',
-      });
-      assert.equal(staleMsg.fromRom, 'smeagol');
-      const deletedMsg = store.deleteMessage(staleMsg.id);
-      assert.equal(deletedMsg.uid, staleMsg.uid);
-      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.id === staleMsg.id));
-
       // Delta sync check: repeating syncProject with no new local ops pushes 0 redundant ops
       const repeatSync = await store.syncProject('acme/shared_app');
       assert.equal(repeatSync.pushedOps, 0);
+
+      // Hiding a message (person-to-person, without requiring `project`) keeps it on the record (`includeHidden: true`)
+      // while excluding it from default lists/HUD and preventing incoming CRDT relay packets from resurrecting it
+      const staleMsg = store.sendMessage({
+        to: 'bob',
+        via: 'smeagol',
+        body: 'Ssshh, precious! Broken test message to hide, gollum!',
+      });
+      assert.equal(staleMsg.fromRom, 'smeagol');
+      const packetWithStale = store.exportEncryptedPacket('acme/shared_app');
+      const hiddenMsg = store.hideMessage(staleMsg.id);
+      assert.equal(hiddenMsg.uid, staleMsg.uid);
+      assert.equal(hiddenMsg.status, 'hidden');
+      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.id === staleMsg.id));
+      assert.ok(store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.id === staleMsg.id));
+      store.importEncryptedPacket(packetWithStale.envelope);
+      assert.ok(!store.listMessages({ project: 'acme/shared_app' }).some((m) => m.uid === staleMsg.uid));
+
+      // Purging a message (`store.purgeMessage`) removes it from `messages` completely (even with `includeHidden: true`)
+      // and writes a permanent `message_tombstone` into `crdt_log` so relay re-imports cannot resurrect it
+      store.purgeMessage(staleMsg.id);
+      assert.ok(!store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.uid === staleMsg.uid));
+      store.importEncryptedPacket(packetWithStale.envelope);
+      assert.ok(!store.listMessages({ project: 'acme/shared_app', includeHidden: true }).some((m) => m.uid === staleMsg.uid));
 
       // Invite URI encryption check: stripping the `#...` fragment key fails to unwrap `epochSecret`
       const crdtMod = require('../src/crdt');

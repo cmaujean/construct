@@ -1071,11 +1071,11 @@ export default {
               type: "string",
               enum: ["msg", "reply", "ack", "inbox", "drop", "apply-drop"],
             },
-            project: { type: "string", description: "Project key, e.g. acme/alpha_app" },
-            to: { type: "string", description: "Recipient operator id (for msg/inbox/drop), e.g. bob" },
-            via: { type: "string", description: "Optional courier/messenger ROM to deliver the message or reply in-character in the recipient's feed (e.g. 'toot', 'bob', 'dixie', 'johnny')" },
+            project: { type: "string", description: "Optional project key (comms are person-to-person across all shared MLS groups; omit project to route automatically to the recipient)" },
+            to: { type: "string", description: "Recipient operator id (for msg/inbox/drop), e.g. mike" },
+            via: { type: "string", description: "Optional courier/messenger ROM to deliver the message or reply in-character in the recipient's feed (e.g. 'smeagol', 'moist', 'toot', 'bob', 'oberon')" },
             id: { type: "integer", description: "Message id (for reply/ack/apply-drop)" },
-            body: { type: "string", description: "Message, reply text, or patch content (for drop)" },
+            body: { type: "string", description: "Message or reply text WRITTEN IN THE AUTHENTIC FIRST-PERSON VOICE OF THE COURIER ROM (`via`), preserving 100% of the operator's meaning and technical coordinates" },
             file: { type: "string", description: "File path to drop or output path for apply-drop" },
             gitDiff: { type: "boolean", description: "Capture and drop uncommitted git diff from project repo" },
             apply: { type: "boolean", description: "Run `git apply` on an incoming git-diff drop" },
@@ -1086,7 +1086,8 @@ export default {
         options: { namespace: "construct", codemode: true },
         execute: async (input, context) => {
           if (input.action === "msg") {
-            const args = ["msg", String(input.project || "global"), "--to", String(input.to)]
+            const args = ["msg", "--to", String(input.to)]
+            if (input.project) args.push("--project", String(input.project))
             if (input.via) args.push("--via", String(input.via))
             if (context?.sessionID) args.push("--session", String(context.sessionID))
             args.push(String(input.body))

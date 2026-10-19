@@ -302,15 +302,26 @@ function buildMemberCrewSummary(rom, packMeta = null) {
   const role = `Seat ${seatMeta.code} (${rom.seat}) — ${seatMeta.desc}`;
 
   // For the zero-fiction `generic` bank, keep only the concise tagline for maximum token savings.
-  // For the 5 immersive banks, include the full Section 2 craft/world register + 1 concrete tone anchor.
+  // For all immersive banks, include the full multi-bullet Section 2 craft/world/persona register + 2 concrete tone anchors.
   let cadence = rom.tagline;
   let toneSample = '';
   if (rom.pack !== 'generic') {
-    const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
-    const syntaxFull = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
-    if (syntaxFull) cadence = `${rom.tagline} ${syntaxFull}`;
-    const rightMatch = rom.voice.match(/\(RIGHT\):\*\s*"([^"\n]+)"/);
-    if (rightMatch) toneSample = ` *Voice cue (vary, never repeat verbatim):* "${rightMatch[1].trim()}"`;
+    const sec2Match = rom.voice.match(/### 2\.[^\n]*\n([\s\S]*?)(?=\n### 3\.|$)/);
+    if (sec2Match) {
+      const bullets = sec2Match[1]
+        .split('\n')
+        .map((line) => line.replace(/^\s*-\s*/, '').replace(/\*\*/g, '').trim())
+        .filter(Boolean);
+      if (bullets.length) cadence = `${rom.tagline} ${bullets.join(' ')}`;
+    }
+    const rightMatches = [...rom.voice.matchAll(/\(RIGHT\):\*\s*"([^"\n]+)"/g)];
+    if (rightMatches.length) {
+      const cues = rightMatches
+        .slice(0, 2)
+        .map((m) => `"${m[1].trim()}"`)
+        .join(' | ');
+      toneSample = ` *Voice cue (vary, never repeat verbatim):* ${cues}`;
+    }
   }
 
   // Directive 0 is always the anti-stock-report voice rule; directive 1 is the seat's primary operational mandate
@@ -407,7 +418,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '3. **Phase Gates (`Recon -> Alignment Gate -> Blitz + Overwatch -> Archive`):**',
     '   - **Recon & Alignment:** **' + reconName + '**/**' + diagName + '** scouts first; **' + archName + '** maps invariants and **waits for the operator\'s green light** before turning **' + blitzName + '** loose ("Align & refine before pulling the trigger").',
     '   - **Execution & Overwatch:** **' + blitzName + '** implements the complete change at full depth (never a skeleton) and verifies the regression test fails against the unfixed state before restoring the fix; **' + secName + '**, **' + forName + '**, **' + velName + '**, and **' + uxName + '** inspect security, artifacts, latency, and UX; **' + bookName + '** logs the frame (`#seq`) and head.',
-    '4. **Parallel Subagents & Non-Blocking Comms:** Spawn parallel child sessions (`subagent` in OpenCode, `Agent` in Claude Code) prefixed with `[ROM: <specialist_name>]` (auto-bound in <4ms over SQLite WAL). Whenever sending/replying to Construct Comms or syncing MLS relays (`construct msg`, `construct reply`, `construct sync`, `construct pr`), offload the comms work to a background or parallel `subagent` (`[ROM: ' + velName + ']` or `--via <messenger>`) so the main loop never waits on relay roundtrips.',
+    '4. **Parallel Subagents & In-Character Person-to-Person Comms:** Spawn parallel child sessions (`subagent` in OpenCode, `Agent` in Claude Code) prefixed with `[ROM: <specialist_name>]` (auto-bound in <4ms over SQLite WAL). Whenever sending or replying to Construct Comms (`construct msg --to <person> [--via <courier>] "<in-character message>"` or `construct reply`), ALWAYS offload the comms work to a background or parallel `subagent` (`[ROM: <courier>]`) AND write the outbound message body in the authentic first-person voice of that Courier ROM (never pass dry, unvoiced shorthand as the message body!).',
     '',
     '## Slotted Crew Roster (' + rosterRoms.length + ' Active Specialists)',
     rosterBlocks + backupBlock + cameoBlock,

@@ -2133,10 +2133,18 @@ function buildCourierProfileInDb(db, romNameInput = '', senderUser = '', roleLab
   const glyph = seatMeta.glyph || '📬';
   const badge = `${glyph} **[${rom.name.toUpperCase()} // ${roleLabel}${senderSuffix}]**`;
 
-  const syntaxMatch = rom.voice.match(/### 2\.[^\n]*\n-\s*([^\n]+)/);
-  const syntaxText = syntaxMatch ? syntaxMatch[1].replace(/\*\*/g, '').trim() : '';
-  const rightMatch = rom.voice.match(/\(RIGHT\):\*\s*"([^"\n]+)"/);
-  const sampleText = rightMatch ? ` Sample: "${rightMatch[1].trim()}"` : '';
+  const sec2Match = rom.voice.match(/### 2\.[^\n]*\n([\s\S]*?)(?=\n### 3\.|$)/);
+  const syntaxText = sec2Match
+    ? sec2Match[1]
+        .split('\n')
+        .map((line) => line.replace(/^\s*-\s*/, '').replace(/\*\*/g, '').trim())
+        .filter(Boolean)
+        .join(' ')
+    : '';
+  const rightMatches = [...rom.voice.matchAll(/\(RIGHT\):\*\s*"([^"\n]+)"/g)];
+  const sampleText = rightMatches.length
+    ? ` Samples: ${rightMatches.slice(0, 2).map((m) => `"${m[1].trim()}"`).join(' | ')}`
+    : '';
   const voiceCue = [rom.tagline, syntaxText].filter(Boolean).join(' ') + sampleText;
 
   return {
@@ -2149,7 +2157,6 @@ function buildCourierProfileInDb(db, romNameInput = '', senderUser = '', roleLab
 }
 
 function sendMessage(fields = {}, file = dbPath()) {
-  const project = normalizeProject(fields.project || 'global');
   const toUser = String(fields.to || fields.toUser || '').trim().toLowerCase();
   const body = String(fields.body || '').trim();
   if (!toUser) throw new Error('recipient user id (--to <user>) is required, e.g. --to bob');
@@ -2163,13 +2170,16 @@ function sendMessage(fields = {}, file = dbPath()) {
         const fromUser = fields.fromUser
           ? String(fields.fromUser).trim().toLowerCase()
           : user?.id || protocol.detectOsUsername();
+        const allGroups = db.prepare('SELECT project FROM mls_groups ORDER BY updated DESC').all();
+        const explicitProj = fields.project && fields.project !== 'global' ? normalizeProject(fields.project) : '';
+        const primaryProject = explicitProj || allGroups[0]?.project || 'global';
         const fromRom = resolveCourierRomNameInDb(
           db,
           fields.via || fields.fromRom || '',
           fields.sessionId || process.env.CONSTRUCT_SESSION_ID || '',
-          project === 'global' ? '' : project
+          primaryProject === 'global' ? '' : primaryProject
         );
-        const uid = fields.uid || `msg-${project}-${crypto.randomUUID()}`;
+        const uid = fields.uid || `msg-${crypto.randomUUID()}`;
         const hlc = crdt.nextHlc(identity.did);
         const created = fields.created || nowIso();
 
@@ -2178,30 +2188,40 @@ function sendMessage(fields = {}, file = dbPath()) {
             `INSERT INTO messages (uid, hlc, project, from_user, from_rom, from_did, to_user, body, status, created)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
           )
-          .run(uid, hlc, project, fromUser, fromRom, identity.did, toUser, body, created);
+          .run(uid, hlc, primaryProject, fromUser, fromRom, identity.did, toUser, body, created);
 
         const newId = Number(info.lastInsertRowid);
 
-        crdt.appendCrdtOpInDb(db, {
-          project,
-          entity: 'message',
-          recordUid: uid,
-          payload: {
-            uid,
-            hlc,
-            project,
-            fromUser,
-            fromRom,
-            fromDid: identity.did,
-            toUser,
-            body,
-            status: 'pending',
-            replyBody: '',
-            replyRom: '',
-            replyHlc: '',
-            created,
-          },
-        });
+        // Fan the person-to-person message CRDT op into the target project (or all joined MLS groups when
+        // no explicit project was specified) so the recipient receives it over whichever shared group syncs first,
+        // while `uid` deduplicates it into a single row in `messages`.
+        const targetProjects = explicitProj
+          ? [explicitProj]
+          : allGroups.length
+          ? allGroups.map((g) => g.project)
+          : ['global'];
+        for (const proj of targetProjects) {
+          crdt.appendCrdtOpInDb(db, {
+            project: proj,
+            entity: 'message',
+            recordUid: uid,
+            payload: {
+              uid,
+              hlc,
+              project: proj,
+              fromUser,
+              fromRom,
+              fromDid: identity.did,
+              toUser,
+              body,
+              status: 'pending',
+              replyBody: '',
+              replyRom: '',
+              replyHlc: '',
+              created,
+            },
+          });
+        }
 
         return crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(newId));
       }),
@@ -2241,26 +2261,32 @@ function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = d
 
         const updated = crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
 
-        crdt.appendCrdtOpInDb(db, {
-          project: updated.project,
-          entity: 'message',
-          recordUid: updated.uid,
-          payload: {
-            uid: updated.uid,
-            hlc: updated.hlc,
-            project: updated.project,
-            fromUser: updated.fromUser,
-            fromRom: updated.fromRom,
-            fromDid: updated.fromDid,
-            toUser: updated.toUser,
-            body: updated.body,
-            status: 'replied',
-            replyBody: updated.replyBody,
-            replyRom: updated.replyRom,
-            replyHlc: updated.replyHlc,
-            created: updated.created,
-          },
-        });
+        const allGroups = db.prepare('SELECT project FROM mls_groups ORDER BY updated DESC').all();
+        const targetProjects = allGroups.length
+          ? Array.from(new Set([updated.project, ...allGroups.map((g) => g.project)].filter((p) => p && p !== 'global')))
+          : [updated.project];
+        for (const proj of targetProjects) {
+          crdt.appendCrdtOpInDb(db, {
+            project: proj,
+            entity: 'message',
+            recordUid: updated.uid,
+            payload: {
+              uid: updated.uid,
+              hlc: updated.hlc,
+              project: proj,
+              fromUser: updated.fromUser,
+              fromRom: updated.fromRom,
+              fromDid: updated.fromDid,
+              toUser: updated.toUser,
+              body: updated.body,
+              status: 'replied',
+              replyBody: updated.replyBody,
+              replyRom: updated.replyRom,
+              replyHlc: updated.replyHlc,
+              created: updated.created,
+            },
+          });
+        }
 
         return updated;
       }),
@@ -2287,7 +2313,7 @@ function ackMessage(idOrUid, file = dbPath()) {
   );
 }
 
-function deleteMessage(idOrUid, file = dbPath()) {
+function hideMessage(idOrUid, file = dbPath()) {
   return withDb(
     (db) =>
       tx(db, () => {
@@ -2296,13 +2322,62 @@ function deleteMessage(idOrUid, file = dbPath()) {
           ? db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(key))
           : db.prepare('SELECT * FROM messages WHERE uid = ?').get(key);
         if (!row) throw new Error(`no construct message matching "${idOrUid}"`);
-        db.prepare('DELETE FROM messages WHERE id = ?').run(row.id);
-        db.prepare("DELETE FROM crdt_log WHERE entity = 'message' AND record_uid = ?").run(row.uid);
+        const identity = crdt.loadOrCreateIdentity();
+        const replyHlc = crdt.nextHlc(identity.did, row.reply_hlc || row.hlc);
+        db.prepare(
+          "UPDATE messages SET status = 'hidden', reply_hlc = ? WHERE id = ? OR (from_user = ? AND from_rom = ? AND body = ?)"
+        ).run(replyHlc, row.id, row.from_user, row.from_rom, row.body);
+        return crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
+      }),
+    file
+  );
+}
+
+// Completely obliterate a message (and any twin with the same sender/courier/body) from `messages`
+// and write a permanent `message_tombstone` into `crdt_log` across all joined MLS groups so neither
+// local relay sync nor remote peers can ever resurrect or display it.
+function purgeMessage(idOrUid, file = dbPath()) {
+  return withDb(
+    (db) =>
+      tx(db, () => {
+        const key = String(idOrUid || '').replace(/^[#M]+/i, '').trim();
+        const row = /^\d+$/.test(key)
+          ? db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(key))
+          : db.prepare('SELECT * FROM messages WHERE uid = ?').get(key);
+        if (!row) throw new Error(`no construct message matching "${idOrUid}"`);
+        const twins = db
+          .prepare('SELECT * FROM messages WHERE id = ? OR (from_user = ? AND from_rom = ? AND body = ?)')
+          .all(row.id, row.from_user, row.from_rom, row.body);
+        const allGroups = db.prepare('SELECT project FROM mls_groups ORDER BY updated DESC').all();
+        const identity = crdt.loadOrCreateIdentity();
+
+        for (const t of twins) {
+          db.prepare('DELETE FROM messages WHERE id = ?').run(t.id);
+          // Scrub the old message payload in crdt_log while keeping op_id so seenOpStmt never re-imports it
+          db.prepare("UPDATE crdt_log SET entity = 'message_tombstone', payload = ? WHERE record_uid = ?").run(
+            JSON.stringify({ uid: t.uid, purged: true }),
+            t.uid
+          );
+          const hlc = crdt.nextHlc(identity.did, t.reply_hlc || t.hlc);
+          const targetProjects = allGroups.length
+            ? Array.from(new Set([t.project, ...allGroups.map((g) => g.project)].filter((p) => p && p !== 'global')))
+            : [t.project];
+          for (const proj of targetProjects) {
+            crdt.appendCrdtOpInDb(db, {
+              project: proj,
+              entity: 'message_tombstone',
+              recordUid: t.uid,
+              payload: { uid: t.uid, hlc, project: proj, purged: true },
+            });
+          }
+        }
         return crdt.hydrateMessage(row);
       }),
     file
   );
 }
+
+const deleteMessage = hideMessage;
 
 function listMessages(options = {}, file = dbPath()) {
   return withDb((db) => {
@@ -2319,6 +2394,8 @@ function listMessages(options = {}, file = dbPath()) {
     if (options.status) {
       clauses.push('status = ?');
       params.push(String(options.status).trim());
+    } else if (!options.includeHidden) {
+      clauses.push("status != 'hidden'");
     }
     const whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     return db
@@ -2868,10 +2945,19 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       fix: g.fix || '',
     }));
 
-    const msgRows = db
-      .prepare('SELECT * FROM messages ORDER BY id DESC LIMIT 25')
+    const rawMsgRows = db
+      .prepare("SELECT * FROM messages WHERE status != 'hidden' ORDER BY id DESC LIMIT 40")
       .all()
       .map(crdt.hydrateMessage);
+    const seenCommsFingerprints = new Set();
+    const msgRows = [];
+    for (const m of rawMsgRows) {
+      const fp = `${m.fromUser}:${m.fromRom}:${m.body}`;
+      if (seenCommsFingerprints.has(fp)) continue;
+      seenCommsFingerprints.add(fp);
+      msgRows.push(m);
+      if (msgRows.length >= 25) break;
+    }
 
     const commsItems = msgRows.map((m) => {
       const fromCourier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
@@ -3080,7 +3166,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
                    : ''
                }
                ${m.status !== 'delivered' ? `<button class="crew-btn" onclick="ackCourier(${m.id},this)">✓ Ack</button>` : ''}
-               <button class="crew-btn" title="Delete message M#${m.id}" onclick="deleteCourier(${m.id},this)">✕ Delete</button>
+               <button class="crew-btn" title="Hide message M#${m.id} (kept in archive)" onclick="deleteCourier(${m.id},this)">👁️ Hide</button>
              </div>`;
       return `
       <tr>
@@ -3476,7 +3562,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
                   '<button class="crew-btn" id="row-reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Reply</button>'
                 : '') +
               (m.status !== 'delivered' ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
-              '<button class="crew-btn" title="Delete message M#' + esc(m.id) + '" onclick="deleteCourier(' + esc(m.id) + ',this)">✕ Delete</button></div>';
+              '<button class="crew-btn" title="Hide message M#' + esc(m.id) + ' (kept in archive)" onclick="deleteCourier(' + esc(m.id) + ',this)">👁️ Hide</button></div>';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
               '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
               '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
@@ -3634,10 +3720,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       if (btnEl) {
         if (btnEl.disabled) return;
         btnEl.disabled = true;
-        btnEl.textContent = '✕...';
+        btnEl.textContent = '👁️...';
       }
       const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = 'Deleting M#' + msgId + '...';
+      if (toast) toast.textContent = 'Hiding M#' + msgId + '...';
       try {
         const res = await fetch('http://127.0.0.1:47420/action', {
           method: 'POST',
@@ -3647,7 +3733,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         const data = await res.json();
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
-          if (toast) toast.textContent = '✓ Deleted M#' + msgId;
+          if (toast) toast.textContent = '✓ Hidden M#' + msgId + ' (searchable via construct inbox --all)';
         }
       } catch (_) {
         if (btnEl) btnEl.disabled = false;
@@ -5351,6 +5437,8 @@ module.exports = {
   sendMessage,
   replyMessage,
   ackMessage,
+  hideMessage,
+  purgeMessage,
   deleteMessage,
   listMessages,
   dropPatch,

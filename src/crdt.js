@@ -680,6 +680,10 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
        updated = excluded.updated`
   );
   const selectMsgStmt = db.prepare('SELECT * FROM messages WHERE uid = ?');
+  const selectMsgTombstoneStmt = db.prepare(
+    "SELECT 1 FROM crdt_log WHERE entity = 'message_tombstone' AND record_uid = ? LIMIT 1"
+  );
+  const deleteMsgByUidStmt = db.prepare('DELETE FROM messages WHERE uid = ?');
   const insertMsgStmt = db.prepare(
     `INSERT INTO messages (uid, hlc, project, from_user, from_rom, from_did, to_user, body, status, reply_body, reply_rom, reply_hlc, created)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -808,7 +812,14 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         upsertHeadStmt.run(op.project, localRepo, p.state || '', p.next || '', p.updated || new Date().toISOString());
         applied++;
       }
+    } else if (op.entity === 'message_tombstone') {
+      const targetUid = p.uid || op.recordUid;
+      if (targetUid) {
+        deleteMsgByUidStmt.run(targetUid);
+        applied++;
+      }
     } else if (op.entity === 'message') {
+      if (selectMsgTombstoneStmt.get(p.uid)) continue;
       const existing = selectMsgStmt.get(p.uid);
       if (!existing) {
         insertMsgStmt.run(
@@ -828,8 +839,12 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         );
         applied++;
       } else if ((p.replyHlc || p.hlc || op.hlc) > (existing.reply_hlc || existing.hlc || '')) {
+        const nextStatus =
+          existing.status === 'hidden' || existing.status === 'delivered'
+            ? existing.status
+            : p.status || existing.status;
         updateMsgStmt.run(
-          p.status || existing.status,
+          nextStatus,
           p.replyBody ?? existing.reply_body,
           p.replyRom ?? existing.reply_rom,
           p.replyHlc || op.hlc,

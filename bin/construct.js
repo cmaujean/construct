@@ -1272,10 +1272,15 @@ async function main(argv) {
 
     case 'msg':
     case 'ask': {
-      const [project, ...bodyParts] = rest;
+      let project = o.project || '';
+      let bodyParts = rest;
+      if (!project && rest.length >= 2 && /^[a-z0-9_.-]+(?:\/[a-z0-9_.-]+)?$/i.test(rest[0]) && !rest[0].includes(' ')) {
+        project = rest[0];
+        bodyParts = rest.slice(1);
+      }
       const body = bodyParts.join(' ');
-      if (!project || !body || !o.to) {
-        throw new Error('usage: construct msg <project> --to <user> [--via <messenger>] "<message>"');
+      if (!body || !o.to) {
+        throw new Error('usage: construct msg --to <user> [--via <messenger>] "<in-character message>"');
       }
       const m = store.sendMessage({ project, to: o.to, via: o.via || o.rom, sessionId: o.session, body });
       if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
@@ -1287,7 +1292,7 @@ async function main(argv) {
         } catch (_) {}
       }
       if (o.json) console.log(JSON.stringify(m, null, 2));
-      else console.log(`queued [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser} on ${m.project}): "${m.body}"`);
+      else console.log(`queued [M#${m.id}] (${m.fromUser}/${m.fromRom} -> ${m.toUser}): "${m.body}"`);
       return 0;
     }
 
@@ -1322,22 +1327,42 @@ async function main(argv) {
       return 0;
     }
 
-    case 'rm-msg':
-    case 'msg-rm':
-    case 'delete-msg': {
+    case 'purge-msg':
+    case 'msg-purge': {
       const ids = rest.join(',').split(',').map((s) => s.trim()).filter(Boolean);
-      if (!ids.length) throw new Error('usage: construct rm-msg <msg_id[,msg_id...]>');
-      const deleted = [];
+      if (!ids.length) throw new Error('usage: construct purge-msg <msg_id[,msg_id...]>');
+      const purged = [];
       for (const id of ids) {
-        deleted.push(store.deleteMessage(id));
+        purged.push(store.purgeMessage(id));
       }
       if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
         try {
           store.generateDashboardHtml();
         } catch (_) {}
       }
-      if (o.json) console.log(JSON.stringify(deleted, null, 2));
-      else console.log(`deleted ${deleted.length} message(s): ${deleted.map((m) => `[M#${m.id}]`).join(', ')}`);
+      if (o.json) console.log(JSON.stringify(purged, null, 2));
+      else console.log(`purged ${purged.length} message(s) from everywhere: ${purged.map((m) => `[M#${m.id}]`).join(', ')}`);
+      return 0;
+    }
+
+    case 'hide-msg':
+    case 'msg-hide':
+    case 'rm-msg':
+    case 'msg-rm':
+    case 'delete-msg': {
+      const ids = rest.join(',').split(',').map((s) => s.trim()).filter(Boolean);
+      if (!ids.length) throw new Error('usage: construct hide-msg <msg_id[,msg_id...]>');
+      const hidden = [];
+      for (const id of ids) {
+        hidden.push(store.hideMessage(id));
+      }
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
+      }
+      if (o.json) console.log(JSON.stringify(hidden, null, 2));
+      else console.log(`hidden ${hidden.length} message(s): ${hidden.map((m) => `[M#${m.id}]`).join(', ')}`);
       return 0;
     }
 
@@ -1346,7 +1371,8 @@ async function main(argv) {
       const msgs = store.listMessages({
         project: o.project || rest[0],
         toUser: o.to,
-        status: o.status,
+        status: o.hidden ? 'hidden' : o.status,
+        includeHidden: Boolean(o.all || o.hidden),
       });
       if (o.json) {
         console.log(JSON.stringify(msgs, null, 2));
