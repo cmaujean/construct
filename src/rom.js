@@ -391,7 +391,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '> **Crew Bank:** ' + packTitle,
     '> **Session Vibe & Episteme:** ' + atmosphere,
-    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
+    '> *(Switch crew banks with tools.construct.rom({ action: "use", target: "sprawl" | "nightcity" | "anathem" | "cryptonomicon" | "shadowrun" | "dresden" | "amber" | "laundry" | "tolkien" | "discworld" | "generic" }), or sub a bench second with action: "sub", target: "<backup_name>".)*',
     '',
     '## How the Crew Operates',
     '1. **Run Banner, Color Tags & Voice:**',
@@ -462,11 +462,12 @@ function compileUnassignedBootloaderPrompt(razorRom) {
     '     - label: `"amber (The Royal House of Amber)"`, description: `"Roger Zelazny (The Chronicles of Amber). Castle Amber, the Primal Pattern, and Trump decks: Corwin, Merlin, Fiona, Benedict, Julian, Random, Brand, Dworkin, and Ghostwheel."`',
     '     - label: `"laundry (SOE \'Q\' Division // The Capital Laundry Service)"`, description: `"Charles Stross (The Laundry Files). Whitehall occult spy thriller & BOFH computational demonology: Bob Howard, Pinky, Angleton, Mo, Brain, Persephone, Mhari, Holly, and The Stacks."`',
     '     - label: `"tolkien (The Council of Elrond & Fellowship Crew)"`, description: `"J.R.R. Tolkien (The Lord of the Rings). Rivendell lore, Ranger trail-craft, Mirror of Galadriel invariants, and Khazad-dum stonework: Gandalf, Aragorn, Galadriel, Gimli, Faramir, Legolas, Eowyn, Samwise, and Elrond."`',
+    '     - label: `"discworld (Ankh-Morpork City Watch & Grand Trunk Clacks)"`, description: `"Sir Terry Pratchett (Discworld). Pseudopolis Yard cobbles, the Oblong Office, and Grand Trunk Clacks velocity: Ponder Stibbons, Sam Vimes, Lord Vetinari, Detritus, Cheery Littlebottom, Moist von Lipwig, Adora Belle Dearheart, Carrot, and The Librarian."`',
     '     - label: `"generic (The Standard Engineering Crew)"`, description: `"Zero-fiction professional specialist pipeline. Pure engineering roles without literary personas: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger."`',
     '   - **Question 2** (`header: "Crew Scope"`, `question: "Use this Crew for this session only, or set as your default until further notice?"`):',
     '     - label: `"Default until further notice (Recommended)"`, description: `"Boot future sessions directly into this Crew without asking"`',
     '     - label: `"This session only"`, description: `"Bind to this session tab only; new sessions will ask again"`',
-    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
+    '3. As soon as the `question` tool returns the operator\'s choice, extract the Crew Bank name (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, or `generic`), call `tools.construct.rom({ action: isDefault ? "default" : "use", target: "<bank_name>" })`, and proceed with that Crew.',
   ].join('\n');
 }
 

@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 119 ROMs across 10 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 131 ROMs across 11 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 119);
+    assert.equal(roms.length, 131);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'cryptonomicon', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl', 'tolkien']
+      ['amber', 'anathem', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'laundry', 'nightcity', 'shadowrun', 'sprawl', 'tolkien']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -515,6 +515,32 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const smeagolRom = store.getRom('gollum');
     assert.equal(smeagolRom.name, 'smeagol');
     assert.equal(smeagolRom.pack, 'tolkien');
+
+    const discworldCrew = store.useRom('discworld', { sessionId: 'ses_discworld' });
+    assert.equal(discworldCrew.isCrew, true);
+    assert.deepEqual(discworldCrew.roster, [
+      'ponder',
+      'vimes',
+      'vetinari',
+      'detritus',
+      'cheery',
+      'moist',
+      'adorabelle',
+      'carrot',
+      'librarian',
+    ]);
+    assert.match(discworldCrew.voice, /═══ \[ANKH-MORPORK \/\/ PSEUDOPOLIS YARD & THE CLACKS\]/);
+    assert.match(discworldCrew.voice, /🔵 \*\*\[PONDER \/\/ HIGH ENERGY MAGIC & HEX\]\*\*/);
+    assert.match(discworldCrew.voice, /🟠 \*\*\[VIMES \/\/ PSEUDOPOLIS YARD COBBLES\]\*\*/);
+    assert.match(discworldCrew.voice, /🟣 \*\*\[VETINARI \/\/ THE OBLONG OFFICE\]\*\*/);
+    assert.match(discworldCrew.voice, /🔴 \*\*\[DETRITUS \/\/ PIECEMAKER & COOLING HELMET\]\*\*/);
+    assert.match(discworldCrew.voice, /🛡️ \*\*\[ADORABELLE \/\/ GOLEM TRUST & SPIKE HEEL\]\*\*/);
+    assert.match(discworldCrew.voice, /📓 \*\*\[LIBRARIAN \/\/ UNSEEN LIBRARY & L-SPACE\]\*\*/);
+    const subbedDiscworld = store.subRom('weatherwax', { sessionId: 'ses_discworld' });
+    assert.ok(subbedDiscworld.roster.includes('weatherwax'));
+    assert.ok(!subbedDiscworld.roster.includes('vetinari'));
+    assert.equal(store.getRom('spike').name, 'adorabelle');
+    assert.equal(store.getRom('ook').name, 'librarian');
 
     // Verify user drop-in pack discovery via `CONSTRUCT_PACKS_DIR`
     const customPacksDir = path.join(tmp.dir, 'user-packs');
@@ -1573,7 +1599,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       claudeDir,
     });
     assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 118);
+    assert.equal(initClaude.claudeAgentsCount, 130);
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
@@ -1586,6 +1612,9 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'gandalf.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'eowyn.md')));
     assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'smeagol.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vimes.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vetinari.md')));
+    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'adorabelle.md')));
     const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
     assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
     assert.match(lioAgentFile, /\ncolor: pink\n/);

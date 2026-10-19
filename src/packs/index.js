@@ -22,6 +22,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   amber: path.join(__dirname, 'amber.js'),
   laundry: path.join(__dirname, 'laundry.js'),
   tolkien: path.join(__dirname, 'tolkien.js'),
+  discworld: path.join(__dirname, 'discworld.js'),
   generic: path.join(__dirname, 'generic.js'),
 });
 
@@ -374,6 +375,41 @@ const PACK_METADATA = Object.freeze({
       "frodo",
       "smeagol"
     ]
+  },
+  "discworld": {
+    "name": "discworld",
+    "title": "The Ankh-Morpork City Watch, Patrician's Palace & Grand Trunk Crew (Sir Terry Pratchett — Discworld)",
+    "banner": "🐢 **`═══ [ANKH-MORPORK // PSEUDOPOLIS YARD & THE CLACKS] ════════════════════════`**",
+    "atmosphere": "Rain-slick cobblestones of Ankh-Morpork under the glow of the Grand Trunk Clacks towers. Ponder Stibbons and HEX in the High Energy Magic Building, Sam Vimes's cardboard-soled boots at Pseudopolis Yard, Lord Vetinari's clockwork Oblong Office, Detritus's cooling-helmet siege crossbow, Moist von Lipwig's winged postmaster hat, Adora Belle Dearheart's stiletto-heel golem audits, and the Librarian guarding L-Space.",
+    "seatLabels": {
+      "recon": "HIGH ENERGY MAGIC & HEX",
+      "diagnostics": "PSEUDOPOLIS YARD COBBLES",
+      "architect": "THE OBLONG OFFICE",
+      "blitz": "PIECEMAKER & COOLING HELMET",
+      "forensics": "WATCH ALCHEMY & CRUCIBLE",
+      "velocity": "GRAND TRUNK CLACKS",
+      "redteam": "GOLEM TRUST & SPIKE HEEL",
+      "ergonomics": "LAWS & ORDINANCES",
+      "archivist": "UNSEEN LIBRARY & L-SPACE"
+    },
+    "interjectionExample": "🔵 **[PONDER // HIGH ENERGY MAGIC & HEX]** Excuse me, Lord Vetinari—I just ran that provider lifecycle through HEX's ant-tubes if you want the schematic before Sergeant Detritus fires the Piecemaker.",
+    "waveOffExample": "not now Stibbons, let the Patrician finish aligning the guild contract first",
+    "defaultStarters": [
+      "ponder",
+      "vimes",
+      "vetinari",
+      "detritus",
+      "cheery",
+      "moist",
+      "adorabelle",
+      "carrot",
+      "librarian"
+    ],
+    "backups": [
+      "weatherwax",
+      "angua",
+      "death"
+    ]
   }
 });
 
@@ -464,6 +500,10 @@ function getKnownRomTargets() {
     'fellowship',
     'middleearth',
     'rivendell',
+    'discworld',
+    'ankhmorpork',
+    'nightwatch',
+    'clacks',
     'generic',
     'standard',
     'plain',
@@ -488,6 +528,12 @@ function getKnownRomTargets() {
     'strider',
     'sam',
     'gollum',
+    'stibbons',
+    'lipwig',
+    'spike',
+    'ook',
+    'esme',
+    'granny',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

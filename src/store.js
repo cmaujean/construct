@@ -487,6 +487,12 @@ function resolveSingleRomRowInDb(db, name) {
     strider: 'aragorn',
     sam: 'samwise',
     gollum: 'smeagol',
+    stibbons: 'ponder',
+    lipwig: 'moist',
+    spike: 'adorabelle',
+    ook: 'librarian',
+    esme: 'weatherwax',
+    granny: 'weatherwax',
   };
   const target = aliasMap[key] || key;
   return (
@@ -526,6 +532,10 @@ function getRomInDb(db, name) {
     fellowship: 'tolkien',
     middleearth: 'tolkien',
     rivendell: 'tolkien',
+    discworld: 'discworld',
+    ankhmorpork: 'discworld',
+    nightwatch: 'discworld',
+    clacks: 'discworld',
     generic: 'generic',
     standard: 'generic',
     plain: 'generic',
@@ -2063,6 +2073,7 @@ const PACK_DEFAULT_COURIER_MAP = Object.freeze({
   amber: 'random',
   laundry: 'persephone',
   tolkien: 'legolas',
+  discworld: 'moist',
   generic: 'pulse',
 });
 
@@ -2555,6 +2566,7 @@ const PACK_EMBLEM_MAP = Object.freeze({
   amber: '🦄',
   laundry: '🐙',
   tolkien: '💍',
+  discworld: '🐢',
   generic: '⚙️',
   core: '🔪',
 });
@@ -3224,10 +3236,14 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'amber' ? 'active' : ''}" data-pack="amber" onclick="switchCrew('use','amber')">🦄 Amber</button>
       <button class="crew-btn ${hud.pack === 'laundry' ? 'active' : ''}" data-pack="laundry" onclick="switchCrew('use','laundry')">🐙 Laundry</button>
       <button class="crew-btn ${hud.pack === 'tolkien' ? 'active' : ''}" data-pack="tolkien" onclick="switchCrew('use','tolkien')">💍 Tolkien</button>
+      <button class="crew-btn ${hud.pack === 'discworld' ? 'active' : ''}" data-pack="discworld" onclick="switchCrew('use','discworld')">🐢 Discworld</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">
       <span class="sub" style="align-self:center;margin-right:4px;">Bench Sub:</span>
+      <button class="crew-btn" data-sub="weatherwax" onclick="switchCrew('sub','weatherwax')">🟣 Granny Weatherwax</button>
+      <button class="crew-btn" data-sub="angua" onclick="switchCrew('sub','angua')">🟠 Angua</button>
+      <button class="crew-btn" data-sub="death" onclick="switchCrew('sub','death')">🛡️ DEATH</button>
       <button class="crew-btn" data-sub="toot" onclick="switchCrew('sub','toot')">⚡ Toot-Toot (Za-Lord)</button>
       <button class="crew-btn" data-sub="boromir" onclick="switchCrew('sub','boromir')">🛡️ Boromir (Gondor)</button>
       <button class="crew-btn" data-sub="celebrimbor" onclick="switchCrew('sub','celebrimbor')">🟣 Celebrimbor</button>
