@@ -1820,11 +1820,12 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.match(protocolMod.CORE_PROTOCOL, /Check and update documentation parity on every change/);
     assert.match(store.getRom('clockwork').voice, /Execution, Overwatch & Documentation Parity/);
 
-    // 4. Thin lifecycle integrations for Cursor (`--cursor`), Gemini CLI (`--gemini`), Windsurf (`--windsurf`), and Codex (`--codex`)
+    // 4. Thin lifecycle integrations for Cursor (`--cursor`), Gemini CLI (`--gemini`), Windsurf (`--windsurf`), Codex (`--codex`), and Oh My Pi (`--omp`)
     const cursorDir = path.join(tmp.dir, 'cursor-home');
     const geminiDir = path.join(tmp.dir, 'gemini-home');
     const windsurfDir = path.join(tmp.dir, 'windsurf-home');
     const codexDir = path.join(tmp.dir, 'codex-home');
+    const ompDir = path.join(tmp.dir, 'omp-home');
     const initMulti = store.initConstruct({
       configDir: path.join(tmp.dir, 'opencode-cfg'),
       cursor: true,
@@ -1835,11 +1836,14 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       windsurfDir,
       codex: true,
       codexDir,
+      omp: true,
+      ompDir,
     });
     assert.equal(initMulti.cursorConfigured, true);
     assert.equal(initMulti.geminiConfigured, true);
     assert.equal(initMulti.windsurfConfigured, true);
     assert.equal(initMulti.codexConfigured, true);
+    assert.equal(initMulti.ompConfigured, true);
     assert.ok(fs.existsSync(path.join(cursorDir, 'mcp.json')));
     assert.ok(fs.existsSync(path.join(cursorDir, 'hooks.json')));
     assert.ok(fs.existsSync(path.join(cursorDir, 'rules', 'construct.mdc')));
@@ -1849,6 +1853,16 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.ok(fs.existsSync(path.join(windsurfDir, 'memories', 'global_rules.md')));
     assert.ok(fs.existsSync(path.join(codexDir, 'AGENTS.md')));
     assert.ok(fs.existsSync(path.join(codexDir, 'config.toml')));
+    assert.ok(fs.existsSync(path.join(ompDir, 'AGENTS.md')));
+    assert.ok(fs.existsSync(path.join(ompDir, 'mcp.json')));
+    assert.ok(fs.existsSync(path.join(ompDir, 'extensions', 'construct.js')));
+    const ompMcpJson = JSON.parse(fs.readFileSync(path.join(ompDir, 'mcp.json'), 'utf8'));
+    assert.equal(ompMcpJson.mcpServers.construct.type, 'stdio');
+    assert.equal(ompMcpJson.mcpServers.construct.command, 'node');
+    const ompExtCode = fs.readFileSync(path.join(ompDir, 'extensions', 'construct.js'), 'utf8');
+    assert.match(ompExtCode, /before_agent_start/);
+    assert.match(ompExtCode, /tool_call/);
+    assert.match(ompExtCode, /registerCommand\("construct"/);
 
     // Cursor lifecycle hooks (`session-start`, `before-prompt`, `before-shell` allow & deny, `post-tool`)
     const curPrompt = mcp.runCursorHook(
@@ -1890,6 +1904,67 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     );
     assert.equal(JSON.parse(gemToolDeny.stdout).decision, 'deny');
     assert.match(JSON.parse(gemToolDeny.stdout).reason, /Gotcha #3/);
+
+    // Oh My Pi (`omp`) lifecycle hooks (`before-agent`, `before-tool` shell guard & task subagent, `after-tool`, `command`)
+    const ompAgent = mcp.runOmpHook(
+      'before-agent',
+      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, prompt: 'switch to nightcity crew', agent_kind: 'main' })
+    );
+    const ompAgentJson = JSON.parse(ompAgent.stdout);
+    assert.match(ompAgentJson.additionalSystemPrompt, /AFTERLIFE \/\/ GIG ACTIVE/);
+    assert.match(ompAgentJson.additionalSystemPrompt, /<construct-voice-lock>/);
+    assert.match(ompAgentJson.statusText, /nightcity/);
+
+    const ompTaskQueue = mcp.runOmpHook(
+      'before-tool',
+      JSON.stringify({
+        session_id: 'omp_ses_1',
+        cwd: tmp.dir,
+        tool_name: 'task',
+        tool_input: { prompt: '[ROM: johnny] Audit the auth gate' },
+      })
+    );
+    assert.equal(JSON.parse(ompTaskQueue.stdout).block, false);
+
+    const ompSubAgent = mcp.runOmpHook(
+      'before-agent',
+      JSON.stringify({
+        session_id: 'omp_ses_1',
+        cwd: tmp.dir,
+        prompt: 'Audit the auth gate',
+        agent_kind: 'sub',
+        agent_name: 'explore',
+        agent_id: '0-Explore',
+      })
+    );
+    const ompSubJson = JSON.parse(ompSubAgent.stdout);
+    assert.equal(ompSubJson.sessionId, 'omp_ses_1:0-Explore');
+    assert.match(ompSubJson.additionalSystemPrompt, /Johnny Silverhand \/\/ Relic Engram Saboteur/);
+
+    const ompBashOk = mcp.runOmpHook(
+      'before-tool',
+      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', tool_input: { command: 'git status -sb' } })
+    );
+    assert.equal(JSON.parse(ompBashOk.stdout).block, false);
+
+    const ompBashDeny = mcp.runOmpHook(
+      'before-tool',
+      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', tool_input: { command: 'cat <<EOF\nbad\nEOF' } })
+    );
+    assert.equal(JSON.parse(ompBashDeny.stdout).block, true);
+    assert.match(JSON.parse(ompBashDeny.stdout).reason, /Gotcha #1/);
+
+    const ompAfterTool = mcp.runOmpHook(
+      'after-tool',
+      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', is_error: false })
+    );
+    assert.match(JSON.parse(ompAfterTool.stdout).additionalContext, /<construct-voice-lock>/);
+
+    const ompCmd = mcp.runOmpHook(
+      'command',
+      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, args: 'sub panam' })
+    );
+    assert.match(JSON.parse(ompCmd.stdout).message, /Subbed panam into active crew/);
 
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');

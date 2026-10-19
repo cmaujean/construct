@@ -1162,6 +1162,252 @@ function runGeminiHook(mode, stdinText = '') {
   };
 }
 
+// Oh My Pi (can1357/oh-my-pi, CLI `omp`) Hook Runner (`construct omp-hook [before-agent | before-tool | after-tool | command]`)
+// Spec: https://github.com/can1357/oh-my-pi/blob/main/docs/extensions.md
+function runOmpHook(mode, stdinText = '') {
+  let payload = {};
+  try {
+    if (stdinText && stdinText.trim()) {
+      payload = JSON.parse(stdinText);
+    }
+  } catch (_) {}
+
+  const effectiveSessionId =
+    payload?.session_id || process.env.CONSTRUCT_SESSION_ID || 'omp';
+  const cwd = payload?.cwd || process.cwd();
+
+  if (mode === 'before-tool' || payload?.hook_event_name === 'tool_call') {
+    const toolName = String(payload?.tool_name || '');
+    if (toolName === 'task') {
+      const promptDirective = detectPreSlotRomDirective(
+        payload?.tool_input?.prompt || payload?.tool_input?.description || ''
+      );
+      const explicitAgent = String(payload?.tool_input?.agent || payload?.tool_input?.name || '')
+        .trim()
+        .toLowerCase();
+      const targetRom =
+        promptDirective?.target || (isValidRomTarget(explicitAgent) ? explicitAgent : '');
+      if (targetRom) {
+        store.enqueuePendingSubagentRom(effectiveSessionId, targetRom);
+      }
+      return { exitCode: 0, stdout: JSON.stringify({ block: false }), stderr: '' };
+    }
+
+    const cmd = payload?.tool_input?.command || payload?.command || '';
+    try {
+      validateShellCommand(cmd, { project: cwd ? store.resolveProjectFromDir(cwd) : '' });
+      return { exitCode: 0, stdout: JSON.stringify({ block: false }), stderr: '' };
+    } catch (err) {
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({ block: true, reason: err.message }),
+        stderr: '',
+      };
+    }
+  }
+
+  if (mode === 'after-tool' || payload?.hook_event_name === 'tool_result') {
+    const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(effectiveSessionId)];
+    let output = '';
+    try {
+      output = runConstructCli(args);
+    } catch (_) {}
+    const voiceLock = buildFrontierVoiceLock(output);
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify(voiceLock ? { additionalContext: voiceLock } : {}),
+      stderr: '',
+    };
+  }
+
+  if (mode === 'command') {
+    const raw = String(payload?.args || '').trim();
+    const subMatch = raw.match(/^sub\s+([a-z0-9_]+)$/i);
+    const directBank = isValidRomTarget(raw) ? raw.toLowerCase() : '';
+    let actionMsg = '';
+    if (subMatch && isValidRomTarget(subMatch[1])) {
+      const romArgs = ['rom', 'sub', subMatch[1].toLowerCase(), '--session', String(effectiveSessionId)];
+      if (cwd) romArgs.push('--dir', String(cwd));
+      try {
+        runConstructCli(romArgs);
+      } catch (_) {}
+      actionMsg = `Subbed ${subMatch[1].toLowerCase()} into active crew`;
+    } else if (directBank) {
+      const romArgs = ['rom', 'use', directBank, '--session', String(effectiveSessionId)];
+      if (cwd) romArgs.push('--dir', String(cwd));
+      try {
+        runConstructCli(romArgs);
+      } catch (_) {}
+      actionMsg = `Switched session to ${directBank}`;
+    }
+    let snap = null;
+    try {
+      snap = store.getHudSnapshot({ dir: cwd, sessionId: effectiveSessionId });
+    } catch (_) {}
+    const statusText = snap?.tabBadge || snap?.pill || '';
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify({
+        statusText,
+        message: actionMsg
+          ? `${actionMsg}${snap?.pill ? ` (${snap.pill})` : ''}`
+          : `Construct active: ${snap?.pill || snap?.rom || 'crew'}`,
+      }),
+      stderr: '',
+    };
+  }
+
+  // Default: `before-agent` (`before_agent_start` / `input` / `session_start`)
+  const agentKind = String(payload?.agent_kind || 'main');
+  const agentName = String(payload?.agent_name || '').trim().toLowerCase();
+  const agentId = String(payload?.agent_id || '').trim();
+  const targetSessionId =
+    agentKind === 'sub'
+      ? `${effectiveSessionId}:${agentId || agentName || 'sub'}`
+      : effectiveSessionId;
+
+  if (agentKind === 'sub') {
+    const promptDirective = detectPreSlotRomDirective(payload?.prompt || '');
+    const queuedRom = store.consumePendingSubagentRom(effectiveSessionId, agentName);
+    const resolvedRom =
+      promptDirective?.target || (isValidRomTarget(agentName) ? agentName : queuedRom);
+    if (resolvedRom) {
+      try {
+        store.useRom(resolvedRom, { sessionId: targetSessionId });
+      } catch (_) {}
+    }
+  } else if (payload?.prompt) {
+    const directive = detectPreSlotRomDirective(payload.prompt);
+    if (directive) {
+      const romArgs = ['rom', directive.action, directive.target, '--session', String(targetSessionId)];
+      if (cwd) romArgs.push('--dir', String(cwd));
+      try {
+        runConstructCli(romArgs);
+      } catch (_) {}
+    }
+  }
+
+  const args = ['boot', '--dir', String(cwd), '-n', '8', '--session', String(targetSessionId)];
+  let output = '';
+  try {
+    output = runConstructCli(args);
+  } catch (_) {}
+  output = output.replace(/^<!-- CONSTRUCT_SHADOWED:\[.*?\] -->\r?\n?/, '');
+  const voiceLock = buildFrontierVoiceLock(output);
+  const xml = `<construct-live-memory directory="${cwd}" session="${targetSessionId}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ''}\n</construct-live-memory>`;
+  let snap = null;
+  try {
+    snap = store.getHudSnapshot({ dir: cwd, sessionId: targetSessionId });
+  } catch (_) {}
+  return {
+    exitCode: 0,
+    stdout: JSON.stringify({
+      additionalSystemPrompt: xml,
+      statusText: snap?.tabBadge || snap?.pill || '',
+      sessionId: targetSessionId,
+    }),
+    stderr: '',
+  };
+}
+
+function buildOmpExtensionSource(binPath) {
+  const normalizedBin = String(binPath || '').replace(/\\/g, '/');
+  return `// Oh My Pi (omp) native extension for the Construct sequential memory & Crew ROM engine.
+// Generated by \`construct init --omp\`. Uses \`construct mcp\` for tools/prompts/resources and
+// delegates lifecycle hooks (\`before_agent_start\`, \`tool_call\`, \`tool_result\`, \`/construct\`) to \`construct omp-hook\`.
+import { execFileSync } from "node:child_process";
+
+const CONSTRUCT_BIN = ${JSON.stringify(normalizedBin)};
+
+function callOmpHook(mode, payload) {
+  try {
+    const out = execFileSync("node", [CONSTRUCT_BIN, "omp-hook", mode], {
+      input: JSON.stringify(payload || {}),
+      encoding: "utf8",
+      timeout: 5000,
+      windowsHide: true,
+    }).trim();
+    return out ? JSON.parse(out) : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+export default function constructOmpExtension(pi) {
+  if (typeof pi?.setLabel === "function") {
+    pi.setLabel("Construct Memory & Crew Engine");
+  }
+
+  pi.on("before_agent_start", async (event, ctx) => {
+    const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
+    const res = callOmpHook("before-agent", {
+      session_id: sessionId,
+      cwd: ctx?.cwd || process.cwd(),
+      prompt: event?.prompt || "",
+      agent_kind: ctx?.agent?.kind || "main",
+      agent_name: ctx?.agent?.name || "",
+      agent_id: ctx?.agent?.id || "",
+    });
+    if (res.statusText && ctx?.ui?.setStatus) {
+      ctx.ui.setStatus("construct", res.statusText);
+    }
+    if (res.additionalSystemPrompt) {
+      const base = Array.isArray(event?.systemPrompt) ? event.systemPrompt : [];
+      return { systemPrompt: [...base, res.additionalSystemPrompt] };
+    }
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    const toolName = String(event?.toolName || "");
+    if (toolName !== "bash" && toolName !== "shell" && toolName !== "task") return;
+    const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
+    const res = callOmpHook("before-tool", {
+      session_id: sessionId,
+      cwd: ctx?.cwd || process.cwd(),
+      tool_name: toolName,
+      tool_input: event?.input || {},
+    });
+    if (res.block) {
+      return { block: true, reason: res.reason || "Blocked by Construct Shell Guard" };
+    }
+  });
+
+  pi.on("tool_result", async (event, ctx) => {
+    const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
+    const res = callOmpHook("after-tool", {
+      session_id: sessionId,
+      cwd: ctx?.cwd || process.cwd(),
+      tool_name: String(event?.toolName || ""),
+      is_error: Boolean(event?.isError),
+    });
+    if (res.additionalContext) {
+      return { additionalContext: res.additionalContext };
+    }
+  });
+
+  if (typeof pi?.registerCommand === "function") {
+    pi.registerCommand("construct", {
+      description: "Switch Construct Crew Bank or substitute a Bench specialist (e.g. /construct nightcity, /construct sub panam)",
+      handler: async (args, ctx) => {
+        const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
+        const res = callOmpHook("command", {
+          session_id: sessionId,
+          cwd: ctx?.cwd || process.cwd(),
+          args: String(args || "").trim(),
+        });
+        if (res.statusText && ctx?.ui?.setStatus) {
+          ctx.ui.setStatus("construct", res.statusText);
+        }
+        if (res.message && ctx?.ui?.notify) {
+          ctx.ui.notify(res.message, "info");
+        }
+      },
+    });
+  }
+}
+`;
+}
+
 module.exports = {
   CONSTRUCT_TOOL_SPECS,
   MCP_TOOLS,
@@ -1177,4 +1423,6 @@ module.exports = {
   runClaudeHook,
   runCursorHook,
   runGeminiHook,
+  runOmpHook,
+  buildOmpExtensionSource,
 };

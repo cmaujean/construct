@@ -12,17 +12,18 @@ const mcp = require('../src/mcp');
 const USAGE = `usage: construct <command> [args]
 
 Setup, Self-Update & Instruction Assimilation:
-  init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--all] [--json]
+  init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all] [--json]
                               One-command setup for OpenCode (plus Claude Code, Cursor, Gemini CLI,
-                              Windsurf, and Codex): generates DID identity, seeds all 15 Crew Banks
-                              (179 ROMs), installs plugins/hooks/MCP configs, and compiles active-rom.md.
+                              Windsurf, Codex, and Oh My Pi): generates DID identity, seeds all 15 Crew
+                              Banks (179 ROMs), installs plugins/hooks/MCP configs, and compiles active-rom.md.
   upgrade [--check] [--json]  Check or fast-forward pull origin/main, reseed ROMs, and refresh plugins/hooks.
   mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (tools, prompts, resources,
                               and initialize.result.instructions for any MCP coding agent).
   claude-hook [context | pre-tool | subagent-start]
   cursor-hook [session-start | before-prompt | before-shell | post-tool]
   gemini-hook [before-agent | session-start | before-tool]
-                              Lifecycle & shell-guard hook runners for Claude Code, Cursor, and Gemini CLI.
+  omp-hook [before-agent | before-tool | after-tool | command]
+                              Lifecycle & shell-guard hook runners for Claude Code, Cursor, Gemini CLI, and Oh My Pi.
   assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
                               Scan a directory for existing AI instruction files (AGENTS.md,
                               CLAUDE.md, GEMINI.md, .cursorrules) and import agreements,
@@ -179,6 +180,8 @@ const OPTIONS = {
   gemini: { type: 'boolean' },
   windsurf: { type: 'boolean' },
   codex: { type: 'boolean' },
+  omp: { type: 'boolean' },
+  'oh-my-pi': { type: 'boolean' },
   check: { type: 'boolean' },
   title: { type: 'string' },
   body: { type: 'string' },
@@ -734,6 +737,7 @@ async function main(argv) {
         gemini: Boolean(o.gemini),
         windsurf: Boolean(o.windsurf),
         codex: Boolean(o.codex),
+        omp: Boolean(o.omp || o['oh-my-pi']),
         allAgents: Boolean(o.all),
       });
       if (o.json) console.log(JSON.stringify(res, null, 2));
@@ -757,6 +761,9 @@ async function main(argv) {
         }
         if (res.codexConfigured) {
           console.log(`  codex:    ${res.codexMdPath} (+ MCP in ${res.codexConfigPath})`);
+        }
+        if (res.ompConfigured) {
+          console.log(`  omp:      ${res.ompMdPath} (+ MCP in ${res.ompMcpPath} & extension in ${res.ompExtensionPath})`);
         }
         console.log(
           `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first turn`}`
@@ -834,6 +841,22 @@ async function main(argv) {
       } catch (_) {}
       try {
         const res = mcp.runGeminiHook(mode, stdinText);
+        if (res.stdout) console.log(res.stdout);
+        return res.exitCode || 0;
+      } catch (err) {
+        console.error(err.message);
+        return 2;
+      }
+    }
+
+    case 'omp-hook': {
+      const mode = rest[0] || 'before-agent';
+      let stdinText = '';
+      try {
+        stdinText = fs.readFileSync(0, 'utf8');
+      } catch (_) {}
+      try {
+        const res = mcp.runOmpHook(mode, stdinText);
         if (res.stdout) console.log(res.stdout);
         return res.exitCode || 0;
       } catch (err) {

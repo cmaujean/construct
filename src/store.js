@@ -5245,7 +5245,7 @@ function initConstruct(options = {}, file = dbPath()) {
   }
 
   const assimilated = [];
-  const candidateGlobalDirs = [configDir, path.join(os.homedir(), '.claude')];
+  const candidateGlobalDirs = [configDir, path.join(os.homedir(), '.claude'), path.join(os.homedir(), '.omp', 'agent')];
   for (const dir of candidateGlobalDirs) {
     if (fs.existsSync(dir)) {
       const res = assimilateLdk(dir, { project: 'global', rewriteAgents: false }, file);
@@ -5477,6 +5477,44 @@ function initConstruct(options = {}, file = dbPath()) {
     codexConfigured = true;
   }
 
+  // Optional Oh My Pi (can1357/oh-my-pi, CLI `omp`) configuration (`construct init --omp` or `--all`)
+  let ompConfigured = false;
+  let ompMdPath = '';
+  let ompMcpPath = '';
+  let ompExtensionPath = '';
+  if (options.omp || options.allAgents) {
+    const ompDir = options.ompDir || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.omp', 'agent');
+    fs.mkdirSync(path.join(ompDir, 'extensions'), { recursive: true });
+
+    ompMdPath = path.join(ompDir, 'AGENTS.md');
+    fs.copyFileSync(syncRes.path, ompMdPath);
+
+    ompMcpPath = path.join(ompDir, 'mcp.json');
+    let ompMcp = {};
+    if (fs.existsSync(ompMcpPath)) {
+      try {
+        ompMcp = JSON.parse(fs.readFileSync(ompMcpPath, 'utf8'));
+      } catch (_) {
+        ompMcp = {};
+      }
+    }
+    if (!ompMcp.$schema) {
+      ompMcp.$schema = 'https://raw.githubusercontent.com/can1357/oh-my-pi/main/packages/coding-agent/src/config/mcp-schema.json';
+    }
+    ompMcp.mcpServers = ompMcp.mcpServers || {};
+    ompMcp.mcpServers.construct = {
+      type: 'stdio',
+      command: 'node',
+      args: [binPath, 'mcp'],
+    };
+    fs.writeFileSync(ompMcpPath, JSON.stringify(ompMcp, null, 2) + '\n', 'utf8');
+
+    ompExtensionPath = path.join(ompDir, 'extensions', 'construct.js');
+    const mcpMod = require('./mcp');
+    fs.writeFileSync(ompExtensionPath, mcpMod.buildOmpExtensionSource(binPath), 'utf8');
+    ompConfigured = true;
+  }
+
   return {
     did: identity.did,
     rom: syncRes.rom.name,
@@ -5503,6 +5541,10 @@ function initConstruct(options = {}, file = dbPath()) {
     codexConfigured,
     codexMdPath,
     codexConfigPath,
+    ompConfigured,
+    ompMdPath,
+    ompMcpPath,
+    ompExtensionPath,
     assimilated,
   };
 }
@@ -5659,6 +5701,14 @@ function upgradeConstruct(options = {}, file = dbPath()) {
     if (syncRes?.path && fs.existsSync(windsurfRules)) fs.copyFileSync(syncRes.path, windsurfRules);
     const codexMd = path.join(os.homedir(), '.codex', 'AGENTS.md');
     if (syncRes?.path && fs.existsSync(codexMd)) fs.copyFileSync(syncRes.path, codexMd);
+    const ompDir = options.ompDir || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.omp', 'agent');
+    const ompMd = path.join(ompDir, 'AGENTS.md');
+    if (syncRes?.path && fs.existsSync(ompMd)) fs.copyFileSync(syncRes.path, ompMd);
+    const ompExt = path.join(ompDir, 'extensions', 'construct.js');
+    if (fs.existsSync(ompExt)) {
+      const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
+      fs.writeFileSync(ompExt, require('./mcp').buildOmpExtensionSource(binPath), 'utf8');
+    }
   } catch (_) {}
 
   return {

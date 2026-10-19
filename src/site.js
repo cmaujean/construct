@@ -619,9 +619,9 @@ ${renderNavBar('')}
       <strong>Construct</strong> replaces amnesia-prone markdown handoff files and single-persona AI assistants with a
       <strong>coordinated 9-seat specialist engineering crew</strong>, a sub-millisecond embedded SQLite sequential memory tape,
       <code>0.083 ms</code> mechanical shell guards, and encrypted person-to-person Courier Cameos across
-      <strong>OpenCode, Claude Code, Cursor, Gemini CLI, Windsurf, and Codex</strong>.
+      <strong>OpenCode, Claude Code, Cursor, Gemini CLI, Windsurf, Codex, and Oh My Pi (<code>omp</code>)</strong>.
     </p>
-    <pre class="code-block"># Install &amp; wire into OpenCode (plus optional --claude, --cursor, --gemini, --windsurf, --codex, or --all)
+    <pre class="code-block"># Install &amp; wire into OpenCode (plus optional --claude, --cursor, --gemini, --windsurf, --codex, --omp, or --all)
 git clone https://github.com/cmaujean/construct.git
 cd construct &amp;&amp; npm link
 construct init --all</pre>
@@ -843,6 +843,11 @@ ${renderNavBar('')}
         <td><strong>Codex CLI</strong></td>
         <td><code>construct init --codex</code></td>
         <td>Wires <code>~/.codex/AGENTS.md</code> and registers <code>[mcp_servers.construct]</code> in <code>~/.codex/config.toml</code>.</td>
+      </tr>
+      <tr>
+        <td><strong>Oh My Pi (<code>omp</code>)</strong></td>
+        <td><code>construct init --omp</code></td>
+        <td>Wires <code>~/.omp/agent/AGENTS.md</code>, <code>~/.omp/agent/mcp.json</code> (<code>mcpServers.construct</code>), and <code>~/.omp/agent/extensions/construct.js</code> (<code>before_agent_start</code>, <code>tool_call</code> shell guard + subagent <code>[ROM: &lt;name&gt;]</code>, <code>tool_result</code> voice lock, and <code>/construct</code> command via <code>construct omp-hook</code>).</td>
       </tr>
     </tbody>
   </table>
