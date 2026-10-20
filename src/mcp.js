@@ -721,15 +721,24 @@ function executeMcpTool(name, input = {}, meta = {}) {
       return runConstructCli(args);
     }
     case 'user': {
+      if (input.action === 'set') {
+        const u = store.setUser(input.id, {
+          name: input.name,
+          osUsers: input.osUsers,
+          experience: input.experience,
+          platform: input.platform,
+          workspaceRoot: input.workspaceRoot,
+          calibration: input.calibration,
+          active: input.use ? true : undefined,
+        });
+        return `saved operator agreement for "${u.name}" [${u.id}] -> ${store.activeRomPath()}`;
+      }
+      if (input.action === 'use') {
+        const u = store.useUser(input.id);
+        return `active operator set to "${u.name}" [${u.id}] -> ${store.activeRomPath()}`;
+      }
       const args = ['user', String(input.action)];
       if (input.id) args.push(String(input.id));
-      if (input.name) args.push('--name', String(input.name));
-      if (input.osUsers) args.push('--os-users', String(input.osUsers));
-      if (input.experience) args.push('--experience', String(input.experience));
-      if (input.platform) args.push('--platform', String(input.platform));
-      if (input.workspaceRoot !== undefined) args.push('--workspace-root', String(input.workspaceRoot));
-      if (input.calibration) args.push('--calibration', String(input.calibration));
-      if (input.use) args.push('--use');
       return runConstructCli(args);
     }
     case 'gotcha': {
