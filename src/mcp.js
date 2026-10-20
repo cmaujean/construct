@@ -255,29 +255,39 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
   };
 }
 
-function validateShellCommand(command, options = {}) {
+function validateShellCommand(command, customGuardsOrOptions = null, maybeOptions = {}) {
   const cmd = String(command || '');
+  const hasExplicitGuards = Array.isArray(customGuardsOrOptions);
+  const customGuards = hasExplicitGuards ? customGuardsOrOptions : null;
+  const options =
+    hasExplicitGuards || customGuardsOrOptions === null
+      ? maybeOptions || {}
+      : customGuardsOrOptions || {};
   const hostPlatform = String(options?.platform || process.platform).toLowerCase();
+  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`) [all platforms]
   if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
     throw new Error(
       'Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first.'
     );
   }
+  // 2. Block piping build/test commands into `tail`, `head`, `grep`, `Select-Object`, `Select-String`, `ForEach-Object`, `Out-Null`, `awk`, or `sed` without `pipefail` [all platforms]
   if (
     !/\bpipefail\b/.test(cmd) &&
-    /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object)\b/i.test(
+    /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object|Select-String|ForEach-Object|Out-Null|awk|sed)\b/i.test(
       cmd
     )
   ) {
     throw new Error(
-      'Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo "exit=$?"`, or set `pipefail`.'
+      'Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, `grep`, `Select-Object`, `Select-String`, `ForEach-Object`, `Out-Null`, `awk`, or `sed` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo "exit=$?"`, or set `pipefail`.'
     );
   }
+  // 3. Block inline `gh api graphql -f query=` containing inner double quotes [win32 only: PowerShell 5.1 strips them]
   if (hostPlatform === 'win32' && /\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
     throw new Error(
       'Construct Shell Guard (Gotcha #4 [win32]): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`.'
     );
   }
+  // 4. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`) OR staging `:Zone.Identifier` files [all platforms]
   if (
     /core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd) ||
     /\bgit\s+add\b[^\r\n]*:Zone\.Identifier/i.test(cmd)
@@ -286,7 +296,32 @@ function validateShellCommand(command, options = {}) {
       'Construct Shell Guard (Gotcha #6 [all]): Never disable core.protectNTFS or stage `:Zone.Identifier` streams (invisible on Linux/macOS, breaks Windows NTFS checkouts). Remove the offending path instead.'
     );
   }
-  store.checkDynamicGotchaGuards(cmd, { platform: hostPlatform, project: options?.project });
+  // 5. Enforce explicit customGuards array when passed directly by unit tests
+  if (Array.isArray(customGuards)) {
+    for (const g of customGuards) {
+      if (!g?.guardRegex) continue;
+      const guardPlat = String(g.guardPlatform || 'all').toLowerCase();
+      if (guardPlat !== 'all' && guardPlat !== hostPlatform) continue;
+      try {
+        const re = new RegExp(g.guardRegex, 'i');
+        if (re.test(cmd)) {
+          const fixHint = g.fix ? ` Do instead: ${g.fix}` : '';
+          throw new Error(
+            `Construct Shell Guard (Gotcha #${g.id} [${g.scope || 'global'}/${guardPlat}]): ${g.title}.${fixHint}`
+          );
+        }
+      } catch (err) {
+        if (String(err.message || '').startsWith('Construct Shell Guard')) throw err;
+      }
+    }
+  }
+  // 6. Enforce dynamic `--guard` regular expressions registered in SQLite (`global` + resolved `project`)
+  const resolvedProject =
+    options?.project ||
+    (options?.dir && typeof store.resolveProjectFromDir === 'function'
+      ? store.resolveProjectFromDir(options.dir)
+      : '');
+  store.checkDynamicGotchaGuards(cmd, { platform: hostPlatform, project: resolvedProject });
   return true;
 }
 
@@ -535,7 +570,7 @@ const CONSTRUCT_TOOL_SPECS = Object.freeze([
   },
   {
     name: 'sync',
-    description: 'DIDComm v2 + MLS (RFC 9420) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues & PRs (`issues-sync`, `issues-publish`, `pr-sync`, `pr-open`, `pr-review`, `pr-merge`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.',
+    description: 'W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC-CRDT group invite, join, live WebSocket relay sync, packet export/import, instruction file assimilation, GitHub Issues & PRs (`issues-sync`, `issues-publish`, `pr-sync`, `pr-open`, `pr-review`, `pr-merge`), Construct self-update (`upgrade` / `upgrade-check`), or HTML dashboard generation.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1287,7 +1322,8 @@ function runClaudeHook(mode, stdinText = '') {
     }
 
     const cmd = payload?.tool_input?.command || '';
-    validateShellCommand(cmd);
+    const cwd = payload?.cwd || process.cwd();
+    validateShellCommand(cmd, { dir: cwd, project: payload?.project });
     return { exitCode: 0, stdout: '', stderr: '' };
   }
 
@@ -1530,6 +1566,33 @@ function runOmpHook(mode, stdinText = '') {
     };
   }
 
+  if (mode === 'before-subagent-spawn' || payload?.hook_event_name === 'before_subagent_spawn') {
+    const rawAgent = String(payload?.agent || '')
+      .trim()
+      .replace(/[-_]\d+$/, '')
+      .toLowerCase();
+    const promptDirective = detectPreSlotRomDirective(payload?.prompt || payload?.task || '');
+    const candidateName = promptDirective?.target || (isValidRomTarget(rawAgent) ? rawAgent : '');
+    if (candidateName) {
+      try {
+        const primaryRomName = candidateName.split(',')[0].trim();
+        const rom = store.getRom(primaryRomName);
+        const seatMeta = romMod.SEAT_MAP[rom?.seat] || null;
+        if (rom && seatMeta?.ompRole) {
+          return {
+            exitCode: 0,
+            stdout: JSON.stringify({
+              model: seatMeta.ompRole,
+              note: `Construct Seat ${seatMeta.code} (${rom.name}/${rom.seat} -> ${seatMeta.ompRole})`,
+            }),
+            stderr: '',
+          };
+        }
+      } catch (_) {}
+    }
+    return { exitCode: 0, stdout: '{}', stderr: '' };
+  }
+
   if (mode === 'command') {
     const raw = String(payload?.args || '').trim();
     const res = executeConstructSlashCommand(raw, {
@@ -1623,7 +1686,13 @@ function callOmpHook(mode, payload) {
       windowsHide: true,
     }).trim();
     return out ? JSON.parse(out) : {};
-  } catch (_) {
+  } catch (err) {
+    if (mode === "before-tool" && (payload?.tool_name === "bash" || payload?.tool_name === "shell")) {
+      return {
+        block: true,
+        reason: (err?.stderr && String(err.stderr).trim()) || err?.message || "Construct Shell Guard failed closed",
+      };
+    }
     return {};
   }
 }
@@ -1655,6 +1724,19 @@ export default function constructOmpExtension(pi) {
     if (res.additionalSystemPrompt) {
       const base = Array.isArray(event?.systemPrompt) ? event.systemPrompt : [];
       return { systemPrompt: [...base, res.additionalSystemPrompt] };
+    }
+  });
+
+  pi.on("before_subagent_spawn", async (event, ctx) => {
+    const sessionId = ctx?.sessionManager?.getSessionId?.() || mainSessionId || "omp";
+    const res = callOmpHook("before-subagent-spawn", {
+      session_id: sessionId,
+      cwd: ctx?.cwd || process.cwd(),
+      agent: event?.agent || "",
+      model_role: event?.modelRole || "",
+    });
+    if (res.model) {
+      return { model: res.model, note: res.note };
     }
   });
 
@@ -1713,6 +1795,7 @@ module.exports = {
   startMcpStdioServer,
   validateShellCommand,
   buildFrontierVoiceLock,
+  isValidRomTarget,
   detectPreSlotRomDirective,
   detectSubagentContextRom,
   enqueueSubagentRomsFromToolInput,

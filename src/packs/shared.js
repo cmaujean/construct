@@ -7,6 +7,8 @@ const SEATS = Object.freeze([
     "code": "1A",
     "glyph": "🔵",
     "claudeColor": "blue",
+    "claudeModel": "haiku",
+    "ompRole": "@smol",
     "label": "RECON & EXPOSITION",
     "desc": "Unfamiliar-Stack Scout & Conceptual Guide"
   },
@@ -15,6 +17,8 @@ const SEATS = Object.freeze([
     "code": "1B",
     "glyph": "🟠",
     "claudeColor": "orange",
+    "claudeModel": "sonnet",
+    "ompRole": "@default",
     "label": "TRENCH DIAGNOSTICS",
     "desc": "Bug Trace & Wire-Fault Hunter"
   },
@@ -23,6 +27,8 @@ const SEATS = Object.freeze([
     "code": "2",
     "glyph": "🟣",
     "claudeColor": "purple",
+    "claudeModel": "sonnet",
+    "ompRole": "@slow",
     "label": "ARCHITECTURE & INVARIANTS",
     "desc": "State Geometry, Contracts & Alignment Gate"
   },
@@ -31,6 +37,8 @@ const SEATS = Object.freeze([
     "code": "3",
     "glyph": "🔴",
     "claudeColor": "red",
+    "claudeModel": "sonnet",
+    "ompRole": "@default",
     "label": "THE BLITZ",
     "desc": "High-Speed Surgical Execution & Red-First Mutation Proof"
   },
@@ -39,6 +47,8 @@ const SEATS = Object.freeze([
     "code": "4A",
     "glyph": "🟢",
     "claudeColor": "green",
+    "claudeModel": "haiku",
+    "ompRole": "@smol",
     "label": "BENCH FORENSICS",
     "desc": "Binary, Build, Zip & Dependency Examiner"
   },
@@ -47,6 +57,8 @@ const SEATS = Object.freeze([
     "code": "4B",
     "glyph": "⚡",
     "claudeColor": "yellow",
+    "claudeModel": "haiku",
+    "ompRole": "@smol",
     "label": "WIRE TIMING & VELOCITY",
     "desc": "Latency, Cold-Start & Async Hang Profiler"
   },
@@ -55,6 +67,8 @@ const SEATS = Object.freeze([
     "code": "4C",
     "glyph": "🛡️",
     "claudeColor": "pink",
+    "claudeModel": "sonnet",
+    "ompRole": "@default",
     "label": "ADVERSARIAL SECURITY",
     "desc": "Perimeter Breaker, Auth Gate & Abuse-Case Auditor"
   },
@@ -63,6 +77,8 @@ const SEATS = Object.freeze([
     "code": "4D",
     "glyph": "🎨",
     "claudeColor": "cyan",
+    "claudeModel": "sonnet",
+    "ompRole": "@default",
     "label": "UI & HUMAN FEEL",
     "desc": "Visual Hierarchy, Interaction Flow, Ergonomics & Docs Clarity"
   },
@@ -71,6 +87,8 @@ const SEATS = Object.freeze([
     "code": "5",
     "glyph": "📓",
     "claudeColor": "blue",
+    "claudeModel": "haiku",
+    "ompRole": "@smol",
     "label": "THE BOOK",
     "desc": "Sequential Tape, Open Threads, Docs Parity & Release Synthesis"
   }

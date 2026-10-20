@@ -106,12 +106,12 @@ Person-to-Person Construct Comms & Courier Cameos (--via <messenger>):
   purge-msg <msg_id[,id...]>  Obliterate message(s) locally and across relays via message_tombstone.
   inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden] [--json]
 
-DIDComm v2 + MLS (RFC 9420) + HLC-CRDT Sync:
+W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC-CRDT Sync:
   did [--json]                Show this construct's cryptographic identity (did:key:z6Mk...).
   invite [comms | <project>] [--relays wss://...]
-                              Generate a signed DIDComm v2 OOB invitation (creates a personal @comms
+                              Generate a signed out-of-band invitation (creates a personal @comms
                               link when 'comms' or omitted, or bundles both <project> + @comms).
-  join <invite_uri>           Verify and join a project + @comms (or @comms-only) MLS invite URI.
+  join <invite_uri>           Verify and join a project + @comms (or @comms-only) Epoch-Keyed AEAD invite URI.
   sync <project|comms> [--relays wss://...] [--json]
                               Live pull + decrypt + CRDT merge + seal + push over WebSocket relays.
   site [--out <dir>]          Generate the 17-page GitHub Pages Brochure & Docs Hub into docs/.
@@ -249,6 +249,8 @@ function printBoot(data) {
     inboxPending = [],
     inboxReplies = [],
     projectGotchas = [],
+    activeClaims = [],
+    refCollisions = [],
     openFrames,
     recentTape,
   } = data;
@@ -305,6 +307,22 @@ function printBoot(data) {
         const fixInline = g.fix ? ` -> ${g.fix.replace(/\r?\n/g, ' ')}` : '';
         console.log(`  [G#${g.id}] ${g.title} (${g.status})${fixInline}`);
       }
+    }
+  }
+
+  if (activeClaims.length || refCollisions.length) {
+    console.log(
+      `\nACTIVE WORK CLAIMS & COLLISION RADAR (${activeClaims.length} intent claim(s), ${refCollisions.length} ref collision(s)):`
+    );
+    for (const col of refCollisions) {
+      const claimants = col.frames
+        .map((f) => `#${f.seq} (${f.authorUser}/${f.kind}: ${f.summary})`)
+        .join(' <-> ');
+      console.log(`  [!] COLLISION on ref "${col.ref}": ${claimants}`);
+    }
+    for (const c of activeClaims) {
+      const refsStr = c.refs && c.refs.length ? `  (${c.refs.join(', ')})` : '';
+      console.log(`  [CLAIM #${c.seq}] (${c.authorUser || 'local'}/intent) ${c.summary}${refsStr}`);
     }
   }
 
@@ -1507,7 +1525,7 @@ async function main(argv) {
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else {
         const gitInfo = res.gitUrl ? ` | repo: ${res.gitUrl}${res.branch ? `#${res.branch}` : ''}` : '';
-        console.log(`DIDComm v2 + MLS Invite for ${res.project} (group ${res.groupId}, epoch ${res.epoch}${gitInfo}):\n${res.inviteUri}`);
+        console.log(`Signed Epoch-Keyed AEAD Invite for ${res.project} (group ${res.groupId}, epoch ${res.epoch}${gitInfo}):\n${res.inviteUri}`);
       }
       return 0;
     }

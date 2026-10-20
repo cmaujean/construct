@@ -316,8 +316,10 @@ construct://invite/eyJwIjoi...#a8F3...
 What is bundled inside that signed token:
 - The project key (`acme/alpha_app`).
 - The repository's **Git remote URL** (`origin`) and **branch** (auto-detected from your checkout), plus any optional bootstrap commands (`--setup "npm install"`).
-- The project's **MLS (Messaging Layer Security) group ID, epoch, and `ChaCha20-Poly1305` AEAD-wrapped welcome secret** (unwrapped via X25519 ECDH or the `#...` fragment key so `epochSecret` never appears in plaintext inside the JSON payload).
+- The project's **Group ID, epoch, and 256-bit `ChaCha20-Poly1305` AEAD-wrapped welcome secret** (unwrapped via `X25519` ECDH or a 256-bit `#...` fragment seed so `epochSecret` never appears in plaintext inside the JSON payload).
 - The WebSocket relay endpoints (defaults to zero-signup public NIP-01 store-and-forward relays `wss://nos.lol` and `wss://relay.damus.io`, or your own self-hosted `construct relay --port 8787`).
+
+> **Why Stateless Epoch-Keyed AEAD instead of stateful IETF RFC 9420 (TreeKEM)?** Strict RFC 9420 requires a central ordering server ("Delivery Service") to serialize `Commit` frames and immediately deletes per-message keys after decryption, which breaks out-of-order CRDT state convergence and historical catch-up across stateless store-and-forward relays. Construct uses **Stateless Epoch-Keyed AEAD** (`HKDF-SHA256` + `ChaCha20-Poly1305` with authenticated `AAD` + pinned `Ed25519` sender signatures) so any group member holding `(groupId, epoch, epochSecret)` can decrypt CRDT delta packets in any arrival order across multiple relays without a central server, while still supporting explicit epoch ratcheting (`ratchetEpochSecret`).
 
 ### Step 2: Accepting an Invite on the Collaborator's Machine
 Your collaborator installs OpenCode + Construct and tells OpenCode:
@@ -418,11 +420,11 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 | **Modular Crew Packs** | 15 lazy-loaded `src/packs/<bank>.js` banks (`179` ROMs) + user drop-in packs (`~/.config/opencode/packs/*.js`) | `0` inactive pack files parsed into memory on normal turns |
 | **Unified Tool & MCP Core** | `src/mcp.js` (`CONSTRUCT_TOOL_SPECS`, `executeMcpTool`, `initialize.result.instructions`, MCP `prompts` & `resources`) shared by OpenCode, Claude Code, Cursor, Windsurf, Oh My Pi, Cline, Zed, and Goose | `2.4 ms` in-process tool execution (`0.013 ms` `tools/list`); zero schema duplication |
 | **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, `<construct-voice-lock>`, per-project HUD server (`127.0.0.1:47420`), and `shell` guard (`0.083 ms`) | Zero round-trip ROM/Crew switching; tab- and project-scoped HUD |
-| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 178 `~/.claude/agents/*.md` subagents, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) + `<construct-voice-lock>` |
-| **Cursor, Gemini CLI, Windsurf, Codex & Oh My Pi** | `construct init [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all]` (`runCursorHook`, `runGeminiHook`, `runOmpHook`, `.mdc`/`GEMINI.md`/`global_rules.md`/`AGENTS.md`, `extensions/construct.js`, and `mcpServers.construct`) | Zero-roundtrip Turn-1 Crew pre-slotting, `<construct-live-memory>` + `<construct-voice-lock>`, `[ROM: <name>]` subagents, and `0`-token shell guards |
+| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 178 `~/.claude/agents/*.md` subagents with per-seat `haiku`/`sonnet` model routing, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) + `<construct-voice-lock>` |
+| **Cursor, Gemini CLI, Windsurf, Codex & Oh My Pi** | `construct init [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all]` (`runCursorHook`, `runGeminiHook`, `runOmpHook` with `before_subagent_spawn` `@smol`/`@slow`/`@default` seat routing, `.mdc`/`GEMINI.md`/`global_rules.md`/`AGENTS.md`, `extensions/construct.js`, and `mcpServers.construct`) | Zero-roundtrip Turn-1 Crew pre-slotting, `<construct-live-memory>` + `<construct-voice-lock>`, `[ROM: <name>]` subagents, and `0`-token shell guards |
 | **Identity & Auth** | Self-certifying W3C `did:key:z6Mk...` (`Ed25519` signing + `X25519` ECDH via native OpenSSL `node:crypto`) | Stored in `~/.config/opencode/identity.json` (`0600`) |
-| **Group Encryption** | MLS-style Epoch Secret Tree (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`) | Relay sees only opaque ciphertext and a blinded HKDF `routeTag` |
-| **Conflict-Free Merge** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`, `message_tombstone`) + LWW-Element-Map (`heads`, `messages`) | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) |
+| **Group Encryption** | Stateless Epoch-Keyed AEAD (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`, 256-bit invite seed) | Out-of-order multi-relay CRDT decryptability without a central Delivery Service; relay sees only ciphertext + blinded HKDF `routeTag` |
+| **Conflict-Free Merge & Collision Radar** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`, `message_tombstone`) + LWW-Element-Map (`heads`, `messages`) + active `[intent]` ref collision radar | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) + pre-edit collision warnings |
 | **Relay Transport** | Built-in `WebSocket` speaking NIP-01 ephemeral events (`<= 16 KB` chunked batch publisher) signed with cached pure-BigInt BIP-340 `secp256k1` Schnorr keys (`4 MB` frame cap) | Works over any public relay (`wss://nos.lol`, `wss://relay.damus.io`) or self-hosted `construct relay` |
 
 ---
@@ -476,7 +478,7 @@ construct gotcha add "<title>" [--project <proj>] [--status observed|from_source
 construct gotcha search "<query>" [--project <proj> | --all]
 construct gotcha rm <id>
 
-# DIDComm v2 + MLS + CRDT sync, Encrypted Patch Drops & Person-to-Person Courier Comms
+# W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC-CRDT sync, Encrypted Patch Drops & Person-to-Person Courier Comms
 construct did
 construct invite [comms | <project>] [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
 construct join "<construct://invite/...#...>" [--dir <target_dir>]

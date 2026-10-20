@@ -83,7 +83,7 @@
   </ol>
 
   <h2 class="section-title" id="personal-comms">3. Collaborator Project Sync vs. Non-Collaborator Personal Comms (<code>@comms</code>)</h2>
-  <p>Construct supports two distinct encrypted DIDComm v2 + MLS (RFC 9420) connection modes over zero-signup WebSocket relays (<code>wss://nos.lol</code>, <code>wss://relay.damus.io</code>, or self-hosted <code>construct relay</code>):</p>
+  <p>Construct supports two distinct encrypted <strong>W3C <code>did:key</code> + Stateless Epoch-Keyed AEAD (<code>HKDF-SHA256</code> + <code>ChaCha20-Poly1305</code> + <code>Ed25519</code>) + HLC-CRDT</strong> connection modes over zero-signup WebSocket relays (<code>wss://nos.lol</code>, <code>wss://relay.damus.io</code>, or self-hosted <code>construct relay</code>). Unlike stateful IETF RFC 9420 TreeKEM (which requires a central Delivery Service to order commits and deletes per-message keys immediately), Construct's Epoch-Keyed AEAD keeps CRDT delta packets decryptable out-of-order across multiple stateless store-and-forward relays:</p>
   <div class="cal-grid">
     <div class="rom-card" style="margin:0;">
       <h3 style="margin-top:0;color:var(--accent);">Mode A: Project Collaboration Invite (<code>construct invite &lt;project&gt;</code>)</h3>

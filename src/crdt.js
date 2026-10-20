@@ -1,5 +1,5 @@
-// Cryptographic Identity (`did:key`), DIDComm v2 Invitations, MLS-style Epoch
-// Group Encryption (X25519 + HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519),
+// Cryptographic Identity (`W3C did:key`), Out-of-Band Invitations, Epoch-Keyed
+// Group AEAD (X25519 + HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519),
 // Hybrid Logical Clock (HLC) CRDT state convergence, and Construct-to-Construct
 // Comms (e.g., Alice's Molly <-> Bob's Dixie).
 //
@@ -334,7 +334,7 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
     });
     wrapSeedBytes = crypto.diffieHellman({ privateKey: privKey, publicKey: pubKey });
   } else {
-    wrapSeedBytes = crypto.randomBytes(16);
+    wrapSeedBytes = crypto.randomBytes(32);
     fragmentSuffix = `#${wrapSeedBytes.toString('base64url')}`;
   }
 

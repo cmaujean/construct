@@ -2061,6 +2061,102 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(lsOut.status, 0);
     assert.match(lsOut.stdout, /preserve full state line past column 70/);
 
+    // Verify Priorities 1-5:
+    // Priority 1: Project-scoped `--guard` gotcha enforcement via `{ dir }`, widened pipe guard, and fail-closed omp hook
+    const guardedRepoDir = path.join(tmp.dir, 'guarded-repo');
+    const unguardedRepoDir = path.join(tmp.dir, 'unguarded-repo');
+    fs.mkdirSync(guardedRepoDir, { recursive: true });
+    fs.mkdirSync(unguardedRepoDir, { recursive: true });
+    store.setHead('acme/guarded', { repo: guardedRepoDir, state: 'Active' });
+    store.addGotcha({
+      project: 'acme/guarded',
+      title: 'Never run deploy --yolo in acme/guarded',
+      fix: 'Use ./release.sh instead',
+      guard: 'deploy\\s+--yolo',
+    });
+    assert.throws(
+      () => mcp.validateShellCommand('deploy --yolo', { dir: guardedRepoDir }),
+      /Never run deploy --yolo in acme\/guarded/
+    );
+    assert.equal(mcp.validateShellCommand('deploy --yolo', { dir: unguardedRepoDir }), true);
+    assert.throws(
+      () =>
+        mcp.runClaudeHook(
+          'pre-tool',
+          JSON.stringify({ tool_name: 'Bash', cwd: guardedRepoDir, tool_input: { command: 'deploy --yolo' } })
+        ),
+      /Never run deploy --yolo in acme\/guarded/
+    );
+    assert.throws(
+      () => mcp.validateShellCommand('npm test | Select-String "pass"'),
+      /Gotcha #3/
+    );
+    assert.throws(
+      () => mcp.validateShellCommand("cargo test | awk '{print $1}'"),
+      /Gotcha #3/
+    );
+
+    // Priority 2: 256-bit (32-byte) invite fragment key
+    const inv256 = store.createInvite('acme/guarded');
+    const fragPart = inv256.inviteUri.split('#')[1] || '';
+    assert.equal(Buffer.from(fragPart, 'base64url').length, 32);
+
+    // Priority 3: Per-seat model routing in Claude Code subagents & Oh My Pi `before-subagent-spawn`
+    const claudeRoutedDir = path.join(tmp.dir, 'claude-routed');
+    store.initConstruct({ configDir: path.join(tmp.dir, 'oc-routed'), claude: true, claudeDir: claudeRoutedDir });
+    const judyAgentMd = fs.readFileSync(path.join(claudeRoutedDir, 'agents', 'judy.md'), 'utf8');
+    const tbugAgentMd = fs.readFileSync(path.join(claudeRoutedDir, 'agents', 'tbug.md'), 'utf8');
+    assert.match(judyAgentMd, /model: haiku/);
+    assert.match(tbugAgentMd, /model: sonnet/);
+
+    const ompSpawnRecon = JSON.parse(
+      mcp.runOmpHook('before-subagent-spawn', JSON.stringify({ agent: 'Judy-1', session_id: 'omp_ses_1' })).stdout
+    );
+    assert.equal(ompSpawnRecon.model, '@smol');
+    assert.match(ompSpawnRecon.note, /Construct Seat 1A \(judy\/recon -> @smol\)/);
+    const ompSpawnArch = JSON.parse(
+      mcp.runOmpHook('before-subagent-spawn', JSON.stringify({ agent: 'TBug-1', session_id: 'omp_ses_1' })).stdout
+    );
+    assert.equal(ompSpawnArch.model, '@slow');
+    assert.match(ompSpawnArch.note, /Construct Seat 2 \(tbug\/architect -> @slow\)/);
+
+    // Priority 4: Active Work Claims & Ref Collision Radar (`intent` auto-open & child `commit` auto-resolve)
+    const intentClaim = store.recordFrame({
+      project: 'acme/guarded',
+      kind: 'intent',
+      summary: 'Refactoring src/auth.ts token refresh',
+      refs: ['src/auth.ts', '#114'],
+    }).frame;
+    assert.equal(intentClaim.open, true);
+    store.recordFrame({
+      project: 'acme/guarded',
+      kind: 'thread',
+      summary: 'Investigate race in src/auth.ts',
+      refs: ['src/auth.ts'],
+    });
+    const bootWithCollision = store.bootProject('acme/guarded');
+    assert.equal(bootWithCollision.activeClaims.length, 1);
+    assert.equal(bootWithCollision.refCollisions.length, 1);
+    assert.equal(bootWithCollision.refCollisions[0].ref, 'src/auth.ts');
+
+    store.recordFrame({
+      project: 'acme/guarded',
+      kind: 'commit',
+      parentSeq: intentClaim.seq,
+      summary: 'Finished src/auth.ts token refresh',
+      verified: 'unit tests',
+    });
+    const bootAfterResolve = store.bootProject('acme/guarded');
+    assert.equal(bootAfterResolve.activeClaims.length, 0);
+    assert.equal(bootAfterResolve.refCollisions.length, 0);
+
+    // Priority 5: Modularized `src/hud.js`, `src/github.js`, and `src/installer.js`
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'hud.js')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'github.js')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'installer.js')));
+    const storeLineCount = fs.readFileSync(path.join(__dirname, '..', 'src', 'store.js'), 'utf8').split('\n').length;
+    assert.ok(storeLineCount < 3600, `expected src/store.js < 3600 lines, got ${storeLineCount}`);
+
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');
     const siteRes = store.generateDocsSite({ outDir: siteOutDir });

@@ -21,7 +21,10 @@ const STAMPED_BIN = "__CONSTRUCT_BIN_PATH__"
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
 const RELATIVE_BIN = path.resolve(PLUGIN_DIR, "..", "bin", "construct.js")
 
-function loadSharedMcpEngine() {
+let cachedMcpEngine = null
+
+function loadSharedMcpEngine({ bustCache = false } = {}) {
+  if (cachedMcpEngine && !bustCache) return cachedMcpEngine
   const candidates = []
   if (process.env.CONSTRUCT_BIN) {
     candidates.push(path.resolve(path.dirname(process.env.CONSTRUCT_BIN), "..", "src", "mcp.js"))
@@ -33,11 +36,14 @@ function loadSharedMcpEngine() {
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       try {
-        const srcDir = path.dirname(p)
-        for (const k of Object.keys(requireCjs.cache)) {
-          if (k.startsWith(srcDir)) delete requireCjs.cache[k]
+        if (bustCache) {
+          const srcDir = path.dirname(p)
+          for (const k of Object.keys(requireCjs.cache)) {
+            if (k.startsWith(srcDir)) delete requireCjs.cache[k]
+          }
         }
-        return requireCjs(p)
+        cachedMcpEngine = requireCjs(p)
+        return cachedMcpEngine
       } catch (_) {}
     }
   }
@@ -71,56 +77,9 @@ function runConstruct(args) {
 }
 
 export function validateShellCommand(command, customGuards = null, options = {}) {
-  const cmd = String(command || "")
-  const hostPlatform = String(options?.platform || process.platform).toLowerCase()
-  // 1. Block heredocs (`<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<-EOF`) [all platforms]
-  if (/<<-?\s*['"]?[A-Za-z_][A-Za-z0-9_]*['"]?/.test(cmd)) {
-    throw new Error(
-      "Construct Shell Guard (Gotcha #1): Heredocs (<<EOF) fail unpredictably in non-interactive shells. Use the Write/Edit tools for files, or write multi-line scripts/commit messages to a scratchpad file first."
-    )
-  }
-  // 2. Block piping build/test commands into `tail`, `head`, `grep`, or `Select-Object` without `pipefail` [all platforms]
-  if (
-    !/\bpipefail\b/.test(cmd) &&
-    /\b(?:flutter\s+(?:build|test|analyze)|npm\s+(?:test|run\s+(?:build|test))|dotnet\s+(?:build|test)|cargo\s+(?:build|test)|jest|pytest)\b[^|;\r\n]*\|\s*(?:tail|head|grep|Select-Object)\b/i.test(
-      cmd
-    )
-  ) {
-    throw new Error(
-      "Construct Shell Guard (Gotcha #3): Piping a build or test command into `tail`, `head`, or `grep` swallows the compiler/test exit code and reports failures as 0. Redirect to a log file and check `$LASTEXITCODE` / `echo \"exit=$?\"`, or set `pipefail`."
-    )
-  }
-  // 3. Block inline `gh api graphql -f query=` containing inner double quotes [win32 only: PowerShell 5.1 strips them]
-  if (hostPlatform === "win32" && /\bgh\s+api\s+graphql\b[^\r\n]*-f\s+query=[^\r\n]*"/i.test(cmd)) {
-    throw new Error(
-      "Construct Shell Guard (Gotcha #4 [win32]): PowerShell 5.1 strips inner double quotes on inline `gh api graphql -f query=...` calls. Write the JSON payload to a scratchpad file and pass `--input <scratch>/payload.json`."
-    )
-  }
-  // 4. Block disabling Git's NTFS path protection guard (`core.protectNTFS=false`) OR staging `:Zone.Identifier` files [all platforms: prevents Linux/macOS from breaking Windows checkouts]
-  if (
-    /core\.protectntfs\s*(?:=|\s+)\s*(?:false|0|no)\b/i.test(cmd) ||
-    /\bgit\s+add\b[^\r\n]*:Zone\.Identifier/i.test(cmd)
-  ) {
-    throw new Error(
-      "Construct Shell Guard (Gotcha #6 [all]): Never disable core.protectNTFS or stage `:Zone.Identifier` streams (invisible on Linux/macOS, breaks Windows NTFS checkouts). Remove the offending path instead."
-    )
-  }
-  // 5. Enforce dynamic `--guard` regular expressions registered on gotchas (filtered by `guardPlatform`)
-  if (Array.isArray(customGuards)) {
-    for (const g of customGuards) {
-      if (!g?.guardRegex) continue
-      const guardPlat = String(g.guardPlatform || "all").toLowerCase()
-      if (guardPlat !== "all" && guardPlat !== hostPlatform) continue
-      try {
-        const re = new RegExp(g.guardRegex, "i")
-        if (re.test(cmd)) {
-          const fixHint = g.fix ? ` Do instead: ${g.fix}` : ""
-          throw new Error(`Construct Shell Guard (Gotcha #${g.id} [${g.scope || "global"}/${guardPlat}]): ${g.title}.${fixHint}`)
-        }
-      } catch (err) {
-        if (String(err.message || "").startsWith("Construct Shell Guard")) throw err
-      }
-    }
+  const engine = loadSharedMcpEngine()
+  if (engine?.validateShellCommand) {
+    return engine.validateShellCommand(command, customGuards, options)
   }
   return true
 }
@@ -169,399 +128,19 @@ export function stripShadowedInstructions(systemParts, shadowedPaths = []) {
   return strippedCount
 }
 
-const KNOWN_ROM_NAMES = new Set([
-  // Crew banks & aliases
-  "crew",
-  "all",
-  "sprawl",
-  "anathem",
-  "nightcity",
-  "afterlife",
-  "cyberpunk",
-  "cryptonomicon",
-  "epiphyte",
-  "shadowrun",
-  "shadowland",
-  "dresden",
-  "paranet",
-  "amber",
-  "kolvir",
-  "pattern",
-  "laundry",
-  "qdivision",
-  "mahoganyrow",
-  "tolkien",
-  "fellowship",
-  "middleearth",
-  "rivendell",
-  "discworld",
-  "ankhmorpork",
-  "nightwatch",
-  "clacks",
-  "reamde",
-  "tgd",
-  "corporation9592",
-  "train",
-  "irondruid",
-  "tirnanog",
-  "thirdeye",
-  "prydain",
-  "caerdath",
-  "caerdallben",
-  "generic",
-  "standard",
-  "plain",
-  // REAMDE bank (9 starters + 3 backups)
-  "richard",
-  "dodge",
-  "forthrast",
-  "zula",
-  "dsquared",
-  "sokolov",
-  "csongor",
-  "yuxia",
-  "olivia",
-  "pluto",
-  "skraelin",
-  "wallace",
-  "alkali",
-  "ivanov",
-  "marlon",
-  // Iron Druid bank (9 starters + 3 backups)
-  "atticus",
-  "siodhachan",
-  "oberon",
-  "morrigan",
-  "owen",
-  "hal",
-  "granuaile",
-  "leif",
-  "brighid",
-  "brigid",
-  "ogma",
-  "coyote",
-  "perun",
-  "starbuck",
-  // Prydain bank (9 starters + 3 backups)
-  "dallben",
-  "taran",
-  "gwydion",
-  "coll",
-  "fflewddur",
-  "fflam",
-  "gurgi",
-  "doli",
-  "eilonwy",
-  "taliesin",
-  "adaon",
-  "hevydd",
-  "kaw",
-  // Clockwork Orange bank (9 starters + 3 backups)
-  "clockwork",
-  "korova",
-  "droogs",
-  "nadsat",
-  "alex",
-  "littlealex",
-  "pete",
-  "georgie",
-  "georgieboy",
-  "dim",
-  "brodsky",
-  "branom",
-  "deltoid",
-  "falexander",
-  "chaplain",
-  "prisoncharlie",
-  "charlie",
-  "minister",
-  "catlady",
-  "weathers",
-  "barnes",
-  // Discworld bank (9 starters + 3 backups)
-  "ponder",
-  "stibbons",
-  "vimes",
-  "vetinari",
-  "detritus",
-  "cheery",
-  "moist",
-  "lipwig",
-  "adorabelle",
-  "spike",
-  "carrot",
-  "librarian",
-  "ook",
-  "weatherwax",
-  "esme",
-  "granny",
-  "angua",
-  "death",
-  // Tolkien bank (9 starters + 4 backups including smeagol/gollum)
-  "gandalf",
-  "mithrandir",
-  "aragorn",
-  "strider",
-  "galadriel",
-  "gimli",
-  "faramir",
-  "legolas",
-  "eowyn",
-  "samwise",
-  "sam",
-  "elrond",
-  "boromir",
-  "celebrimbor",
-  "frodo",
-  "smeagol",
-  "gollum",
-  // Dresden bank (9 starters + 3 backups)
-  "bob",
-  "butters",
-  "mab",
-  "harry",
-  "murphy",
-  "thomas",
-  "marcone",
-  "grasshopper",
-  "ivy",
-  "archive",
-  "ebenezar",
-  "michael",
-  "toot",
-  "toottoot",
-  // Amber bank (9 starters + 3 backups)
-  "corwin",
-  "merlin",
-  "fiona",
-  "benedict",
-  "julian",
-  "random",
-  "brand",
-  "dworkin",
-  "ghostwheel",
-  "ghost",
-  "caine",
-  "eric",
-  "flora",
-  "florimel",
-  // Laundry bank (9 starters + 3 backups)
-  "bobhoward",
-  "howard",
-  "pinky",
-  "angleton",
-  "teapot",
-  "mo",
-  "brain",
-  "persephone",
-  "cassie",
-  "mhari",
-  "holly",
-  "stacks",
-  "registry",
-  "bridget",
-  "iris",
-  "fred",
-  // Sprawl bank (9 starters + 3 backups)
-  "colin",
-  "dixie",
-  "wintermute",
-  "architect",
-  "molly",
-  "finn",
-  "case",
-  "lupus",
-  "angie",
-  "continuity",
-  "armitage",
-  "marly",
-  "3jane",
-  // Anathem bank (9 starters + 3 backups)
-  "erasmus",
-  "raz",
-  "sammann",
-  "jad",
-  "cord",
-  "orolo",
-  "jesry",
-  "lio",
-  "tulia",
-  "ala",
-  "paphlagon",
-  "jules",
-  "lodoghir",
-  // Night City bank (9 starters + 3 backups)
-  "judy",
-  "vik",
-  "tbug",
-  "v",
-  "mitch",
-  "songbird",
-  "johnny",
-  "evelyn",
-  "rogue",
-  "takemura",
-  "panam",
-  "reed",
-  // Cryptonomicon bank (9 starters + 3 backups)
-  "lawrence",
-  "waterhouse",
-  "goto",
-  "enoch",
-  "randy",
-  "doug",
-  "avi",
-  "cantrell",
-  "amy",
-  "golgotha",
-  "turing",
-  "bobby",
-  "rudy",
-  // Shadowrun bank (9 starters + 3 backups)
-  "talon",
-  "shaman",
-  "streetdoc",
-  "fastjack",
-  "hatchetman",
-  "samurai",
-  "rigger",
-  "dodger",
-  "harlequin",
-  "siren",
-  "face",
-  "captainchaos",
-  "sysop",
-  "decker",
-  "adept",
-  "johnson",
-  // Generic bank (9 starters + instrument)
-  "guide",
-  "trace",
-  "arch",
-  "strike",
-  "audit",
-  "pulse",
-  "redteam",
-  "ux",
-  "ledger",
-  "razor",
-])
-
 function isValidRomTarget(spec) {
-  const parts = String(spec || "")
-    .toLowerCase()
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-  return parts.length > 0 && parts.every((p) => KNOWN_ROM_NAMES.has(p))
+  const engine = loadSharedMcpEngine()
+  return engine?.isValidRomTarget ? engine.isValidRomTarget(spec) : false
 }
 
-function normalizeMultiWordRomPhrases(rawText = "") {
-  return String(rawText || "")
-    .replace(/\bnight\s+city\b/gi, "nightcity")
-    .replace(/\biron\s+druid(?:\s+chronicles)?\b/gi, "irondruid")
-    .replace(/\b(?:a\s+)?clockwork\s+orange\b/gi, "clockwork")
-    .replace(/\bkorova(?:\s+milkbar)?\b/gi, "clockwork")
-    .replace(/\blaundry\s+files\b/gi, "laundry")
-    .replace(/\bdresden\s+files\b/gi, "dresden")
-    .replace(/\blord\s+of\s+the\s+rings\b/gi, "tolkien")
-    .replace(/\bcouncil\s+of\s+elrond\b/gi, "tolkien")
-    .replace(/\bchronicles\s+of\s+prydain\b/gi, "prydain")
-    .replace(/\bchronicles\s+of\s+amber\b/gi, "amber")
-    .replace(/\bankh[\s-]+morpork\b/gi, "discworld")
-}
-
-// Detect explicit ROM-slot, bank-switch, backup-sub, or subagent `[ROM: <name>]` tags
-// at the start of a prompt so `ctx.session.hook("prompt")` can pre-slot the ROM in <4ms
-// BEFORE `context` assembles `event.system`.
 export function detectPreSlotRomDirective(promptText) {
-  const text = normalizeMultiWordRomPhrases(String(promptText || "").trim())
-  if (!text) return null
-
-  // 1. Subagent tag: `[ROM: lupus]` or `[ROM: finn,case]` at the start or after a task preamble
-  const tagMatch = text.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
-  if (tagMatch && isValidRomTarget(tagMatch[1])) {
-    return { action: "use", target: tagMatch[1].toLowerCase() }
-  }
-
-  // 2. Default ROM / Bank command: "make anathem my default..."
-  const defaultMatch = text.match(
-    /^(?:make|set)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+crew|\s+bank|\s+pack|\s+rom)?\s+(?:as\s+)?(?:my\s+)?default(?:\s+rom)?(?:\s+until\s+further\s+notice)?\b/i
-  )
-  if (defaultMatch && isValidRomTarget(defaultMatch[1])) {
-    return { action: "default", target: defaultMatch[1].toLowerCase() }
-  }
-
-  const clearDefaultMatch = text.match(/^(?:clear|unset|reset)\s+(?:my\s+)?default\s+rom\b/i)
-  if (clearDefaultMatch) {
-    return { action: "default", target: "off" }
-  }
-
-  // 3. Backup substitution: "sub marly in", "substitute lodoghir"
-  const subMatch = text.match(/^(?:please\s+|let'?s\s+)?(?:sub|substitute)\s+([a-z0-9_]+)(?:\s+in|\s+into\s+the\s+crew)?(?:[\s,.:;!-]|$)/i)
-  if (subMatch && isValidRomTarget(subMatch[1])) {
-    return { action: "sub", target: subMatch[1].toLowerCase() }
-  }
-
-  // 4. Session ROM / Crew Bank switch: "slot anathem", "switch to generic crew", "swap in discworld"
-  const useMatch = text.match(
-    /^(?:please\s+|let'?s\s+|just\s+|swap\s+in\s+)?(?:slot|switch\s+to|use|bring\s+in|work\s+with|swap\s+in)\s+(?:the\s+)?([a-z0-9_]+(?:,[a-z0-9_]+)*)(?:\s+(?:crew|bank|pack|rom|mode|solo|for\s+this\s*(?:session|turn)?))?(?:[\s,.:;!-]|$)/i
-  )
-  if (useMatch && isValidRomTarget(useMatch[1])) {
-    return { action: "use", target: useMatch[1].toLowerCase() }
-  }
-
-  return null
+  const engine = loadSharedMcpEngine()
+  return engine?.detectPreSlotRomDirective ? engine.detectPreSlotRomDirective(promptText) : null
 }
 
-// Resolve a subagent's specialist ROM on Turn 1 inside `ctx.session.hook("context")` when a host
-// spawns a child subagent session programmatically (bypassing interactive `prompt` hooks) or names
-// the subagent session after the specialist (`Panam-2 (@general)`, `[ROM: johnny] Audit auth`).
-export function detectSubagentContextRom({ session = null, messages = [] } = {}) {
-  const title = String(session?.title || "").trim()
-  if (title) {
-    const titleTag = title.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
-    if (titleTag && isValidRomTarget(titleTag[1])) {
-      return { action: "use", target: titleTag[1].toLowerCase() }
-    }
-  }
-
-  const firstMsg = Array.isArray(messages) && messages.length ? messages[0] : null
-  if (firstMsg) {
-    const candidateTexts = []
-    if (typeof firstMsg.text === "string") candidateTexts.push(firstMsg.text)
-    if (typeof firstMsg.content === "string") candidateTexts.push(firstMsg.content)
-    if (Array.isArray(firstMsg.content)) {
-      for (const item of firstMsg.content) {
-        if (item && typeof item.text === "string") candidateTexts.push(item.text)
-      }
-    }
-    if (Array.isArray(firstMsg.parts)) {
-      for (const part of firstMsg.parts) {
-        if (part && typeof part.text === "string") candidateTexts.push(part.text)
-      }
-    }
-    for (const raw of candidateTexts) {
-      const tagMatch = String(raw || "").match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i)
-      if (tagMatch && isValidRomTarget(tagMatch[1])) {
-        return { action: "use", target: tagMatch[1].toLowerCase() }
-      }
-    }
-  }
-
-  const isChildSession = Boolean(session?.parentID || session?.parentId || /@\w+/.test(title))
-  if (isChildSession && title) {
-    const cleanLead = title
-      .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
-      .trim()
-      .split(/[\s(:@_-]/)[0]
-      .toLowerCase()
-    if (cleanLead && isValidRomTarget(cleanLead)) {
-      return { action: "use", target: cleanLead }
-    }
-  }
-
-  return null
+export function detectSubagentContextRom(input = {}) {
+  const engine = loadSharedMcpEngine()
+  return engine?.detectSubagentContextRom ? engine.detectSubagentContextRom(input) : null
 }
 
 const MAX_BOOT_CACHE_ENTRIES = 50
@@ -774,7 +353,7 @@ export default {
 
     let mcpEngine = loadSharedMcpEngine()
     const reloadConstructEngine = async () => {
-      const fresh = loadSharedMcpEngine()
+      const fresh = loadSharedMcpEngine({ bustCache: true })
       if (fresh) mcpEngine = fresh
       if (ctx.tool?.reload) {
         try {
@@ -788,7 +367,8 @@ export default {
     if (ctx.shell?.hook) {
       await ctx.shell.hook("create.before", (event) => {
         const guardFn = mcpEngine?.validateShellCommand || validateShellCommand
-        guardFn(event.command)
+        const shellDir = event?.cwd || event?.workdir || lastActiveDir || ctx.location?.directory || ""
+        guardFn(event.command, { dir: shellDir })
       })
     }
 
