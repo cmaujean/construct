@@ -865,7 +865,7 @@ export default {
                   })
                 }
                 res.writeHead(200, { "Content-Type": "application/json" })
-                res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }))
+                res.end(JSON.stringify({ ok: true, pairCode: cfg.pairCode, url, localUrl, svg, relays: cfg.relays }))
                 return
               }
 

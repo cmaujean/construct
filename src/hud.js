@@ -1317,7 +1317,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
               '<div style="background:#fff;padding:6px;border-radius:6px;flex-shrink:0;">' + data.svg + '</div>' +
               '<div style="flex:1;min-width:220px;">' +
                 '<div style="font-weight:700;color:#fff;margin-bottom:4px;">📱 Construct Pocket — Encrypted Mobile Thin Client</div>' +
-                '<div class="sub" style="margin-bottom:8px;">Scan with your phone camera to open the PWA over encrypted WebSocket relays (zero VPN / zero port-forwarding). The 256-bit key stays in the <code>#k=...</code> hash fragment and is never sent to GitHub Pages.</div>' +
+                '<div style="margin-bottom:8px;"><span class="sub">1. Open </span><code>https://cmaujean.github.io/construct/pocket.html</code><span class="sub"> on your phone and enter 6-char code: </span><strong style="font-size:16px;color:var(--ok);letter-spacing:0.08em;margin-left:4px;">' + esc(data.pairCode || '') + '</strong></div>' +
+                '<div class="sub" style="margin-bottom:8px;">Or scan the QR code / copy the direct URL below:</div>' +
                 '<input type="text" class="reply-input" style="width:100%;margin-bottom:8px;" readonly value="' + esc(data.url) + '" onclick="this.select()" />' +
                 '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
                   '<a class="crew-btn active" style="text-decoration:none;" href="' + esc(data.localUrl) + '" target="_blank">🌐 Open Local Preview</a>' +
@@ -1561,7 +1562,7 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
                 server._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpMod, { sessionId: sid, dir });
               }
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }));
+              res.end(JSON.stringify({ ok: true, pairCode: cfg.pairCode, url, localUrl, svg, relays: cfg.relays }));
               return;
             }
 

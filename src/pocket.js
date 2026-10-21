@@ -31,6 +31,74 @@ function pocketFilePath() {
   return process.env.CONSTRUCT_POCKET_FILE || DEFAULT_POCKET_FILE;
 }
 
+const PAIR_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+
+function derivePairCodeFromSeed(seedBytes) {
+  const hash = crypto.createHash('sha256').update(seedBytes).update('|pair-code-v1').digest();
+  let chars = '';
+  for (let i = 0; i < 6; i++) {
+    chars += PAIR_ALPHABET[hash[i] % PAIR_ALPHABET.length];
+  }
+  return `${chars.slice(0, 3)}-${chars.slice(3, 6)}`;
+}
+
+function deriveRendezvousKeys(pairCodeInput) {
+  const normalized = String(pairCodeInput || '')
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '');
+  if (normalized.length < 6) {
+    throw new Error('Pairing code must be 6 characters (e.g. ABC-123)');
+  }
+  const codeBytes = Buffer.from(`construct-pair-code-v1|${normalized}`, 'utf8');
+  const zeroSalt = Buffer.alloc(32, 0);
+  const pairAeadKey = Buffer.from(
+    crypto.hkdfSync('sha256', codeBytes, zeroSalt, 'construct-pocket-pair-aead-v1', 32)
+  );
+  const pairRouteTag = Buffer.from(
+    crypto.hkdfSync('sha256', codeBytes, zeroSalt, 'construct-pocket-pair-route-v1', 32)
+  ).toString('hex');
+  return {
+    pairCode: `${normalized.slice(0, 3)}-${normalized.slice(3, 6)}`,
+    pairAeadKey,
+    pairRouteTag,
+  };
+}
+
+function sealRendezvousSeed(pairCode, seedBase64Url, relays = []) {
+  const rKeys = deriveRendezvousKeys(pairCode);
+  const aad = Buffer.from(`construct-pocket-pair-v1|${rKeys.pairRouteTag}`, 'utf8');
+  const iv = crypto.randomBytes(12);
+  const plain = Buffer.from(JSON.stringify({ v: 1, seed: seedBase64Url, relays }), 'utf8');
+  const cipher = crypto.createCipheriv('aes-256-gcm', rKeys.pairAeadKey, iv, { authTagLength: 16 });
+  cipher.setAAD(aad, { plaintextLength: plain.length });
+  const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    routeTag: rKeys.pairRouteTag,
+    envelope: {
+      v: 1,
+      dir: 'pair',
+      iv: iv.toString('base64'),
+      ct: Buffer.concat([ct, tag]).toString('base64'),
+      ts: Date.now(),
+    },
+  };
+}
+
+function openRendezvousSeed(pairCode, envelope) {
+  const rKeys = deriveRendezvousKeys(pairCode);
+  const aad = Buffer.from(`construct-pocket-pair-v1|${rKeys.pairRouteTag}`, 'utf8');
+  const iv = Buffer.from(String(envelope.iv || ''), 'base64');
+  const ctWithTag = Buffer.from(String(envelope.ct || ''), 'base64');
+  const ciphertext = ctWithTag.subarray(0, ctWithTag.length - 16);
+  const tag = ctWithTag.subarray(ctWithTag.length - 16);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', rKeys.pairAeadKey, iv, { authTagLength: 16 });
+  decipher.setAAD(aad, { plaintextLength: ciphertext.length });
+  decipher.setAuthTag(tag);
+  const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return JSON.parse(plain.toString('utf8'));
+}
+
 function derivePocketKeys(seedBase64Url) {
   const seedBytes = Buffer.from(String(seedBase64Url || '').trim(), 'base64url');
   if (seedBytes.length < 16) {
@@ -46,8 +114,10 @@ function derivePocketKeys(seedBase64Url) {
   const cmdRouteTag = Buffer.from(
     crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|route-cmd', 32)
   ).toString('hex');
+  const pairCode = derivePairCodeFromSeed(seedBytes);
   return {
     seed: seedBytes.toString('base64url'),
+    pairCode,
     aeadKey,
     stateRouteTag,
     cmdRouteTag,
@@ -396,20 +466,17 @@ function generateQrMatrix(text) {
     upward = !upward;
   }
 
-  // Write Format Information for ECC Level L (01) + Mask 0 (000) -> data = 0b01000
-  const fmtData = (0b01 << 3) | 0b000;
-  let fmtRem = fmtData;
-  for (let i = 0; i < 10; i++) fmtRem = (fmtRem << 1) ^ ((fmtRem >>> 9) * 0x537);
-  const fmtBits = ((fmtData << 10) | fmtRem) ^ 0x5412;
-
-  for (let i = 0; i <= 5; i++) setFunctionModule(8, i, Boolean((fmtBits >>> i) & 1));
-  setFunctionModule(8, 7, Boolean((fmtBits >>> 6) & 1));
+  // Write Format Information for ECC Level L (01) + Mask 0 (000) -> ISO/IEC 18004 standard 15-bit sequence = 0x77c4
+  // Bit 14 (MSB) sits at (8,0) and (size-1,8); Bit 0 (LSB) sits at (0,8) and (8,size-1).
+  const fmtBits = 0x77c4;
+  for (let i = 0; i <= 5; i++) setFunctionModule(8, i, Boolean((fmtBits >>> (14 - i)) & 1));
+  setFunctionModule(8, 7, Boolean((fmtBits >>> 8) & 1));
   setFunctionModule(8, 8, Boolean((fmtBits >>> 7) & 1));
-  setFunctionModule(7, 8, Boolean((fmtBits >>> 8) & 1));
-  for (let i = 9; i < 15; i++) setFunctionModule(14 - i, 8, Boolean((fmtBits >>> i) & 1));
+  setFunctionModule(7, 8, Boolean((fmtBits >>> 6) & 1));
+  for (let i = 9; i < 15; i++) setFunctionModule(14 - i, 8, Boolean((fmtBits >>> (14 - i)) & 1));
 
-  for (let i = 0; i < 8; i++) setFunctionModule(size - 1 - i, 8, Boolean((fmtBits >>> i) & 1));
-  for (let i = 8; i < 15; i++) setFunctionModule(8, size - 15 + i, Boolean((fmtBits >>> i) & 1));
+  for (let i = 0; i < 7; i++) setFunctionModule(size - 1 - i, 8, Boolean((fmtBits >>> (14 - i)) & 1));
+  for (let i = 7; i < 15; i++) setFunctionModule(8, size - 15 + i, Boolean((fmtBits >>> (14 - i)) & 1));
 
   return { size, modules, version: spec.v };
 }
@@ -822,6 +889,10 @@ function startPocketBridge(store, mcp, options = {}) {
         const currentCfg = loadOrCreatePocketConfig();
         const sinceSec = Math.floor(Date.now() / 1000) - 30;
         ws.send(JSON.stringify(['REQ', subId, { kinds: [4420], '#d': [currentCfg.cmdRouteTag], since: sinceSec }]));
+        // Publish 6-char pairing rendezvous beacon so the phone can pair by typing only the 6-char code
+        const pairBeacon = sealRendezvousSeed(currentCfg.pairCode, currentCfg.seed, currentCfg.relays);
+        const pairEvent = relay.buildNostrWrapperEvent(pairBeacon.routeTag, pairBeacon.envelope);
+        ws.send(JSON.stringify(['EVENT', pairEvent]));
         void broadcastSnapshot(true);
       } catch (_) {}
     };
@@ -875,6 +946,9 @@ module.exports = {
   DEFAULT_PWA_BASE_URL,
   pocketFilePath,
   derivePocketKeys,
+  deriveRendezvousKeys,
+  sealRendezvousSeed,
+  openRendezvousSeed,
   loadOrCreatePocketConfig,
   buildPocketPairingUrl,
   sealPocketEnvelope,

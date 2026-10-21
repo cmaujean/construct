@@ -499,13 +499,14 @@
   <div class="modal-box">
     <div class="card-title">Construct Pocket Pairing</div>
     <p style="font-size:12.5px;color:var(--muted);margin-top:0;">
-      Scan the QR code from <code>construct pocket</code> (or click <strong>📱 Pair Phone</strong> in your PC HUD), or paste the pairing URL / <code>#k=...</code> seed below:
+      Enter the <strong>6-character pairing code</strong> shown by <code>construct pocket</code> / <strong>📱 Pair Phone</strong> (e.g. <code>ABC-123</code>), or paste the full pairing URL:
     </p>
-    <input id="pair-seed-input" class="text-input" placeholder="Paste https://...#k=... or seed" style="margin-bottom:8px;" />
-    <input id="pair-relays-input" class="text-input" placeholder="Relays (comma-separated)" value="wss://nos.lol,wss://relay.damus.io" style="margin-bottom:10px;" />
+    <input id="pair-seed-input" class="text-input" placeholder="6-char code (e.g. ABC-123) or #k=... URL" style="margin-bottom:8px;font-size:15px;letter-spacing:0.04em;" />
+    <input id="pair-relays-input" class="text-input" placeholder="Relays (comma-separated)" value="wss://nos.lol,wss://relay.damus.io" style="margin-bottom:8px;" />
+    <div id="pair-status" style="font-size:12px;color:var(--warn);margin-bottom:8px;min-height:16px;"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;">
       <button class="icon-btn" onclick="closePairModal()">Cancel</button>
-      <button class="icon-btn primary" onclick="savePairingFromModal()">Save &amp; Connect</button>
+      <button class="icon-btn primary" onclick="savePairingFromModal()">Pair &amp; Connect</button>
     </div>
   </div>
 </div>
@@ -1170,15 +1171,91 @@ function closePairModal() {
   if (modal) modal.classList.remove('open');
 }
 
+async function resolveShortPairCodeOverRelay(pairCodeInput, relaysList) {
+  const normalized = String(pairCodeInput || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  const enc = new TextEncoder();
+  const codeBytes = enc.encode('construct-pair-code-v1|' + normalized);
+  const baseKey = await crypto.subtle.importKey('raw', codeBytes, 'HKDF', false, ['deriveKey', 'deriveBits']);
+  const zeroSalt = new Uint8Array(32);
+  const pairAeadKey = await crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-pair-aead-v1') },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['decrypt']
+  );
+  const routeBits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-pair-route-v1') },
+    baseKey,
+    256
+  );
+  const pairRouteTag = bytesToHex(new Uint8Array(routeBits));
+  const aad = enc.encode('construct-pocket-pair-v1|' + pairRouteTag);
+
+  for (const url of relaysList) {
+    try {
+      const found = await new Promise((resolve) => {
+        let settled = false;
+        const done = (val) => {
+          if (settled) return;
+          settled = true;
+          try { ws.close(); } catch (_) {}
+          resolve(val);
+        };
+        const ws = new WebSocket(url);
+        const timer = setTimeout(() => done(null), 5000);
+        ws.onopen = () => {
+          ws.send(JSON.stringify(['REQ', 'pair_1', { kinds: [4420], '#d': [pairRouteTag], limit: 5 }]));
+        };
+        ws.onmessage = async (ev) => {
+          try {
+            const msg = JSON.parse(String(ev.data));
+            if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2]) {
+              const rawEnv = JSON.parse(new TextDecoder().decode(base64ToBytes(msg[2].content)));
+              const plainBuf = await crypto.subtle.decrypt(
+                { name: 'AES-GCM', iv: base64ToBytes(rawEnv.iv), additionalData: aad, tagLength: 128 },
+                pairAeadKey,
+                base64ToBytes(rawEnv.ct)
+              );
+              clearTimeout(timer);
+              done(JSON.parse(new TextDecoder().decode(plainBuf)));
+            } else if (Array.isArray(msg) && msg[0] === 'EOSE') {
+              clearTimeout(timer);
+              done(null);
+            }
+          } catch (_) {}
+        };
+        ws.onerror = () => { clearTimeout(timer); done(null); };
+      });
+      if (found && found.seed) return found;
+    } catch (_) {}
+  }
+  return null;
+}
+
 async function savePairingFromModal() {
   const rawInput = String(document.getElementById('pair-seed-input')?.value || '').trim();
   const rawRelays = String(document.getElementById('pair-relays-input')?.value || '').trim();
+  const statusEl = document.getElementById('pair-status');
+  const relaysList = (rawRelays || 'wss://nos.lol,wss://relay.damus.io').split(',').map((s) => s.trim()).filter(Boolean);
   let seed = rawInput;
   if (rawInput.includes('#')) {
     const hashParams = new URLSearchParams(rawInput.split('#')[1]);
     seed = hashParams.get('k') || seed;
+  } else {
+    const alnum = rawInput.toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (alnum.length === 6) {
+      if (statusEl) statusEl.textContent = '⏳ Looking up 6-char pairing code on relay...';
+      const resolved = await resolveShortPairCodeOverRelay(alnum, relaysList);
+      if (!resolved || !resolved.seed) {
+        if (statusEl) statusEl.textContent = '⚠️ Code not found on relay yet. Ensure PC HUD is running.';
+        return;
+      }
+      seed = resolved.seed;
+    }
   }
   if (seed) {
+    if (statusEl) statusEl.textContent = '';
     localStorage.setItem('construct_pocket_seed', seed);
     if (rawRelays) localStorage.setItem('construct_pocket_relays', rawRelays);
     pocketKeys = await deriveWebPocketKeys(seed);

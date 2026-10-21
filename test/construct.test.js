@@ -2237,6 +2237,10 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const pocketCfgFile = path.join(tmp.dir, 'pocket.json');
     const pCfg1 = pocket.loadOrCreatePocketConfig({}, pocketCfgFile);
     assert.equal(Buffer.from(pCfg1.seed, 'base64url').length, 32);
+    assert.match(pCfg1.pairCode, /^[2-9A-Z]{3}-[2-9A-Z]{3}$/);
+    const rBeacon = pocket.sealRendezvousSeed(pCfg1.pairCode, pCfg1.seed, pCfg1.relays);
+    const rOpened = pocket.openRendezvousSeed(pCfg1.pairCode, rBeacon.envelope);
+    assert.equal(rOpened.seed, pCfg1.seed);
     assert.equal(pCfg1.stateRouteTag.length, 64);
     assert.equal(pCfg1.cmdRouteTag.length, 64);
     assert.notEqual(pCfg1.stateRouteTag, pCfg1.cmdRouteTag);
