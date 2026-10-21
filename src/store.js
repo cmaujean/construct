@@ -2208,8 +2208,9 @@ function sendMessage(fields = {}, file = dbPath()) {
           ? String(fields.fromUser).trim().toLowerCase()
           : user?.id || protocol.detectOsUsername();
         const allGroups = db.prepare('SELECT project FROM mls_groups ORDER BY updated DESC').all();
+        const nonCommsGroups = allGroups.filter((g) => !isCommsChannel(g.project));
         const explicitProj = fields.project && fields.project !== 'global' ? normalizeProject(fields.project) : '';
-        const primaryProject = explicitProj || allGroups[0]?.project || 'global';
+        const primaryProject = explicitProj || nonCommsGroups[0]?.project || 'global';
         const fromRom = resolveCourierRomNameInDb(
           db,
           fields.via || fields.fromRom || '',
@@ -2939,9 +2940,27 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
     (db) =>
       tx(db, () => {
         const group = ensureMlsGroupInDb(db, project, options);
-        if (!isComms) {
-          crdt.backfillProjectCrdtLogInDb(db, project);
+        if (isComms) {
+          crdt.backfillProjectCrdtLogInDb(db, '@comms', undefined, {
+            freshHlc: Boolean(options.freshCommsBackfill),
+            forceRequeue: Boolean(options.forceCommsRequeue),
+          });
+        } else {
+          crdt.backfillProjectCrdtLogInDb(db, project, undefined, {
+            bridgeMessages: Boolean(options.includeMessages),
+            freshHlc: Boolean(options.includeMessages),
+          });
         }
+        const commsGroup = isComms ? null : ensureMlsGroupInDb(db, '@comms', options);
+        const commsMeta = commsGroup
+          ? {
+              groupId: commsGroup.groupId,
+              epoch: commsGroup.epoch,
+              epochSecret: commsGroup.epochSecret,
+              relays: commsGroup.relays,
+            }
+          : null;
+
         const sinceHlc = options.sinceHlc || '';
         const rows = db
           .prepare('SELECT * FROM crdt_log WHERE project = ? AND hlc > ? ORDER BY hlc ASC')
@@ -2962,8 +2981,9 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           .filter((op) => {
             if (op.project !== project) return false;
             if (isComms) return op.entity === 'message' || op.entity === 'message_tombstone';
-            // Project packets carry ONLY project archival state (frames, gotchas, heads); personal comms ride on @comms
-            if (op.entity === 'message' || op.entity === 'message_tombstone') return false;
+            // Project packets carry ONLY project archival state by default; relay sync passes `includeMessages: true`
+            // so legacy-paired project peers automatically receive messages even before `@comms` converges.
+            if (!options.includeMessages && (op.entity === 'message' || op.entity === 'message_tombstone')) return false;
             return op.entity !== 'gotcha' || op.payload.scope === project;
           });
 
@@ -2977,6 +2997,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           project,
           opCount: ops.length,
           ops,
+          ...(commsMeta ? { commsGroup: commsMeta } : {}),
         });
 
         // Also build relay-safe chunk envelopes (<= 16 KB raw ops JSON per chunk -> < 28 KB Nostr event)
@@ -3004,6 +3025,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
                 project,
                 opCount: currentChunk.length,
                 ops: currentChunk,
+                ...(commsMeta ? { commsGroup: commsMeta } : {}),
               }),
             });
             currentChunk = [];
@@ -3019,6 +3041,7 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
               project,
               opCount: currentChunk.length,
               ops: currentChunk,
+              ...(commsMeta ? { commsGroup: commsMeta } : {}),
             }),
           });
         }
@@ -3073,6 +3096,10 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
           );
         }
 
+        if (!isCommsChannel(group.project) && decrypted.commsGroup) {
+          crdt.reconcileCommsGroupInDb(db, group, envelope, decrypted.commsGroup);
+        }
+
         // Enforce strict project scope boundary: only ops belonging to `group.project` can be applied
         const applied = crdt.applyCrdtOpsInDb(db, decrypted.ops || [], undefined, group.project);
         return {
@@ -3089,7 +3116,7 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
 
 async function syncProject(projectInput, options = {}, file = dbPath()) {
   let project = normalizeProject(projectInput);
-  const group = withDb((db) => {
+  const { group, peerCommsGroups } = withDb((db) => {
     let row = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
     if (!row && project.includes('/')) {
       const repoBase = project.split('/').pop().toLowerCase();
@@ -3098,18 +3125,40 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
       if (row) project = row.project;
     }
     if (!row) throw new Error(`project "${project}" has no MLS group yet (run "construct invite ${project}" or "construct join <uri>" first)`);
-    return crdt.hydrateMlsGroup(row);
+    const peers = isCommsChannel(project)
+      ? db
+          .prepare("SELECT * FROM mls_groups WHERE project LIKE '@comms/peer/%'")
+          .all()
+          .map((r) => crdt.hydrateMlsGroup(r))
+      : [];
+    return { group: crdt.hydrateMlsGroup(row), peerCommsGroups: peers };
   }, file);
 
   const relays = options.relays ? normalizeRefs(options.relays) : group.relays;
   const { routeTag } = crdt.deriveEpochKeys(group.epochSecret, group.groupId, group.epoch);
+  const fetchTimeoutMs = options.timeoutMs || 2500;
 
-  // 1. Pull and merge remote MLS envelopes from relays
-  const fetched = await relay.fetchEnvelopesFromRelays(relays, routeTag, options.timeoutMs || 4000);
+  // 1. Pull and merge remote MLS envelopes from relays (including any preserved `@comms/peer/*` routeTags)
+  const routeTagsToFetch = [routeTag];
+  for (const pg of peerCommsGroups) {
+    try {
+      const { routeTag: peerTag } = crdt.deriveEpochKeys(pg.epochSecret, pg.groupId, pg.epoch);
+      if (peerTag && !routeTagsToFetch.includes(peerTag)) routeTagsToFetch.push(peerTag);
+    } catch (_) {}
+  }
+
+  const fetchedBatches = await Promise.all(
+    routeTagsToFetch.map((tag) => relay.fetchEnvelopesFromRelays(relays, tag, fetchTimeoutMs))
+  );
+  const allEnvelopes = [];
+  for (const b of fetchedBatches) {
+    for (const env of b.envelopes || []) allEnvelopes.push(env);
+  }
+
   let mergedOps = 0;
   let packetsProcessed = 0;
 
-  for (const env of fetched.envelopes) {
+  for (const env of allEnvelopes) {
     try {
       const res = importEncryptedPacket(env, file);
       mergedOps += res.appliedOps;
@@ -3119,18 +3168,56 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     }
   }
 
-  // 2. Export and push local CRDT delta since `group.lastSyncHlc` to relays (chunked for <28KB NIP-01 relay limits)
+  // Re-read group in case `importEncryptedPacket` converged `@comms` to a new `groupId` / `epochSecret`
+  const activeGroup = withDb((db) => {
+    const r = db.prepare('SELECT * FROM mls_groups WHERE project = ?').get(project);
+    return r ? crdt.hydrateMlsGroup(r) : group;
+  }, file);
+  const activeRelays = options.relays ? normalizeRefs(options.relays) : activeGroup.relays;
+  const { routeTag: activeRouteTag } = crdt.deriveEpochKeys(
+    activeGroup.epochSecret,
+    activeGroup.groupId,
+    activeGroup.epoch
+  );
+
+  // 2. Export and push local CRDT delta since `activeGroup.lastSyncHlc` to relays (chunked for <28KB NIP-01 relay limits)
+  // Notice: when syncing a project group without any new frames/gotchas/heads AND no unbridged messages,
+  // `exportEncryptedPacket` produces `opCount === 0`. However, if our local `@comms` group is solo (not yet paired
+  // with all project members), we still publish the project heartbeat envelope (`commsGroup` metadata) once when
+  // `exported.opCount > 0` or when `options.full` is passed.
   const exported = exportEncryptedPacket(
     project,
-    { relays, sinceHlc: options.full ? '' : group.lastSyncHlc || '', onlyLocal: true },
+    {
+      relays: activeRelays,
+      sinceHlc: options.full ? '' : activeGroup.lastSyncHlc || '',
+      onlyLocal: true,
+      includeMessages: !isCommsChannel(project),
+      freshCommsBackfill: isCommsChannel(project) && !activeGroup.lastSyncHlc,
+      forceCommsRequeue: isCommsChannel(project) && !activeGroup.lastSyncHlc,
+    },
     file
   );
   let pushedOk = 0;
-  if (exported.opCount > 0) {
-    const rawEnvs = Array.isArray(exported.envelopes) && exported.envelopes.length
-      ? exported.envelopes.map((c) => c.envelope)
-      : [exported.envelope];
-    const pubRes = await relay.publishEnvelopesToRelays(relays, routeTag, rawEnvs, options.timeoutMs || 8000);
+  const needsCommsHandshake =
+    !isCommsChannel(project) &&
+    exported.opCount === 0 &&
+    withDb((db) => {
+      const cRow = db.prepare("SELECT members FROM mls_groups WHERE project = '@comms'").get();
+      if (!cRow) return true;
+      try {
+        const cMembers = JSON.parse(cRow.members || '[]');
+        return cMembers.length < (activeGroup.members || []).length;
+      } catch (_) {
+        return true;
+      }
+    }, file);
+
+  if (exported.opCount > 0 || needsCommsHandshake) {
+    const rawEnvs =
+      exported.opCount > 0 && Array.isArray(exported.envelopes) && exported.envelopes.length
+        ? exported.envelopes.map((c) => c.envelope)
+        : [exported.envelope];
+    const pubRes = await relay.publishEnvelopesToRelays(activeRelays, activeRouteTag, rawEnvs, options.timeoutMs || 3500);
     pushedOk = pubRes.results.filter((r) => r.ok).length;
     if (pushedOk > 0 && exported.maxHlc) {
       withDb((db) => {
@@ -3151,16 +3238,17 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     );
     if (hasCommsGroup) {
       try {
-        await syncProject('@comms', options, file);
+        const commsRes = await syncProject('@comms', options, file);
+        mergedOps += commsRes.mergedOps || 0;
       } catch (_) {}
     }
   }
 
   return {
     project,
-    groupId: group.groupId,
-    epoch: group.epoch,
-    relays,
+    groupId: activeGroup.groupId,
+    epoch: activeGroup.epoch,
+    relays: activeRelays,
     packetsFetched: packetsProcessed,
     mergedOps,
     pushedOps: exported.opCount,

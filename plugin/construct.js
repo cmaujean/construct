@@ -14,7 +14,7 @@ import http from "node:http"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
-import { execFileSync } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 
 const requireCjs = createRequire(import.meta.url)
 const STAMPED_BIN = "__CONSTRUCT_BIN_PATH__"
@@ -63,17 +63,33 @@ function resolveConstructCommand() {
   return { cmd: "construct", prefixArgs: [] }
 }
 
-function runConstruct(args) {
+function runConstruct(args, options = {}) {
   const { cmd, prefixArgs } = resolveConstructCommand()
   try {
     return execFileSync(cmd, [...prefixArgs, ...args], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: Number(options.timeout || 15000),
       windowsHide: true,
     }).trim()
   } catch (err) {
     return `error: ${err.stderr || err.message}`
   }
+}
+
+function runConstructAsync(args, options = {}) {
+  const { cmd, prefixArgs } = resolveConstructCommand()
+  try {
+    execFile(
+      cmd,
+      [...prefixArgs, ...args],
+      {
+        encoding: "utf8",
+        timeout: Number(options.timeout || 25000),
+        windowsHide: true,
+      },
+      () => {}
+    )
+  } catch (_) {}
 }
 
 export function validateShellCommand(command, customGuards = null, options = {}) {
@@ -657,9 +673,7 @@ export default {
         if (!snap) return
         if (snap.hasMlsGroup && snap.project && snap.project !== "workspace" && Date.now() - lastBgSyncMs >= 60000) {
           lastBgSyncMs = Date.now()
-          try {
-            runConstruct(["sync", String(snap.project)])
-          } catch (_) {}
+          runConstructAsync(["sync", String(snap.project)])
         }
         void checkIdleCourierWakeup(snap)
       } catch (_) {}

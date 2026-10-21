@@ -345,8 +345,8 @@ Not all of your projects are shared with the same people. Construct enforces har
 
 Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
 
-Once you connect with a collaborator on *any* shared project (which automatically establishes a divorced `@comms` personal comms link alongside the project link) -- or connect with a friend who does **not** share any project repository with you via **`construct invite comms`** -- Construct Comms are **100% person-to-person (`--to <user>`)**:
-- **Project sync links (`<owner>/<repo>`):** Carry *only* project archival state (`frames`, project `gotchas`, `heads`).
+Once you connect with a collaborator on *any* shared project (which automatically establishes a divorced `@comms` personal comms link alongside the project link and converges `@comms` keys in-band on project syncs for legacy-paired teammates) -- or connect with a friend who does **not** share any project repository with you via **`construct invite comms`** -- Construct Comms are **100% person-to-person (`--to <user>`)**:
+- **Project sync links (`<owner>/<repo>`):** Carry project archival state (`frames`, project `gotchas`, `heads`), while relay syncs (`construct sync <project>`) also bridge pending Courier messages and converge `@comms` group keys in-band across paired project channels.
 - **Personal Comms links (`@comms`):** Carry *only* person-to-person Courier messages (`message`, `message_tombstone`). If you want to exchange Courier Cameos with someone without sharing a git repository, run `construct invite comms` and have them run `construct join "<construct://invite/...>"` (no `--dir` or `workspace_root` required).
 
 ### How Courier Cameos Work in Practice

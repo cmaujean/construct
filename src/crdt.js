@@ -556,9 +556,96 @@ function appendCrdtOpInDb(db, { project, entity, recordUid, payload }, identityF
   return { opId, hlc, authorDid: identity.did };
 }
 
-// Backfill existing project gotchas, frames, and heads into crdt_log when a project group is initialized
-function backfillProjectCrdtLogInDb(db, project, identityFile) {
+// Backfill existing project gotchas, frames, heads, and (when requested or on `@comms`) messages into crdt_log
+function backfillProjectCrdtLogInDb(db, project, identityFile, options = {}) {
   const identity = loadOrCreateIdentity(identityFile);
+  const isComms =
+    project === '@comms' ||
+    project === 'comms' ||
+    String(project || '').toLowerCase().startsWith('@comms/');
+
+  if (isComms || options.bridgeMessages) {
+    const msgs = db.prepare("SELECT * FROM messages WHERE status != 'hidden' ORDER BY id ASC").all();
+    const checkMsgOpStmt = db.prepare(
+      "SELECT op_id, hlc, payload FROM crdt_log WHERE project = ? AND entity = 'message' AND record_uid = ? ORDER BY hlc DESC LIMIT 1"
+    );
+    const insertMsgOpStmt = db.prepare(
+      `INSERT OR REPLACE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
+       VALUES (?, ?, ?, ?, 'message', ?, ?)`
+    );
+    const pairedProjects = new Set(
+      db
+        .prepare("SELECT project FROM mls_groups WHERE project NOT LIKE '@comms%'")
+        .all()
+        .map((r) => String(r.project || '').toLowerCase())
+    );
+    const sameOrRelatedProject = (msgProj, targetProj) => {
+      if (!msgProj || msgProj === 'global' || msgProj === '@comms' || msgProj === 'comms') return true;
+      if (msgProj === targetProj) return true;
+      const mLower = String(msgProj).toLowerCase();
+      const tLower = String(targetProj).toLowerCase();
+      if (pairedProjects.has(mLower) && pairedProjects.has(tLower)) return true;
+      const mParts = mLower.split('/');
+      const tParts = tLower.split('/');
+      return mParts.length === 2 && tParts.length === 2 && mParts[1] === tParts[1];
+    };
+
+    for (const m of msgs) {
+      if (!isComms && !sameOrRelatedProject(m.project, project)) continue;
+      const isLocalSender = !m.from_did || m.from_did === identity.did;
+      const isLocalReplier = m.status === 'replied' && m.from_did && m.from_did !== identity.did;
+      if (!isLocalSender && !isLocalReplier) continue;
+
+      const existingOp = checkMsgOpStmt.get(project, m.uid);
+      let existingStatus = '';
+      let existingReplyHlc = '';
+      if (existingOp && existingOp.payload) {
+        try {
+          const p = JSON.parse(existingOp.payload);
+          existingStatus = p.status || '';
+          existingReplyHlc = p.replyHlc || '';
+        } catch (_) {}
+      }
+      if (
+        existingOp &&
+        !options.forceRequeue &&
+        existingStatus === (m.status || 'pending') &&
+        existingReplyHlc === (m.reply_hlc || '')
+      ) {
+        continue;
+      }
+
+      const baseHlc = m.reply_hlc || m.hlc || nextHlc(identity.did);
+      const opHlc = options.freshHlc ? nextHlc(identity.did, baseHlc) : baseHlc;
+      const payloadProject = isComms ? m.project || 'global' : project;
+      const opId = `${opHlc}:message:${m.uid}`;
+      insertMsgOpStmt.run(
+        opId,
+        opHlc,
+        project,
+        identity.did,
+        m.uid,
+        JSON.stringify({
+          uid: m.uid,
+          hlc: m.hlc || opHlc,
+          project: payloadProject,
+          originalProject: m.project || 'global',
+          fromUser: m.from_user,
+          fromRom: m.from_rom,
+          fromDid: m.from_did || identity.did,
+          toUser: m.to_user,
+          body: m.body,
+          status: m.status || 'pending',
+          replyBody: m.reply_body || '',
+          replyRom: m.reply_rom || '',
+          replyHlc: m.reply_hlc || '',
+          created: m.created,
+        })
+      );
+    }
+    if (isComms) return;
+  }
+
   const updateGotchaStmt = db.prepare('UPDATE gotchas SET uid = ?, hlc = ? WHERE id = ?');
   const insertGotchaOpStmt = db.prepare(
     `INSERT OR IGNORE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
@@ -854,7 +941,7 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         insertMsgStmt.run(
           p.uid,
           p.hlc || op.hlc,
-          p.project || op.project,
+          p.originalProject || p.project || op.project,
           p.fromUser,
           p.fromRom,
           p.fromDid,
@@ -887,6 +974,95 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
   return applied;
 }
 
+function reconcileCommsGroupInDb(db, group, envelope, commsGroup) {
+  if (!commsGroup || !commsGroup.groupId || !commsGroup.epochSecret) return;
+  const cg = commsGroup;
+  const localCommsRow = db.prepare("SELECT * FROM mls_groups WHERE project = '@comms'").get();
+  const localComms = localCommsRow ? hydrateMlsGroup(localCommsRow) : null;
+  const mergedMembers = [...(localComms?.members || []), ...(group.members || [])];
+  if (!mergedMembers.some((m) => m.did === envelope.senderDid)) {
+    mergedMembers.push({
+      did: envelope.senderDid,
+      userId: 'peer',
+      signPub: envelope.senderSignPub,
+      dhPub: '',
+    });
+  }
+  const dedupMembers = [];
+  const seenDids = new Set();
+  for (const m of mergedMembers) {
+    if (m && m.did && !seenDids.has(m.did)) {
+      seenDids.add(m.did);
+      dedupMembers.push(m);
+    }
+  }
+  const mergedRelays = Array.from(
+    new Set([...(localComms?.relays || []), ...(Array.isArray(cg.relays) ? cg.relays : []), ...(group.relays || [])])
+  );
+  const now = new Date().toISOString();
+  if (!localComms) {
+    db.prepare(
+      `INSERT INTO mls_groups (project, group_id, epoch, epoch_secret, members, relays, last_sync_hlc, updated)
+       VALUES ('@comms', ?, ?, ?, ?, ?, '', ?)`
+    ).run(cg.groupId, Number(cg.epoch || 1), cg.epochSecret, JSON.stringify(dedupMembers), JSON.stringify(mergedRelays), now);
+    backfillProjectCrdtLogInDb(db, '@comms', undefined, { freshHlc: true, forceRequeue: true });
+    return;
+  }
+  if (localComms.groupId === cg.groupId) {
+    db.prepare("UPDATE mls_groups SET members = ?, relays = ?, updated = ? WHERE project = '@comms'").run(
+      JSON.stringify(dedupMembers),
+      JSON.stringify(mergedRelays),
+      now
+    );
+    return;
+  }
+  const remoteEpoch = Number(cg.epoch || 1);
+  const localEpoch = Number(localComms.epoch || 1);
+  const remoteWins =
+    remoteEpoch > localEpoch || (remoteEpoch === localEpoch && String(cg.groupId) > String(localComms.groupId));
+  const loser = remoteWins
+    ? { groupId: localComms.groupId, epoch: localEpoch, epochSecret: localComms.epochSecret }
+    : { groupId: cg.groupId, epoch: remoteEpoch, epochSecret: cg.epochSecret };
+  const winner = remoteWins
+    ? { groupId: cg.groupId, epoch: remoteEpoch, epochSecret: cg.epochSecret }
+    : { groupId: localComms.groupId, epoch: localEpoch, epochSecret: localComms.epochSecret };
+
+  db.prepare(
+    `INSERT INTO mls_groups (project, group_id, epoch, epoch_secret, members, relays, last_sync_hlc, updated)
+     VALUES (?, ?, ?, ?, ?, ?, '', ?)
+     ON CONFLICT(project) DO UPDATE SET
+       group_id = excluded.group_id,
+       epoch = excluded.epoch,
+       epoch_secret = excluded.epoch_secret,
+       members = excluded.members,
+       relays = excluded.relays,
+       updated = excluded.updated`
+  ).run(
+    `@comms/peer/${loser.groupId}`,
+    loser.groupId,
+    loser.epoch,
+    loser.epochSecret,
+    JSON.stringify(dedupMembers),
+    JSON.stringify(mergedRelays),
+    now
+  );
+
+  if (remoteWins) {
+    db.prepare(
+      `UPDATE mls_groups
+       SET group_id = ?, epoch = ?, epoch_secret = ?, members = ?, relays = ?, last_sync_hlc = '', updated = ?
+       WHERE project = '@comms'`
+    ).run(winner.groupId, winner.epoch, winner.epochSecret, JSON.stringify(dedupMembers), JSON.stringify(mergedRelays), now);
+    backfillProjectCrdtLogInDb(db, '@comms', undefined, { freshHlc: true, forceRequeue: true });
+  } else {
+    db.prepare("UPDATE mls_groups SET members = ?, relays = ?, updated = ? WHERE project = '@comms'").run(
+      JSON.stringify(dedupMembers),
+      JSON.stringify(mergedRelays),
+      now
+    );
+  }
+}
+
 module.exports = {
   DEFAULT_RELAYS,
   MAX_HLC_DRIFT_MS,
@@ -907,5 +1083,6 @@ module.exports = {
   hydrateMessage,
   appendCrdtOpInDb,
   backfillProjectCrdtLogInDb,
+  reconcileCommsGroupInDb,
   applyCrdtOpsInDb,
 };

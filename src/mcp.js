@@ -871,7 +871,7 @@ function executeMcpTool(name, input = {}, meta = {}) {
     case 'sync': {
       if (input.action === 'did') return runConstructCli(['did']);
       if (input.action === 'init') return runConstructCli(['init']);
-      if (input.action === 'upgrade') return runConstructCli(['upgrade']);
+      if (input.action === 'upgrade') return runConstructCli(['upgrade'], { timeout: 30000 });
       if (input.action === 'upgrade-check') return runConstructCli(['upgrade', '--check']);
       if (input.action === 'dashboard') {
         const args = ['dashboard'];
@@ -882,18 +882,18 @@ function executeMcpTool(name, input = {}, meta = {}) {
         const args = ['issues', 'sync'];
         if (input.target || input.project) args.push(String(input.target || input.project));
         if (input.dir) args.push('--dir', String(input.dir));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'issues-publish') {
         const args = ['issues', 'publish', String(input.target)];
         if (input.dir) args.push('--dir', String(input.dir));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'pr-sync') {
         const args = ['pr', 'sync'];
         if (input.target || input.project) args.push(String(input.target || input.project));
         if (input.dir) args.push('--dir', String(input.dir));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'pr-open') {
         const args = ['pr', 'open', String(input.project || 'construct'), '--title', String(input.target || '')];
@@ -902,7 +902,7 @@ function executeMcpTool(name, input = {}, meta = {}) {
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
         if (sessionID) args.push('--session', String(sessionID));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'pr-review') {
         const args = ['pr', 'review', String(input.project || 'construct'), String(input.target || '')];
@@ -914,7 +914,7 @@ function executeMcpTool(name, input = {}, meta = {}) {
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
         if (sessionID) args.push('--session', String(sessionID));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'pr-merge') {
         const args = ['pr', 'merge', String(input.project || 'construct'), String(input.target || '')];
@@ -922,7 +922,7 @@ function executeMcpTool(name, input = {}, meta = {}) {
         if (input.via) args.push('--via', String(input.via));
         if (input.dir) args.push('--dir', String(input.dir));
         if (sessionID) args.push('--session', String(sessionID));
-        return runConstructCli(args);
+        return runConstructCli(args, { timeout: 30000 });
       }
       if (input.action === 'assimilate') {
         const args = ['assimilate'];
@@ -935,7 +935,7 @@ function executeMcpTool(name, input = {}, meta = {}) {
       const args = [String(input.action), String(input.target)];
       if (input.dir) args.push('--dir', String(input.dir));
       if (input.relays) args.push('--relays', String(input.relays));
-      return runConstructCli(args);
+      return runConstructCli(args, { timeout: 30000 });
     }
     default:
       throw new Error(`unknown MCP tool "${name}"`);
