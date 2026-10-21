@@ -454,7 +454,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
-      hudSchemaVersion: 2,
+      hudSchemaVersion: 3,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -596,17 +596,25 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   const commsRows = commsList
     .map((m) => {
       const stClass = m.status === 'pending' ? 'warn' : 'ok';
+      const isOutgoing = String(m.fromUser || '').toLowerCase() === activeOpId;
+      const isIncomingPending = !isOutgoing && m.status === 'pending';
+      const canAck = (isIncomingPending || (isOutgoing && m.status === 'replied')) && m.status !== 'delivered';
       const replyBlock = m.replyBody
         ? `<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ${escapeHtml(m.replyGlyph || '📬')} ${escapeHtml(m.replyRom)} (${escapeHtml(m.toUser)}):</strong> "${escapeHtml(m.replyBody)}"</div>`
         : '';
+      const awaitingBadge =
+        isOutgoing && m.status === 'pending'
+          ? `<span class="sub" style="margin-right:6px;">⏳ Awaiting ${escapeHtml(m.toUser)} ack/reply</span>`
+          : '';
       const actionsBlock = `<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+               ${awaitingBadge}
                ${
-                 m.status === 'pending'
+                 isIncomingPending
                    ? `<input type="text" class="reply-input" id="row-reply-${m.id}" data-msg-id="${m.id}" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />
                       <button class="crew-btn" id="row-reply-btn-${m.id}" onclick="replyCourier(${m.id},'row-reply-${m.id}',this)">⚡ Reply</button>`
                    : ''
                }
-               ${m.status !== 'delivered' ? `<button class="crew-btn" onclick="ackCourier(${m.id},this)">✓ Ack</button>` : ''}
+               ${canAck ? `<button class="crew-btn" onclick="ackCourier(${m.id},this)">✓ Ack</button>` : ''}
                <button class="crew-btn" title="Hide message M#${m.id} (kept in archive)" onclick="deleteCourier(${m.id},this)">👁️ Hide</button>
              </div>`;
       return `
@@ -881,7 +889,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    const HUD_SCHEMA_VERSION = 2;
+    const HUD_SCHEMA_VERSION = 3;
+    const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
@@ -1022,15 +1031,22 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         } else {
           commsTbody.innerHTML = commsArr.map((m) => {
             const stClass = m.status === 'pending' ? 'warn' : 'ok';
+            const isOutgoing = String(m.fromUser || '').toLowerCase() === opId;
+            const isIncomingPending = !isOutgoing && m.status === 'pending';
+            const canAck = (isIncomingPending || (isOutgoing && m.status === 'replied')) && m.status !== 'delivered';
             const replyHtml = m.replyBody
               ? '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
               : '';
+            const awaitingHtml = isOutgoing && m.status === 'pending'
+              ? '<span class="sub" style="margin-right:6px;">⏳ Awaiting ' + esc(m.toUser) + ' ack/reply</span>'
+              : '';
             const actHtml = '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-              (m.status === 'pending'
+              awaitingHtml +
+              (isIncomingPending
                 ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" data-msg-id="' + esc(m.id) + '" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />' +
                   '<button class="crew-btn" id="row-reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Reply</button>'
                 : '') +
-              (m.status !== 'delivered' ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
+              (canAck ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
               '<button class="crew-btn" title="Hide message M#' + esc(m.id) + ' (kept in archive)" onclick="deleteCourier(' + esc(m.id) + ',this)">👁️ Hide</button></div>';
             return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
               '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
@@ -1113,16 +1129,20 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       } catch (_) {}
     }
 
+    async function postHudAction(bodyObj) {
+      const res = await fetch('http://127.0.0.1:47420/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Construct-Token': HUD_CSRF_TOKEN },
+        body: JSON.stringify(bodyObj)
+      });
+      return await res.json();
+    }
+
     async function switchCrew(action, target) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Switching ' + (selectedProject || 'active tab') + ' -> ' + target + '...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action, target, sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action, target, sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Slotted ' + data.hud.emblem + ' ' + data.hud.romName + ' on ' + data.hud.project;
@@ -1158,12 +1178,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = '⏳ Reply queued for M#' + msgId + '...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reply', id: msgId, body, sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'reply', id: msgId, body, sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Replied to M#' + msgId;
@@ -1187,12 +1202,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Dismissing M#' + msgId + '...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'ack', id: msgId, sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'ack', id: msgId, sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Acknowledged M#' + msgId;
@@ -1211,12 +1221,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Hiding M#' + msgId + '...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'delete-msg', id: msgId, sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'delete-msg', id: msgId, sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Hidden M#' + msgId + ' (searchable via construct inbox --all)';
@@ -1230,12 +1235,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Upgrading Construct (git pull + rom sync + install-plugin)...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'upgrade', sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'upgrade', sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok) {
           if (data.hud) applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Construct upgraded to latest!';
@@ -1249,12 +1249,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       const toast = document.getElementById('hud-toast');
       if (toast) toast.textContent = 'Running construct ' + clean + '...';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'cli', args: clean, sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'cli', args: clean, sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) {
           applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Executed: /construct ' + clean;
@@ -1285,12 +1280,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
     async function clearHudCli() {
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'clear-cli', sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'clear-cli', sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) applyHudToDom(data.hud);
       } catch (_) {}
     }
@@ -1305,20 +1295,14 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       box.style.display = 'block';
       box.innerHTML = '<span class="sub">Generating 256-bit AES-GCM Pocket pairing QR...</span>';
       try {
-        const res = await fetch('http://127.0.0.1:47420/action', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'pocket-qr', rotate: Boolean(rotateKey), sessionID: selectedSessionId, project: selectedProject })
-        });
-        const data = await res.json();
+        const data = await postHudAction({ action: 'pocket-qr', rotate: Boolean(rotateKey), sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.svg) {
           box.innerHTML =
             '<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">' +
               '<div style="background:#fff;padding:6px;border-radius:6px;flex-shrink:0;">' + data.svg + '</div>' +
               '<div style="flex:1;min-width:220px;">' +
-                '<div style="font-weight:700;color:#fff;margin-bottom:4px;">📱 Construct Pocket — Encrypted Mobile Thin Client</div>' +
-                '<div style="margin-bottom:8px;"><span class="sub">1. Open </span><code>https://cmaujean.github.io/construct/pocket.html</code><span class="sub"> on your phone and enter 6-char code: </span><strong style="font-size:16px;color:var(--ok);letter-spacing:0.08em;margin-left:4px;">' + esc(data.pairCode || '') + '</strong></div>' +
-                '<div class="sub" style="margin-bottom:8px;">Or scan the QR code / copy the direct URL below:</div>' +
+                '<div style="font-weight:700;color:#fff;margin-bottom:4px;">📱 Construct Pocket — Encrypted Mobile Thin Client (256-Bit AES-GCM)</div>' +
+                '<div class="sub" style="margin-bottom:8px;">Scan the QR code with your phone camera, or copy the 256-bit pairing URL below (the <code>#k=...</code> key stays in the URL hash fragment and is never sent to GitHub Pages):</div>' +
                 '<input type="text" class="reply-input" style="width:100%;margin-bottom:8px;" readonly value="' + esc(data.url) + '" onclick="this.select()" />' +
                 '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
                   '<a class="crew-btn active" style="text-decoration:none;" href="' + esc(data.localUrl) + '" target="_blank">🌐 Open Local Preview</a>' +
@@ -1386,9 +1370,18 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
   return new Promise((resolve) => {
     const bindServer = () => {
     const server = http.createServer((req, res) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      const pocketMod = require('./pocket');
+      const origin = req.headers.origin;
+      if (!pocketMod.isAllowedLocalOrigin(origin)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Forbidden cross-origin request to Construct loopback server' }));
+        return;
+      }
+      if (origin) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Construct-Token');
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
         res.end();
@@ -1492,6 +1485,11 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
         return;
       }
       if (req.method === 'POST' && req.url?.startsWith('/action')) {
+        if (origin && req.headers['x-construct-token'] !== pocketMod.loadOrCreateHudToken()) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Missing or invalid X-Construct-Token' }));
+          return;
+        }
         let body = '';
         req.on('data', (chunk) => {
           if (body.length < 16384) body += chunk;
@@ -1562,7 +1560,7 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
                 server._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpMod, { sessionId: sid, dir });
               }
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ok: true, pairCode: cfg.pairCode, url, localUrl, svg, relays: cfg.relays }));
+              res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }));
               return;
             }
 

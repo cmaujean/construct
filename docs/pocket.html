@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src wss: http://127.0.0.1:47420; manifest-src 'self'; base-uri 'none'; form-action 'none';" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -497,11 +498,11 @@
 <!-- Pairing Modal -->
 <div id="pair-modal" class="modal-backdrop">
   <div class="modal-box">
-    <div class="card-title">Construct Pocket Pairing</div>
+    <div class="card-title">Construct Pocket Pairing (256-Bit AES-GCM)</div>
     <p style="font-size:12.5px;color:var(--muted);margin-top:0;">
-      Enter the <strong>6-character pairing code</strong> shown by <code>construct pocket</code> / <strong>📱 Pair Phone</strong> (e.g. <code>ABC-123</code>), or paste the full pairing URL:
+      Scan the QR code from <code>construct pocket</code> / <strong>📱 Pair Phone</strong> in your PC HUD, or paste the 256-bit pairing URL (<code>#k=...</code>) below:
     </p>
-    <input id="pair-seed-input" class="text-input" placeholder="6-char code (e.g. ABC-123) or #k=... URL" style="margin-bottom:8px;font-size:15px;letter-spacing:0.04em;" />
+    <input id="pair-seed-input" class="text-input" placeholder="Paste https://...#k=... or 256-bit seed" style="margin-bottom:8px;font-size:13px;" />
     <input id="pair-relays-input" class="text-input" placeholder="Relays (comma-separated)" value="wss://nos.lol,wss://relay.damus.io" style="margin-bottom:8px;" />
     <div id="pair-status" style="font-size:12px;color:var(--warn);margin-bottom:8px;min-height:16px;"></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;">
@@ -666,20 +667,23 @@ async function deriveWebPocketKeys(seedB64Url) {
   const stateRouteTag = bytesToHex(new Uint8Array(stateRouteBits));
   const cmdRouteTag = bytesToHex(new Uint8Array(cmdRouteBits));
 
-  // Derive Nostr transport privKey for cmdRouteTag matching `src/relay.js:buildNostrWrapperEvent`
-  const cmdRouteKey = await crypto.subtle.importKey('raw', hexToBytes(cmdRouteTag), 'HKDF', false, ['deriveBits']);
+  // Derive Nostr transport privKey from the secret 256-bit `seedBytes` (never from the public routeTag)
   const nostrPrivBits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-nostr-transport-v1') },
-    cmdRouteKey,
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-v1|nostr-priv') },
+    baseKey,
     256
   );
+  const nostrPrivKey = new Uint8Array(nostrPrivBits);
+  const Ppt = pointMul(bytesToBigInt(nostrPrivKey));
+  const nostrPubKey = bytesToHex(bigIntTo32Bytes(Ppt[0]));
 
   return {
     seed: seedB64Url,
     aeadKey,
     stateRouteTag,
     cmdRouteTag,
-    nostrPrivKey: new Uint8Array(nostrPrivBits),
+    nostrPrivKey,
+    nostrPubKey,
   };
 }
 
@@ -797,7 +801,13 @@ function openOneRelay(url) {
   ws.onopen = () => {
     updateConnBadge();
     if (!pocketKeys) return;
-    ws.send(JSON.stringify(['REQ', subId, { kinds: [4420], '#d': [pocketKeys.stateRouteTag], limit: 5 }]));
+    ws.send(
+      JSON.stringify([
+        'REQ',
+        subId,
+        { kinds: [4420], authors: [pocketKeys.nostrPubKey], '#d': [pocketKeys.stateRouteTag], limit: 5 },
+      ])
+    );
     void sendPocketCommand({ action: 'ping' });
   };
 
@@ -805,6 +815,7 @@ function openOneRelay(url) {
     try {
       const msg = JSON.parse(String(ev.data));
       if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2] && pocketKeys) {
+        if (msg[2].pubkey !== pocketKeys.nostrPubKey) return;
         const rawEnv = JSON.parse(new TextDecoder().decode(base64ToBytes(msg[2].content)));
         const snap = await openWebPocketEnvelope(pocketKeys, 'pc2phone', rawEnv);
         if (!latestSnapshot || Number(snap.ts || 0) >= Number(latestSnapshot.ts || 0)) {
@@ -993,10 +1004,16 @@ function renderSnapshot(snap) {
       navComms.textContent = h.inboxPendingCount ? 'Comms (' + h.inboxPendingCount + ')' : 'Comms';
     }
     const commsList = document.getElementById('comms-list');
+    const opId = String(h.operatorId || '').toLowerCase();
     if (commsList) {
       commsList.innerHTML = commsArr.length
-        ? commsArr.map((m) =>
-            '<div class="card">' +
+        ? commsArr.map((m) => {
+            const isOutgoing = opId && String(m.fromUser || '').toLowerCase() === opId;
+            const canAck = (!isOutgoing && m.status === 'pending') || (isOutgoing && m.status === 'replied');
+            const awaitingSpan = isOutgoing && m.status === 'pending'
+              ? '<span style="font-size:11.5px;color:var(--muted);align-self:center;">⏳ Awaiting ' + esc(m.toUser) + ' ack/reply</span>'
+              : '';
+            return '<div class="card">' +
               '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                 '<strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + ' (' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + ')</strong>' +
                 '<span class="pill ' + (m.status === 'pending' ? 'warn' : 'ok') + '">M#' + esc(m.id) + ' · ' + esc(m.status) + '</span>' +
@@ -1004,11 +1021,12 @@ function renderSnapshot(snap) {
               '<div style="margin-top:6px;font-size:13px;">"' + esc(m.body) + '"</div>' +
               (m.replyBody ? '<div style="margin-top:5px;font-size:12px;color:var(--ok);">-&gt; ' + esc(m.replyRom) + ': "' + esc(m.replyBody) + '"</div>' : '') +
               '<div style="display:flex;gap:6px;margin-top:8px;">' +
-                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="ackMsgBtn(this)">✓ Ack</button>' +
+                awaitingSpan +
+                (canAck ? '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="ackMsgBtn(this)">✓ Ack</button>' : '') +
                 '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="hideMsgBtn(this)">👁️ Hide</button>' +
               '</div>' +
-            '</div>'
-          ).join('')
+            '</div>';
+          }).join('')
         : '<div class="card" style="color:var(--muted);">No Construct Courier messages.</div>';
     }
 
@@ -1171,96 +1189,29 @@ function closePairModal() {
   if (modal) modal.classList.remove('open');
 }
 
-async function resolveShortPairCodeOverRelay(pairCodeInput, relaysList) {
-  const normalized = String(pairCodeInput || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
-  const enc = new TextEncoder();
-  const codeBytes = enc.encode('construct-pair-code-v1|' + normalized);
-  const baseKey = await crypto.subtle.importKey('raw', codeBytes, 'HKDF', false, ['deriveKey', 'deriveBits']);
-  const zeroSalt = new Uint8Array(32);
-  const pairAeadKey = await crypto.subtle.deriveKey(
-    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-pair-aead-v1') },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['decrypt']
-  );
-  const routeBits = await crypto.subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-pair-route-v1') },
-    baseKey,
-    256
-  );
-  const pairRouteTag = bytesToHex(new Uint8Array(routeBits));
-  const aad = enc.encode('construct-pocket-pair-v1|' + pairRouteTag);
-
-  for (const url of relaysList) {
-    try {
-      const found = await new Promise((resolve) => {
-        let settled = false;
-        const done = (val) => {
-          if (settled) return;
-          settled = true;
-          try { ws.close(); } catch (_) {}
-          resolve(val);
-        };
-        const ws = new WebSocket(url);
-        const timer = setTimeout(() => done(null), 5000);
-        ws.onopen = () => {
-          ws.send(JSON.stringify(['REQ', 'pair_1', { kinds: [4420], '#d': [pairRouteTag], limit: 5 }]));
-        };
-        ws.onmessage = async (ev) => {
-          try {
-            const msg = JSON.parse(String(ev.data));
-            if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2]) {
-              const rawEnv = JSON.parse(new TextDecoder().decode(base64ToBytes(msg[2].content)));
-              const plainBuf = await crypto.subtle.decrypt(
-                { name: 'AES-GCM', iv: base64ToBytes(rawEnv.iv), additionalData: aad, tagLength: 128 },
-                pairAeadKey,
-                base64ToBytes(rawEnv.ct)
-              );
-              clearTimeout(timer);
-              done(JSON.parse(new TextDecoder().decode(plainBuf)));
-            } else if (Array.isArray(msg) && msg[0] === 'EOSE') {
-              clearTimeout(timer);
-              done(null);
-            }
-          } catch (_) {}
-        };
-        ws.onerror = () => { clearTimeout(timer); done(null); };
-      });
-      if (found && found.seed) return found;
-    } catch (_) {}
-  }
-  return null;
-}
-
 async function savePairingFromModal() {
   const rawInput = String(document.getElementById('pair-seed-input')?.value || '').trim();
   const rawRelays = String(document.getElementById('pair-relays-input')?.value || '').trim();
   const statusEl = document.getElementById('pair-status');
-  const relaysList = (rawRelays || 'wss://nos.lol,wss://relay.damus.io').split(',').map((s) => s.trim()).filter(Boolean);
   let seed = rawInput;
   if (rawInput.includes('#')) {
     const hashParams = new URLSearchParams(rawInput.split('#')[1]);
     seed = hashParams.get('k') || seed;
-  } else {
-    const alnum = rawInput.toUpperCase().replace(/[^0-9A-Z]/g, '');
-    if (alnum.length === 6) {
-      if (statusEl) statusEl.textContent = '⏳ Looking up 6-char pairing code on relay...';
-      const resolved = await resolveShortPairCodeOverRelay(alnum, relaysList);
-      if (!resolved || !resolved.seed) {
-        if (statusEl) statusEl.textContent = '⚠️ Code not found on relay yet. Ensure PC HUD is running.';
-        return;
-      }
-      seed = resolved.seed;
-    }
   }
-  if (seed) {
+  try {
+    const seedBytes = base64ToBytes(seed);
+    if (seedBytes.length < 32) {
+      if (statusEl) statusEl.textContent = '⚠️ Full 256-bit pairing seed (#k=...) required.';
+      return;
+    }
     if (statusEl) statusEl.textContent = '';
     localStorage.setItem('construct_pocket_seed', seed);
     if (rawRelays) localStorage.setItem('construct_pocket_relays', rawRelays);
     pocketKeys = await deriveWebPocketKeys(seed);
     closePairModal();
     await connectRelays();
+  } catch (_) {
+    if (statusEl) statusEl.textContent = '⚠️ Invalid base64url pairing seed.';
   }
 }
 

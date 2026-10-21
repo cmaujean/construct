@@ -2333,7 +2333,31 @@ function ackMessage(idOrUid, file = dbPath()) {
         const identity = crdt.loadOrCreateIdentity();
         const replyHlc = crdt.nextHlc(identity.did, row.reply_hlc || row.hlc);
         db.prepare("UPDATE messages SET status = 'delivered', reply_hlc = ? WHERE id = ?").run(replyHlc, row.id);
-        return crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
+        const updated = crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
+
+        ensureMlsGroupInDb(db, '@comms', {});
+        crdt.appendCrdtOpInDb(db, {
+          project: '@comms',
+          entity: 'message',
+          recordUid: updated.uid,
+          payload: {
+            uid: updated.uid,
+            hlc: updated.hlc,
+            project: updated.project || 'global',
+            fromUser: updated.fromUser,
+            fromRom: updated.fromRom,
+            fromDid: updated.fromDid || identity.did,
+            toUser: updated.toUser,
+            body: updated.body,
+            status: updated.status,
+            replyBody: updated.replyBody || '',
+            replyRom: updated.replyRom || '',
+            replyHlc: updated.replyHlc,
+            created: updated.created,
+          },
+        });
+
+        return updated;
       }),
     file
   );

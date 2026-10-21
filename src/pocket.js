@@ -25,84 +25,44 @@ const relay = require('./relay');
 const crdt = require('./crdt');
 
 const DEFAULT_POCKET_FILE = path.join(os.homedir(), '.config', 'opencode', 'pocket.json');
+const DEFAULT_HUD_TOKEN_FILE = path.join(os.homedir(), '.config', 'opencode', 'hud-token.txt');
 const DEFAULT_PWA_BASE_URL = 'https://cmaujean.github.io/construct/pocket.html';
+const MAX_POCKET_CLOCK_SKEW_MS = 60 * 1000;
 
 function pocketFilePath() {
   return process.env.CONSTRUCT_POCKET_FILE || DEFAULT_POCKET_FILE;
 }
 
-const PAIR_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+function hudTokenFilePath() {
+  return process.env.CONSTRUCT_HUD_TOKEN_FILE || DEFAULT_HUD_TOKEN_FILE;
+}
 
-function derivePairCodeFromSeed(seedBytes) {
-  const hash = crypto.createHash('sha256').update(seedBytes).update('|pair-code-v1').digest();
-  let chars = '';
-  for (let i = 0; i < 6; i++) {
-    chars += PAIR_ALPHABET[hash[i] % PAIR_ALPHABET.length];
+function loadOrCreateHudToken(file = hudTokenFilePath()) {
+  if (fs.existsSync(file)) {
+    try {
+      const tok = fs.readFileSync(file, 'utf8').trim();
+      if (tok.length >= 32) return tok;
+    } catch (_) {}
   }
-  return `${chars.slice(0, 3)}-${chars.slice(3, 6)}`;
+  const tok = crypto.randomBytes(32).toString('base64url');
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, tok + '\n', { encoding: 'utf8', mode: 0o600 });
+  } catch (_) {}
+  return tok;
 }
 
-function deriveRendezvousKeys(pairCodeInput) {
-  const normalized = String(pairCodeInput || '')
-    .toUpperCase()
-    .replace(/[^0-9A-Z]/g, '');
-  if (normalized.length < 6) {
-    throw new Error('Pairing code must be 6 characters (e.g. ABC-123)');
-  }
-  const codeBytes = Buffer.from(`construct-pair-code-v1|${normalized}`, 'utf8');
-  const zeroSalt = Buffer.alloc(32, 0);
-  const pairAeadKey = Buffer.from(
-    crypto.hkdfSync('sha256', codeBytes, zeroSalt, 'construct-pocket-pair-aead-v1', 32)
-  );
-  const pairRouteTag = Buffer.from(
-    crypto.hkdfSync('sha256', codeBytes, zeroSalt, 'construct-pocket-pair-route-v1', 32)
-  ).toString('hex');
-  return {
-    pairCode: `${normalized.slice(0, 3)}-${normalized.slice(3, 6)}`,
-    pairAeadKey,
-    pairRouteTag,
-  };
-}
-
-function sealRendezvousSeed(pairCode, seedBase64Url, relays = []) {
-  const rKeys = deriveRendezvousKeys(pairCode);
-  const aad = Buffer.from(`construct-pocket-pair-v1|${rKeys.pairRouteTag}`, 'utf8');
-  const iv = crypto.randomBytes(12);
-  const plain = Buffer.from(JSON.stringify({ v: 1, seed: seedBase64Url, relays }), 'utf8');
-  const cipher = crypto.createCipheriv('aes-256-gcm', rKeys.pairAeadKey, iv, { authTagLength: 16 });
-  cipher.setAAD(aad, { plaintextLength: plain.length });
-  const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return {
-    routeTag: rKeys.pairRouteTag,
-    envelope: {
-      v: 1,
-      dir: 'pair',
-      iv: iv.toString('base64'),
-      ct: Buffer.concat([ct, tag]).toString('base64'),
-      ts: Date.now(),
-    },
-  };
-}
-
-function openRendezvousSeed(pairCode, envelope) {
-  const rKeys = deriveRendezvousKeys(pairCode);
-  const aad = Buffer.from(`construct-pocket-pair-v1|${rKeys.pairRouteTag}`, 'utf8');
-  const iv = Buffer.from(String(envelope.iv || ''), 'base64');
-  const ctWithTag = Buffer.from(String(envelope.ct || ''), 'base64');
-  const ciphertext = ctWithTag.subarray(0, ctWithTag.length - 16);
-  const tag = ctWithTag.subarray(ctWithTag.length - 16);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', rKeys.pairAeadKey, iv, { authTagLength: 16 });
-  decipher.setAAD(aad, { plaintextLength: ciphertext.length });
-  decipher.setAuthTag(tag);
-  const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return JSON.parse(plain.toString('utf8'));
+function isAllowedLocalOrigin(originHeader) {
+  if (!originHeader) return true; // Non-browser CLI / Node fetch
+  const o = String(originHeader).trim().toLowerCase();
+  if (o === 'null') return true; // Local file:// Review-Pane preview (still requires X-Construct-Token on mutations)
+  return /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(o);
 }
 
 function derivePocketKeys(seedBase64Url) {
   const seedBytes = Buffer.from(String(seedBase64Url || '').trim(), 'base64url');
-  if (seedBytes.length < 16) {
-    throw new Error('Pocket pairing seed must be at least 128 bits (256 bits recommended)');
+  if (seedBytes.length < 32) {
+    throw new Error('Pocket pairing seed must be 256 bits (32 bytes)');
   }
   const zeroSalt = Buffer.alloc(32, 0);
   const aeadKey = Buffer.from(
@@ -114,21 +74,38 @@ function derivePocketKeys(seedBase64Url) {
   const cmdRouteTag = Buffer.from(
     crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|route-cmd', 32)
   ).toString('hex');
-  const pairCode = derivePairCodeFromSeed(seedBytes);
+  const nostrPrivKey = Buffer.from(
+    crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|nostr-priv', 32)
+  );
+  const nostrPubKey = relay.schnorrGetPublicKey(nostrPrivKey).toString('hex');
   return {
     seed: seedBytes.toString('base64url'),
-    pairCode,
     aeadKey,
     stateRouteTag,
     cmdRouteTag,
+    nostrPrivKey,
+    nostrPubKey,
   };
+}
+
+function buildPocketNostrEvent(keys, routeTag, envelope) {
+  const pubkey = keys.nostrPubKey;
+  const created_at = Math.floor(Date.now() / 1000);
+  const kind = 4420;
+  const tags = [['d', routeTag]];
+  const content = Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64');
+  const serialized = JSON.stringify([0, pubkey, created_at, kind, tags, content]);
+  const idBuf = crypto.createHash('sha256').update(serialized, 'utf8').digest();
+  const id = idBuf.toString('hex');
+  const sig = relay.schnorrSign(idBuf, keys.nostrPrivKey).toString('hex');
+  return { id, pubkey, created_at, kind, tags, content, sig };
 }
 
 function loadOrCreatePocketConfig(options = {}, file = pocketFilePath()) {
   if (!options.rotate && fs.existsSync(file)) {
     try {
       const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (existing && existing.seed) {
+      if (existing && existing.seed && Buffer.from(existing.seed, 'base64url').length >= 32) {
         if (options.relays) {
           existing.relays = Array.isArray(options.relays)
             ? options.relays
@@ -158,12 +135,24 @@ function loadOrCreatePocketConfig(options = {}, file = pocketFilePath()) {
     seed,
     relays,
     pwaBaseUrl: options.pwaBaseUrl || DEFAULT_PWA_BASE_URL,
+    lastAcceptedCmdTs: 0,
     created: new Date().toISOString(),
   };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
   const keys = derivePocketKeys(seed);
   return { ...cfg, ...keys };
+}
+
+function persistPocketLastCmdTs(tsValue, file = pocketFilePath()) {
+  if (!fs.existsSync(file)) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (Number(tsValue) > Number(raw.lastAcceptedCmdTs || 0)) {
+      raw.lastAcceptedCmdTs = Number(tsValue);
+      fs.writeFileSync(file, JSON.stringify(raw, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    }
+  } catch (_) {}
 }
 
 function buildPocketPairingUrl(cfg, options = {}) {
@@ -623,6 +612,7 @@ function compactHudForPocket(rawHud) {
     emblem: rawHud.emblem || '🦾',
     romName: rawHud.romName || 'crew',
     handle: rawHud.handle || '',
+    operatorId: rawHud.operatorId || '',
     roster: Array.isArray(rawHud.roster) ? rawHud.roster : [],
     pill: rawHud.pill || '',
     tabBadge: rawHud.tabBadge || '',
@@ -862,12 +852,46 @@ async function executePocketCommand(store, mcp, cmdPayload = {}, bridgeState = {
 }
 
 // --- Persistent Multi-Relay WebSocket Bridge Daemon ---
+function validateAndUnwrapIncomingCmdEvent(ev, currentCfg, bridgeState) {
+  if (!ev || !ev.id || typeof ev.content !== 'string') {
+    throw new Error('Malformed relay event');
+  }
+  if (ev.pubkey !== currentCfg.nostrPubKey) {
+    throw new Error('Rejected relay event: sender pubkey does not match secret-derived Pocket pubkey');
+  }
+  const rawEnvelope = JSON.parse(Buffer.from(ev.content, 'base64').toString('utf8'));
+  const ivKey = String(rawEnvelope?.iv || '');
+  if (!ivKey || bridgeState.seenCmdIvs?.has(ivKey)) {
+    throw new Error('Rejected relay event: duplicate or replayed AES-GCM IV');
+  }
+  const cmdPayload = openPocketEnvelope(currentCfg, 'phone2pc', rawEnvelope);
+  const envTs = Number(rawEnvelope.ts || 0);
+  if (!envTs || Math.abs(Date.now() - envTs) > MAX_POCKET_CLOCK_SKEW_MS) {
+    throw new Error('Rejected relay event: timestamp outside 60s replay window');
+  }
+  const minTs = Math.max(Number(bridgeState.lastAcceptedCmdTs || 0), Number(currentCfg.lastAcceptedCmdTs || 0));
+  if (envTs <= minTs) {
+    throw new Error('Rejected relay event: non-monotonic command timestamp');
+  }
+  if (bridgeState.seenCmdIvs) {
+    bridgeState.seenCmdIvs.add(ivKey);
+    while (bridgeState.seenCmdIvs.size > 500) {
+      const oldest = bridgeState.seenCmdIvs.values().next().value;
+      bridgeState.seenCmdIvs.delete(oldest);
+    }
+  }
+  bridgeState.lastAcceptedCmdTs = envTs;
+  persistPocketLastCmdTs(envTs);
+  return cmdPayload;
+}
+
 function startPocketBridge(store, mcp, options = {}) {
   const cfg = loadOrCreatePocketConfig(options);
   const bridgeState = {
     activeSessionId: options.sessionId || '',
     activeDir: options.dir || process.cwd(),
-    seenCmdIds: new Set(),
+    seenCmdIvs: new Set(),
+    lastAcceptedCmdTs: Number(cfg.lastAcceptedCmdTs || 0),
     sockets: new Map(),
     stopped: false,
     lastSnapshotHash: '',
@@ -899,7 +923,7 @@ function startPocketBridge(store, mcp, options = {}) {
       bridgeState.lastSnapshotHash = sigStr;
 
       const sealed = sealPocketEnvelope(currentCfg, 'pc2phone', snap);
-      const event = relay.buildNostrWrapperEvent(currentCfg.stateRouteTag, sealed);
+      const event = buildPocketNostrEvent(currentCfg, currentCfg.stateRouteTag, sealed);
       const msgStr = JSON.stringify(['EVENT', event]);
       for (const ws of bridgeState.sockets.values()) {
         if (ws && ws.readyState === 1) {
@@ -915,17 +939,9 @@ function startPocketBridge(store, mcp, options = {}) {
   };
 
   const handleIncomingRelayEvent = async (ev) => {
-    if (!ev || !ev.id || bridgeState.seenCmdIds.has(ev.id)) return;
-    bridgeState.seenCmdIds.add(ev.id);
-    while (bridgeState.seenCmdIds.size > 200) {
-      const oldest = bridgeState.seenCmdIds.values().next().value;
-      bridgeState.seenCmdIds.delete(oldest);
-    }
     try {
       const currentCfg = loadOrCreatePocketConfig();
-      const rawEnvelope = JSON.parse(Buffer.from(String(ev.content || ''), 'base64').toString('utf8'));
-      const cmdPayload = openPocketEnvelope(currentCfg, 'phone2pc', rawEnvelope);
-      if (Math.abs(Date.now() - Number(rawEnvelope.ts || 0)) > 5 * 60 * 1000) return;
+      const cmdPayload = validateAndUnwrapIncomingCmdEvent(ev, currentCfg, bridgeState);
       await executePocketCommand(store, mcp, cmdPayload, bridgeState);
       await broadcastSnapshot(true);
     } catch (_) {}
@@ -946,11 +962,13 @@ function startPocketBridge(store, mcp, options = {}) {
       try {
         const currentCfg = loadOrCreatePocketConfig();
         const sinceSec = Math.floor(Date.now() / 1000) - 30;
-        ws.send(JSON.stringify(['REQ', subId, { kinds: [4420], '#d': [currentCfg.cmdRouteTag], since: sinceSec }]));
-        // Publish 6-char pairing rendezvous beacon so the phone can pair by typing only the 6-char code
-        const pairBeacon = sealRendezvousSeed(currentCfg.pairCode, currentCfg.seed, currentCfg.relays);
-        const pairEvent = relay.buildNostrWrapperEvent(pairBeacon.routeTag, pairBeacon.envelope);
-        ws.send(JSON.stringify(['EVENT', pairEvent]));
+        ws.send(
+          JSON.stringify([
+            'REQ',
+            subId,
+            { kinds: [4420], authors: [currentCfg.nostrPubKey], '#d': [currentCfg.cmdRouteTag], since: sinceSec },
+          ])
+        );
         void broadcastSnapshot(true);
       } catch (_) {}
     };
@@ -1001,16 +1019,21 @@ function startPocketBridge(store, mcp, options = {}) {
 
 module.exports = {
   DEFAULT_POCKET_FILE,
+  DEFAULT_HUD_TOKEN_FILE,
   DEFAULT_PWA_BASE_URL,
+  MAX_POCKET_CLOCK_SKEW_MS,
   pocketFilePath,
+  hudTokenFilePath,
+  loadOrCreateHudToken,
+  isAllowedLocalOrigin,
   derivePocketKeys,
-  deriveRendezvousKeys,
-  sealRendezvousSeed,
-  openRendezvousSeed,
+  buildPocketNostrEvent,
   loadOrCreatePocketConfig,
+  persistPocketLastCmdTs,
   buildPocketPairingUrl,
   sealPocketEnvelope,
   openPocketEnvelope,
+  validateAndUnwrapIncomingCmdEvent,
   generateQrMatrix,
   renderQrCodeSvg,
   renderQrCodeTerminal,

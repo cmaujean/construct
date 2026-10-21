@@ -2342,11 +2342,17 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const pocketCfgFile = path.join(tmp.dir, 'pocket.json');
     const pCfg1 = pocket.loadOrCreatePocketConfig({}, pocketCfgFile);
     assert.equal(Buffer.from(pCfg1.seed, 'base64url').length, 32);
-    assert.match(pCfg1.pairCode, /^[2-9A-Z]{3}-[2-9A-Z]{3}$/);
-    const rBeacon = pocket.sealRendezvousSeed(pCfg1.pairCode, pCfg1.seed, pCfg1.relays);
-    const rOpened = pocket.openRendezvousSeed(pCfg1.pairCode, rBeacon.envelope);
-    assert.equal(rOpened.seed, pCfg1.seed);
+    assert.equal(pocket.sealRendezvousSeed, undefined, 'short-code rendezvous beacon must not exist');
     assert.equal(pCfg1.stateRouteTag.length, 64);
+    assert.equal(pCfg1.cmdRouteTag.length, 64);
+    assert.equal(pCfg1.nostrPubKey.length, 64);
+    assert.notEqual(pCfg1.stateRouteTag, pCfg1.cmdRouteTag);
+
+    // Verify localhost Origin allowlist (`isAllowedLocalOrigin`)
+    assert.equal(pocket.isAllowedLocalOrigin('http://127.0.0.1:47420'), true);
+    assert.equal(pocket.isAllowedLocalOrigin('http://localhost:47420'), true);
+    assert.equal(pocket.isAllowedLocalOrigin('https://evil.arasaka.co'), false);
+    assert.equal(pocket.isAllowedLocalOrigin('http://192.168.1.50:8080'), false);
     assert.equal(pCfg1.cmdRouteTag.length, 64);
     assert.notEqual(pCfg1.stateRouteTag, pCfg1.cmdRouteTag);
 
@@ -2362,6 +2368,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const pocketHtmlPath = path.join(__dirname, '..', 'docs', 'pocket.html');
     assert.ok(fs.existsSync(pocketHtmlPath));
     const pocketHtml = fs.readFileSync(pocketHtmlPath, 'utf8');
+    assert.match(pocketHtml, /http-equiv="Content-Security-Policy"/);
     const pocketScriptMatch = pocketHtml.match(/<script>([\s\S]*?)<\/script>/);
     assert.ok(pocketScriptMatch, 'docs/pocket.html must contain a <script> block');
     assert.doesNotThrow(() => new vm.Script(pocketScriptMatch[1]), 'docs/pocket.html <script> must be valid JS');
@@ -2411,6 +2418,27 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       ts: Date.now(),
     });
     assert.deepEqual(openedCmd, phoneCmd);
+
+    // Verify `validateAndUnwrapIncomingCmdEvent` enforces secret-derived pubkey, inner IV replay guard, and monotonic ts
+    const bState = { seenCmdIvs: new Set(), lastAcceptedCmdTs: 0 };
+    const validSealedCmd = pocket.sealPocketEnvelope(pCfg1, 'phone2pc', { action: 'ping' });
+    const validEv = pocket.buildPocketNostrEvent(pCfg1, pCfg1.cmdRouteTag, validSealedCmd);
+    const unwrapped = pocket.validateAndUnwrapIncomingCmdEvent(validEv, pCfg1, bState);
+    assert.equal(unwrapped.action, 'ping');
+
+    // Replaying the same inner `validSealedCmd` wrapped in a brand-new outer Nostr event ID must be rejected
+    const rewrappedEv = { ...validEv, id: 'f'.repeat(64) };
+    assert.throws(
+      () => pocket.validateAndUnwrapIncomingCmdEvent(rewrappedEv, pCfg1, bState),
+      /duplicate or replayed AES-GCM IV/
+    );
+
+    // Event with a forged/mismatched sender pubkey (e.g. derived from public routeTag) must be rejected
+    const forgedPubkeyEv = { ...validEv, id: 'e'.repeat(64), pubkey: 'a'.repeat(64) };
+    assert.throws(
+      () => pocket.validateAndUnwrapIncomingCmdEvent(forgedPubkeyEv, pCfg1, bState),
+      /sender pubkey does not match/
+    );
 
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');

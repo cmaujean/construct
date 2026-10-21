@@ -593,7 +593,8 @@ function backfillProjectCrdtLogInDb(db, project, identityFile, options = {}) {
     for (const m of msgs) {
       if (!isComms && !sameOrRelatedProject(m.project, project)) continue;
       const isLocalSender = !m.from_did || m.from_did === identity.did;
-      const isLocalReplier = m.status === 'replied' && m.from_did && m.from_did !== identity.did;
+      const isLocalReplier =
+        (m.status === 'replied' || m.status === 'delivered') && m.from_did && m.from_did !== identity.did;
       if (!isLocalSender && !isLocalReplier) continue;
 
       const existingOp = checkMsgOpStmt.get(project, m.uid);

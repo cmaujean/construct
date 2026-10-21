@@ -1840,15 +1840,14 @@ async function main(argv) {
       });
       const qrTerm = pocketMod.renderQrCodeTerminal(url);
       if (o.json) {
-        console.log(JSON.stringify({ pairCode: cfg.pairCode, url, localUrl, relays: cfg.relays, created: cfg.created }, null, 2));
+        console.log(JSON.stringify({ url, localUrl, relays: cfg.relays, created: cfg.created }, null, 2));
       } else {
-        console.log('Construct Pocket — Encrypted Mobile Thin-Client Bridge (AES-256-GCM + WebSocket Relays)');
-        console.log(`6-Char Code:   ${cfg.pairCode}  (enter at https://cmaujean.github.io/construct/pocket.html)`);
+        console.log('Construct Pocket — Encrypted Mobile Thin-Client Bridge (256-Bit AES-GCM + WebSocket Relays)');
         console.log(`Relays:        ${cfg.relays.join(', ')}`);
         console.log(`Mobile URL:    ${url}`);
         console.log(`Local Preview: ${localUrl}\n`);
         console.log(qrTerm);
-        console.log(`\nOpen https://cmaujean.github.io/construct/pocket.html on your phone and enter code ${cfg.pairCode} (or scan QR).`);
+        console.log('\nScan the QR code above with your phone camera (or copy the Mobile URL via Signal Note-to-Self).');
       }
       if (o.daemon) {
         pocketMod.startPocketBridge(store, mcp, {

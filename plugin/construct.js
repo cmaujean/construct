@@ -681,9 +681,18 @@ export default {
 
     try {
       hudServer = http.createServer((req, res) => {
-        res.setHeader("Access-Control-Allow-Origin", "*")
+        const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+        const origin = req.headers.origin
+        if (!pocketMod.isAllowedLocalOrigin(origin)) {
+          res.writeHead(403, { "Content-Type": "application/json" })
+          res.end(JSON.stringify({ ok: false, error: "Forbidden cross-origin request to Construct loopback server" }))
+          return
+        }
+        if (origin) {
+          res.setHeader("Access-Control-Allow-Origin", origin)
+        }
         res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type")
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Construct-Token")
         if (req.method === "OPTIONS") {
           res.writeHead(204)
           res.end()
@@ -809,6 +818,11 @@ export default {
           return
         }
         if (req.method === "POST" && req.url?.startsWith("/action")) {
+          if (origin && req.headers["x-construct-token"] !== pocketMod.loadOrCreateHudToken()) {
+            res.writeHead(403, { "Content-Type": "application/json" })
+            res.end(JSON.stringify({ ok: false, error: "Missing or invalid X-Construct-Token" }))
+            return
+          }
           let body = ""
           req.on("data", (chunk) => {
             if (body.length < 16384) body += chunk
@@ -879,7 +893,7 @@ export default {
                   })
                 }
                 res.writeHead(200, { "Content-Type": "application/json" })
-                res.end(JSON.stringify({ ok: true, pairCode: cfg.pairCode, url, localUrl, svg, relays: cfg.relays }))
+                res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }))
                 return
               }
 
