@@ -249,6 +249,9 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     const useTarget = cliArgs[2];
     message = `Switched session to ${useTarget}${snap?.pill ? ` (${snap.pill})` : ''}`;
     promptText = `Switched this session to \`${useTarget}\` (${snap?.pill || ''}). Confirm in the new Crew's voice and open \`${hudFile}\` with \`tools.browser.preview\`.`;
+  } else if (!isError && isHelp) {
+    message = `Construct help (${raw || 'overview'})`;
+    promptText = `Executed \`/construct ${raw}\`. Display the following help output verbatim in a fenced \`\`\`text code block after a 1-line in-character header:\n\`\`\`text\n${output}\n\`\`\``;
   } else if (!isError && openHud) {
     message = output ? output.split(/\r?\n/)[0] : `Construct HUD refreshed (${snap?.pill || ''})`;
     promptText = `Executed \`/construct ${raw}\`:\n\`\`\`\n${output}\n\`\`\`\nOpen \`${hudFile}\` in the Review pane with \`tools.browser.preview\` and confirm in the active Crew's voice.`;
@@ -1773,8 +1776,33 @@ export default function constructOmpExtension(pi) {
 
 
   if (typeof pi?.registerCommand === "function") {
+    const SUBCOMMANDS = [
+      "help", "boot", "head", "rec", "resolve", "reopen", "edit", "tape", "zoom", "search", "why",
+      "projects", "rom", "sub", "user", "gotcha", "msg", "reply", "ack", "hide-msg", "purge-msg",
+      "inbox", "drop", "apply-drop", "issues", "pr", "sync", "invite", "join", "did", "hud",
+      "dashboard", "site", "upgrade", "reload", "init", "assimilate",
+      "sprawl", "nightcity", "anathem", "cryptonomicon", "shadowrun", "dresden", "amber",
+      "laundry", "tolkien", "discworld", "reamde", "irondruid", "prydain", "clockwork", "generic"
+    ];
     pi.registerCommand("construct", {
-      description: "Run any Construct CLI command, switch Crew Bank, or sub a Bench specialist (e.g. /construct upgrade, /construct nightcity, /construct sub panam, /construct boot)",
+      description: "Run any Construct CLI command, get help (/construct help [cmd]), switch Crew Bank, or sub a Bench specialist",
+      getArgumentCompletions: (argumentPrefix) => {
+        const trimmed = String(argumentPrefix || "").trimStart();
+        if (trimmed.startsWith("help ")) {
+          const subPrefix = trimmed.slice(5).trim().toLowerCase();
+          return SUBCOMMANDS.filter((c) => c !== "help" && c.startsWith(subPrefix)).map((c) => ({
+            value: "help " + c,
+            label: "help " + c,
+            description: "Show Construct help for " + c,
+          }));
+        }
+        const lower = trimmed.toLowerCase();
+        return SUBCOMMANDS.filter((c) => c.startsWith(lower)).map((c) => ({
+          value: c,
+          label: c,
+          description: c === "help" ? "Show Construct command help (/construct help [cmd])" : "Construct " + c,
+        }));
+      },
       handler: async (args, ctx) => {
         const sessionId = ctx?.sessionManager?.getSessionId?.() || "omp";
         const res = callOmpHook("command", {

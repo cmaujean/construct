@@ -118,7 +118,623 @@ W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC
   relay [--port 8787]         Run a lightweight zero-knowledge WebSocket ciphertext relay.
   packet export <project> [--since <hlc>]
                               Export CRDT ops sealed in an MLS ChaCha20-Poly1305 + Ed25519 packet.
-  packet import <packet>      Verify, decrypt, and merge an MLS CRDT packet into local SQLite.`;
+  packet import <packet>      Verify, decrypt, and merge an MLS CRDT packet into local SQLite.
+
+Run "construct help <command>" or "construct <command> --help" (in-session: "/construct help <command>")
+for detailed options and examples on any subcommand.`;
+
+const COMMAND_HELP_ALIASES = Object.freeze({
+  'self-update': 'upgrade',
+  ls: 'projects',
+  record: 'rec',
+  find: 'search',
+  issue: 'issues',
+  prs: 'pr',
+  status: 'hud',
+  view: 'dashboard',
+  pack: 'rom',
+  packs: 'rom',
+  operator: 'user',
+  gotchas: 'gotcha',
+  ask: 'msg',
+  'msg-hide': 'hide-msg',
+  'rm-msg': 'hide-msg',
+  'msg-rm': 'hide-msg',
+  'delete-msg': 'hide-msg',
+  'msg-purge': 'purge-msg',
+  messages: 'inbox',
+  identity: 'did',
+  'docs-site': 'site',
+  'hot-reload': 'reload',
+});
+
+const COMMAND_HELP = Object.freeze({
+  init: `NAME
+  construct init - Initialize Construct identity, database, ROMs, and coding-agent integrations
+
+SYNOPSIS
+  construct init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all] [--dir <config_dir>] [--json]
+  /construct init [--all]
+
+DESCRIPTION
+  Generates local W3C did:key identity, seeds all 15 Crew Banks (179 ROMs) in construct.db,
+  assimilates any existing global instruction files, installs the OpenCode V2 plugin, and
+  compiles active-rom.md. Optional flags wire additional coding agents against the same DB.
+
+OPTIONS
+  --rom <name>        Set initial active ROM or Crew Bank (default: crew)
+  --claude            Wire Claude Code (~/.claude/CLAUDE.md, settings.json hooks/MCP, 178 subagents)
+  --cursor            Wire Cursor (~/.cursor/mcp.json, hooks.json, rules/construct.mdc)
+  --gemini            Wire Gemini CLI (~/.gemini/GEMINI.md, settings.json hooks/MCP)
+  --windsurf          Wire Windsurf (~/.codeium/windsurf/mcp_config.json, memories/global_rules.md)
+  --codex             Wire Codex CLI (~/.codex/AGENTS.md, config.toml)
+  --omp, --oh-my-pi   Wire Oh My Pi (~/.omp/agent/AGENTS.md, mcp.json, extensions/construct.js)
+  --all               Configure all supported coding agents in one pass
+  --dir <path>        Override OpenCode config directory (default: ~/.config/opencode)
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct init --all
+  construct init --omp --claude
+  /construct init --all`,
+
+  upgrade: `NAME
+  construct upgrade - Check for or pull upstream Construct updates and refresh all agent integrations
+
+SYNOPSIS
+  construct upgrade [--check] [--dir <config_dir>] [--json]
+  /construct upgrade [--check]
+
+DESCRIPTION
+  Fast-forward pulls origin/main in the Construct repository, reseeds all built-in ROMs,
+  recompiles active-rom.md, refreshes all configured agent plugins/extensions/subagents,
+  and (when invoked via /construct upgrade in OpenCode) hot-reloads the plugin engine in memory.
+
+OPTIONS
+  --check             Check origin/main for new commits without pulling or modifying files
+  --dir <path>        Override OpenCode config directory
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct upgrade --check
+  construct upgrade
+  /construct upgrade`,
+
+  reload: `NAME
+  /construct reload - Re-stamp agent configs and hot-reload Construct MCP/plugin engine in memory
+
+SYNOPSIS
+  /construct reload
+
+DESCRIPTION
+  In-session slash command that runs "construct init --all", clears Node's module cache for src/*,
+  reloads the shared MCP/hook engine in memory, and triggers ctx.tool.reload() without restarting OpenCode.`,
+
+  assimilate: `NAME
+  construct assimilate - Import existing repository instruction files into construct.db
+
+SYNOPSIS
+  construct assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
+  /construct assimilate [--project <proj>]
+
+DESCRIPTION
+  Scans <dir> (default: current working directory) for AGENTS.md, CLAUDE.md, GEMINI.md,
+  .cursorrules, and .github/copilot-instructions.md, extracting operator agreements,
+  gotchas, and script commands into construct.db and shadowing unchanged files.
+
+OPTIONS
+  --project <proj>    Override target project scope (default: auto-resolved from <dir> or global)
+  --remove-files      Delete assimilated instruction files from disk after import
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct assimilate
+  construct assimilate ~/src/acme/alpha_app --project acme/alpha_app`,
+
+  boot: `NAME
+  construct boot - Print full session boot briefing for a project
+
+SYNOPSIS
+  construct boot [<project>] [-n <tape_len>] [--session <id>] [--dir <path>] [--json]
+  /construct boot [-n <tape_len>]
+
+DESCRIPTION
+  Prints the active Crew/ROM, operator agreement summary, project state head, recent
+  sequential tape frames, project gotchas, active work claims & collision radar, open
+  threads, and pending Construct Courier dispatches.
+
+OPTIONS
+  -n, --limit <num>   Number of recent sequential tape frames to include (default: 25)
+  --session <id>      Session ID for session-isolated ROM resolution
+  --dir <path>        Resolve project key automatically from directory path
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct boot construct -n 10
+  construct boot --dir .
+  /construct boot -n 15`,
+
+  projects: `NAME
+  construct projects (alias: ls) - List all tracked projects in construct.db
+
+SYNOPSIS
+  construct projects [--session <id>] [--json]
+  construct ls [--json]
+  /construct projects
+
+DESCRIPTION
+  Lists every project in construct.db with last-updated date, total frame count,
+  open thread count, and first line of the current state head.
+
+OPTIONS
+  --session <id>      Include session ROM prompt header if unslotted
+  --json              Emit machine-readable JSON array`,
+
+  rec: `NAME
+  construct rec (alias: record) - Append a frame onto the sequential memory tape
+
+SYNOPSIS
+  construct rec <project> <kind> "<summary>" [options]
+  /construct rec <project> <kind> "<summary>" [options]
+
+DESCRIPTION
+  Records a monotonic frame onto the sequential tape and appends a signed CRDT operation.
+  Valid kinds: ${store.KINDS.join(', ')}.
+  Note: "thread" frames and "intent" frames with --refs open automatically (open=1).
+  Recording a "commit", "change", "release", or "dead_end" frame with --parent <intent_seq>
+  automatically resolves that parent intent claim.
+
+OPTIONS
+  --detail <text>     Detailed evidence, root cause, metrics, or context
+  --verified <text>   Verification layer (e.g. "unit tests 10/10", "live device")
+  --parent <seq>      Causal parent frame sequence number (#seq)
+  --resolves <seqs>   Comma-separated open frame #seq IDs resolved by this frame
+  --open              Mark frame as open ([OPEN]) regardless of kind
+  --closed            Mark frame as closed (open=0) even if kind is "thread" or "intent"
+  --refs <a,b>        Comma-separated file, issue (#N), PR (pr:#N), or commit refs
+  --ts <iso>          Override ISO-8601 timestamp
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct rec acme/app intent "Refactoring token refresh" --refs "src/auth.ts,#114"
+  construct rec acme/app commit "Shipped token refresh fix" --parent 42 --verified "npm test"
+  /construct rec construct finding "Verified omp hook latency at 3.8ms"`,
+
+  head: `NAME
+  construct head - Inspect or update a project's live state head
+
+SYNOPSIS
+  construct head [<project>] [--state "<text>"] [--next "<text>"] [--repo <path>] [--dir <path>] [--json]
+  /construct head [--state "<text>"] [--next "<text>"]
+
+DESCRIPTION
+  When called with no --state/--next/--repo flags, prints the current state head for <project>
+  (or the project resolved from --dir). When called with flags, updates the LWW state head.
+
+OPTIONS
+  --state <text>      Current truth of where the project stands (2-5 lines)
+  --next <text>       Immediate next step or priority
+  --repo <path>       Local checkout path for this repository
+  --dir <path>        Resolve project key from directory when <project> is omitted
+  --ts <iso>          Override ISO-8601 timestamp
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct head construct
+  construct head construct --state "Main green at c80b894" --next "Cut v0.2 release"
+  /construct head`,
+
+  resolve: `NAME
+  construct resolve - Close one or more open thread or intent frames
+
+SYNOPSIS
+  construct resolve <seq[,seq...]> [--by <seq>] [--reason "<text>"] [--verified "<layer>"] [--close-gh] [--dir <repo_dir>] [--json]
+  /construct resolve <seq[,seq...]> [--reason "<text>"]
+
+DESCRIPTION
+  Marks open frame(s) as resolved. If --reason is provided without --by, records a new
+  resolution frame and links resolved_by -> new_seq.
+
+OPTIONS
+  --by <seq>          Existing frame #seq that resolved the target frame(s)
+  --reason <text>     Record a new resolution frame with this summary
+  --detail <text>     Optional detail for the new resolution frame
+  --verified <text>   Verification layer for the resolution frame
+  --kind <kind>       Kind for the new resolution frame (default: finding)
+  --close-gh          Also close any linked gh:#N GitHub issues via "gh issue close"
+  --dir <path>        Repository directory for --close-gh
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct resolve 28,29 --by 35
+  construct resolve 42 --reason "Verified live on Android build" --verified "pixel 8" --close-gh`,
+
+  reopen: `NAME
+  construct reopen - Reopen a previously resolved frame
+
+SYNOPSIS
+  construct reopen <seq> [--json]
+  /construct reopen <seq>
+
+DESCRIPTION
+  Sets open=1 and clears resolved_by on frame #<seq>.`,
+
+  edit: `NAME
+  construct edit - Correct an existing frame on the sequential tape out loud
+
+SYNOPSIS
+  construct edit <seq> [--summary "<text>"] [--detail "<text>"] [--verified "<text>"] [--kind <kind>] [--parent <seq>] [--refs <a,b>] [--json]
+  /construct edit <seq> --summary "<text>"
+
+DESCRIPTION
+  Updates fields on frame #<seq> in place and refreshes the FTS5 search index.`,
+
+  tape: `NAME
+  construct tape - Sequential playback of the memory tape (oldest -> newest)
+
+SYNOPSIS
+  construct tape [<project>] [-n <limit>] [--kind <kind>] [--open] [--from <seq>] [--to <seq>] [--since <iso>] [--dir <path>] [--json]
+  /construct tape [-n <limit>] [--open]
+
+DESCRIPTION
+  Prints sequential frames in chronological order within the requested window.
+
+OPTIONS
+  -n, --limit <num>   Maximum number of frames to return (default: 30)
+  --project <proj>    Filter to a specific project
+  --dir <path>        Auto-resolve project filter from directory when <project> is omitted
+  --kind <kind>       Filter by frame kind (${store.KINDS.join(', ')})
+  --open              Only show open ([OPEN]) frames
+  --from <seq>        Minimum sequence number (inclusive)
+  --to <seq>          Maximum sequence number (inclusive)
+  --since <iso>       Minimum ISO timestamp/date (e.g. 2026-10-19)
+  --json              Emit machine-readable JSON array
+
+EXAMPLES
+  construct tape construct -n 15
+  construct tape --open
+  /construct tape -n 10`,
+
+  zoom: `NAME
+  construct zoom - Inspect a frame's full detail, causal chain, and neighboring tape window
+
+SYNOPSIS
+  construct zoom <seq> [-w <window>] [--json]
+  /construct zoom <seq> [-w <window>]
+
+DESCRIPTION
+  Shows full unclipped detail, verification notes, refs, causal ancestor/descendant chain,
+  and +/- <window> neighboring frames on the same project tape.
+
+OPTIONS
+  -w, --window <num>  Number of neighboring frames before and after #<seq> (default: 3)
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct zoom 279
+  construct zoom 279 -w 5
+  /construct zoom 279`,
+
+  search: `NAME
+  construct search (alias: find) - Full-text BM25 search across the sequential tape
+
+SYNOPSIS
+  construct search "<query>" [--project <proj>] [--kind <kind>] [--open] [-n <limit>] [--json]
+  /construct search "<query>" [--project <proj>]
+
+DESCRIPTION
+  Searches frame summaries, details, verification notes, and refs via SQLite FTS5 BM25.
+
+OPTIONS
+  --project <proj>    Restrict search to one project
+  --kind <kind>       Restrict search to one frame kind
+  --open              Only match open ([OPEN]) frames
+  -n, --limit <num>   Maximum hits to return (default: 20)
+  --json              Emit machine-readable JSON array
+
+EXAMPLES
+  construct search "shell guard" --project construct
+  /construct search "OAuth"`,
+
+  why: `NAME
+  construct why - Unified provenance lookup across gotchas, CRDT tape authors, and git log -S
+
+SYNOPSIS
+  construct why "<file_or_symbol>" [--project <proj>] [--dir <repo_dir>] [--ask <teammate>] [--json]
+  /construct why "<file_or_symbol>"
+
+DESCRIPTION
+  Searches gotchas, sequential tape frames (with CRDT operator attribution), and local
+  "git log -S" pickaxe history for <file_or_symbol>. If --ask <user> is passed and no local
+  provenance is found, dispatches a Courier query to that teammate.
+
+OPTIONS
+  --project <proj>    Project scope (default: resolved from --dir)
+  --dir <path>        Repository directory for git log -S
+  --ask <user>        Teammate operator ID to query over Comms if local provenance is empty
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct why validateShellCommand
+  /construct why resolveSubagentRomFromHookPayload`,
+
+  rom: `NAME
+  construct rom (aliases: pack, packs) - Manage Crew Banks, Bench substitutions, solo ROMs, and dials
+
+SYNOPSIS
+  construct rom [show [<name>]] [--json]
+  construct rom packs [--json]
+  construct rom list [--pack <bank>] [--json]
+  construct rom use <bank|roster|rom> [--session <id>] [--project <proj>] [--dir <path>]
+  construct rom sub <backup_specialist> [--session <id>] [--project <proj>] [--dir <path>]
+  construct rom default <bank|rom|off>
+  construct rom tune <dial>=<0..1> [...] [--rom <name>]
+  construct rom burn "<directive>" [--rom <name>]
+  construct rom unburn <number> [--rom <name>]
+  construct rom set <name> [--pack ..] [--seat ..] [--tier primary|backup] [--handle ..] [--tagline ..] [--voice ..] [--use]
+  construct rom clone <src> <dest> [--pack ..] [--seat ..] [--tier ..] [--handle ..] [--use]
+  construct rom sync
+
+DESCRIPTION
+  Controls the 15 lazy-loaded Crew Banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun,
+  dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic)
+  and 179 specialist ROMs.
+
+OPTIONS
+  --pack <bank>       Filter "rom list" by bank, or assign bank on "rom set/clone"
+  --seat <seat>       Seat ID (recon, diagnostics, architect, blitz, forensics, velocity, redteam, ergonomics, archivist)
+  --tier <tier>       Tier (primary or backup)
+  --session <id>      Target session ID for isolated session slotting
+  --project <proj>    Target project scope
+  --rom <name>        Target ROM for tune/burn/unburn
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct rom packs
+  construct rom use nightcity
+  construct rom sub panam
+  construct rom tune terse=0.90 edge=0.85 --rom v
+  /construct rom list --pack nightcity`,
+
+  user: `NAME
+  construct user (alias: operator) - Manage operator working agreements and personal calibration
+
+SYNOPSIS
+  construct user [show [<id>]] [--json]
+  construct user list [--json]
+  construct user use <id>
+  construct user set <id> [--name ".."] [--os-users a,b] [--experience ".."] [--platform ".."] [--workspace-root ".."] [--calibration ".."] [--use]
+
+OPTIONS
+  --name <name>             Display name (e.g. "Christopher")
+  --os-users <list>         Comma-separated OS login usernames mapped to this operator
+  --experience <text>       Engineering background summary
+  --platform <text>         OS, shell, and hardware environment summary
+  --workspace-root <path>   Default root folder for git repositories (e.g. ~/src)
+  --calibration <markdown>  Personal working agreement bullets
+  --use                     Make this operator active immediately
+  --json                    Emit machine-readable JSON result
+
+EXAMPLES
+  construct user show
+  /construct user show`,
+
+  gotcha: `NAME
+  construct gotcha (alias: gotchas) - Manage global and project gotchas with 0-token shell guards
+
+SYNOPSIS
+  construct gotcha list [--project <proj> | --all] [--json]
+  construct gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--guard "<regex>"] [--guard-os all|win32|linux|darwin] [--tags a,b]
+  construct gotcha search "<query>" [--project <proj> | --all] [--json]
+  construct gotcha rm <id>
+
+OPTIONS
+  --project <proj>    Project scope (omit for global machine/tool gotchas)
+  --all               Include gotchas across all projects and global scope
+  --status <status>   Verification status: observed (default), from_source, or reported
+  --evidence <text>   Exact machine observation, error log, or commit evidence
+  --fix <text>        "Do instead" remediation instruction
+  --guard <regex>     Pre-execution shell guard regex (blocks matching commands in 0 tokens)
+  --guard-os <os>     Target OS for --guard: all (default), win32, linux, or darwin
+  --tags <a,b>        Comma-separated tags
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct gotcha list --all
+  construct gotcha add "Never run deploy --yolo" --project acme/app --fix "Use ./release.sh" --guard "deploy\\s+--yolo"
+  /construct gotcha search "PowerShell"`,
+
+  msg: `NAME
+  construct msg (alias: ask) - Send an encrypted person-to-person Courier message
+
+SYNOPSIS
+  construct msg --to <user> [--via <courier_rom>] [--project <proj>] "<in-character message>"
+  /construct msg --to <user> [--via <courier_rom>] "<message>"
+
+OPTIONS
+  --to <user>         Recipient operator ID (required, e.g. mike)
+  --via <rom>         Courier specialist ROM to deliver the cameo (e.g. toot, smeagol, death, moist)
+  --project <proj>    Optional project label (routes over @comms and shared groups automatically)
+  --session <id>      Source session ID
+  --json              Emit machine-readable JSON result
+
+EXAMPLES
+  construct msg --to mike --via smeagol "We merged PR #4 into main, precious!"
+  /construct msg --to mike --via toot "PR #12 is ready for review!"`,
+
+  reply: `NAME
+  construct reply - Reply to an incoming Construct Courier message
+
+SYNOPSIS
+  construct reply <msg_id> [--via <courier_rom>] "<in-character reply>"
+  /construct reply <msg_id> [--via <courier_rom>] "<reply>"`,
+
+  ack: `NAME
+  construct ack - Mark a Construct Courier message as delivered/acknowledged
+
+SYNOPSIS
+  construct ack <msg_id> [--json]
+  /construct ack <msg_id>`,
+
+  'hide-msg': `NAME
+  construct hide-msg (aliases: msg-hide, rm-msg, delete-msg) - Hide message(s) from HUD and boot
+
+SYNOPSIS
+  construct hide-msg <msg_id[,msg_id...]> [--json]
+  /construct hide-msg <msg_id>
+
+DESCRIPTION
+  Hides message(s) from the active HUD and boot output while keeping them searchable via
+  "construct inbox --all" and preventing relay syncs from resurrecting them.`,
+
+  'purge-msg': `NAME
+  construct purge-msg (alias: msg-purge) - Obliterate message(s) locally and across relays
+
+SYNOPSIS
+  construct purge-msg <msg_id[,msg_id...]> [--json]
+  /construct purge-msg <msg_id>
+
+DESCRIPTION
+  Deletes message(s) from local SQLite and broadcasts a signed CRDT message_tombstone across relays.`,
+
+  inbox: `NAME
+  construct inbox (alias: messages) - List person-to-person Construct Courier messages
+
+SYNOPSIS
+  construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden] [--json]
+  /construct inbox [--all]
+
+OPTIONS
+  --project <proj>    Filter by project tag
+  --to <user>         Filter by recipient operator ID
+  --status <status>   Filter by status (pending, replied, delivered, hidden)
+  --all               Include hidden messages
+  --hidden            Show only hidden messages
+  --json              Emit machine-readable JSON array`,
+
+  drop: `NAME
+  construct drop - Send an encrypted patch or file snippet over Construct Comms
+
+SYNOPSIS
+  construct drop [<project>] --to <user> [--via <courier>] [--file <path> | --git-diff | --content ".."] [--note ".."] [--json]`,
+
+  'apply-drop': `NAME
+  construct apply-drop - Inspect, write, or git-apply an incoming encrypted patch drop
+
+SYNOPSIS
+  construct apply-drop <msg_id> [--out <file> | --apply] [--dir <repo_dir>] [--json]`,
+
+  issues: `NAME
+  construct issues (alias: issue) - Sync GitHub Issues with open Construct threads
+
+SYNOPSIS
+  construct issues sync [<project>] [--dir <repo_dir>] [-n <limit>] [--json]
+  construct issues publish <seq> [--dir <repo_dir>] [--json]
+  /construct issues sync
+
+DESCRIPTION
+  "sync" imports open GitHub issues as [OPEN] thread frames (gh:#N) and resolves threads whose
+  GitHub issue closed. "publish <seq>" promotes a local thread frame to a new GitHub issue.`,
+
+  pr: `NAME
+  construct pr (alias: prs) - Sync, open, review, and merge GitHub Pull Requests
+
+SYNOPSIS
+  construct pr sync [<project>] [--dir <repo_dir>] [-n <limit>] [--json]
+  construct pr open [<project>] --title "<title>" [--body ".."] [--base <branch>] [--head <branch>] [--draft] [--to <user>] [--via <courier>]
+  construct pr review [<project>] <pr_num> [--approve | --request-changes | --comment] --body "<note>" [--verified ".."] [--to <user>] [--via <courier>]
+  construct pr merge [<project>] <pr_num> [--squash | --rebase | --merge] [--delete-branch] [--verified ".."] [--to <user>] [--via <courier>]
+  /construct pr sync`,
+
+  sync: `NAME
+  construct sync - Live pull, decrypt, HLC-CRDT merge, seal, and push over WebSocket relays
+
+SYNOPSIS
+  construct sync [<project>|comms] [--relays wss://...] [--dir <repo_dir>] [--json]
+  /construct sync [<project>|comms]
+
+DESCRIPTION
+  Pulls encrypted Epoch-Keyed AEAD packets from configured WebSocket relays (plus @comms),
+  verifies Ed25519 sender signatures and inner AAD, merges HLC-CRDT operations, and pushes
+  new local delta operations.`,
+
+  invite: `NAME
+  construct invite - Generate a signed out-of-band project or @comms invitation URI
+
+SYNOPSIS
+  construct invite [comms | <project>] [--relays wss://...] [--dir <repo_dir>] [--git-url <url>] [--branch <name>] [--setup "<cmd>"] [--json]
+  /construct invite [comms | <project>]`,
+
+  join: `NAME
+  construct join - Verify and join a Construct invitation URI (with auto git-clone)
+
+SYNOPSIS
+  construct join "<construct://invite/...>" [--dir <target_clone_dir>] [--json]
+  /construct join "<construct://invite/...>"`,
+
+  did: `NAME
+  construct did (alias: identity) - Display local W3C did:key cryptographic identity
+
+SYNOPSIS
+  construct did [--json]
+  /construct did`,
+
+  hud: `NAME
+  construct hud (alias: status) - Print compact status pill or JSON snapshot for a session/project
+
+SYNOPSIS
+  construct hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
+  /construct hud`,
+
+  dashboard: `NAME
+  construct dashboard (alias: view) - Generate dark-mode interactive HTML HUD files
+
+SYNOPSIS
+  construct dashboard [--out <html_path>] [--project <proj>] [--dir <repo_dir>] [--session <session_id>] [--json]
+  /construct dashboard`,
+
+  'hud-server': `NAME
+  construct hud-server - Run the local loopback HUD & Docs server on 127.0.0.1:47420
+
+SYNOPSIS
+  construct hud-server [--port 47420]`,
+
+  site: `NAME
+  construct site (alias: docs-site) - Generate the 17-page GitHub Pages Brochure & Docs Hub
+
+SYNOPSIS
+  construct site [--out <dir>] [--json]
+  /construct site`,
+
+  relay: `NAME
+  construct relay - Run a lightweight zero-knowledge WebSocket ciphertext relay
+
+SYNOPSIS
+  construct relay [--port 8787]`,
+
+  packet: `NAME
+  construct packet - Export or import offline encrypted CRDT packets
+
+SYNOPSIS
+  construct packet export <project> [--since <hlc>]
+  construct packet import <packet_token>`,
+
+  mcp: `NAME
+  construct mcp - Run Construct as a stdio JSON-RPC 2.0 MCP server
+
+SYNOPSIS
+  construct mcp`,
+});
+
+function formatCommandHelp(rawTopic = '') {
+  const clean = String(rawTopic || '').trim().replace(/^\/+/, '').toLowerCase();
+  if (!clean) return USAGE;
+  const canonical = COMMAND_HELP_ALIASES[clean] || clean;
+  if (COMMAND_HELP[canonical]) {
+    return COMMAND_HELP[canonical];
+  }
+  return `Unknown Construct command "${rawTopic}".\n\n${USAGE}`;
+}
 
 const OPTIONS = {
   detail: { type: 'string' },
@@ -740,8 +1356,16 @@ async function main(argv) {
   const { values: o, positionals } = parseArgs({ args: argv, options: OPTIONS, allowPositionals: true });
   const [cmd, ...rest] = positionals;
 
-  if (!cmd || o.help || cmd === 'help') {
+  if (!cmd) {
     console.log(USAGE);
+    return 0;
+  }
+  if (cmd === 'help') {
+    console.log(formatCommandHelp(rest[0] || ''));
+    return 0;
+  }
+  if (o.help) {
+    console.log(formatCommandHelp(cmd));
     return 0;
   }
 

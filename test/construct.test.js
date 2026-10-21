@@ -2049,6 +2049,36 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(slashBank.reloadPlugin, true);
     assert.match(slashBank.message, /Switched session to tolkien/);
 
+    // Verify `/construct help`, `/construct help <subcommand>`, and `/construct <subcommand> --help`
+    const slashHelpRoot = mcp.executeConstructSlashCommand('help', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashHelpRoot.isError, false);
+    assert.match(slashHelpRoot.output, /usage: construct <command> \[args\]/);
+    assert.match(slashHelpRoot.output, /construct help <command>/);
+
+    const slashHelpTape = mcp.executeConstructSlashCommand('help tape', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashHelpTape.isError, false);
+    assert.match(slashHelpTape.output, /NAME\s+construct tape - Sequential playback of the memory tape/);
+    assert.match(slashHelpTape.output, /--since <iso>/);
+    assert.match(slashHelpTape.promptText, /Display the following help output verbatim/);
+
+    const slashTapeFlagHelp = mcp.executeConstructSlashCommand('tape --help', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(slashTapeFlagHelp.output, slashHelpTape.output);
+
+    const slashHelpAlias = mcp.executeConstructSlashCommand('help ls', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.match(slashHelpAlias.output, /construct projects \(alias: ls\)/);
+
     // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
     store.setHead('acme/alpha', {
       state: 'main at f4864f0. Merged PR #102 (90bdfd3) and fixed GH #114 (f4864f0: preserve full state line past column 70)',
