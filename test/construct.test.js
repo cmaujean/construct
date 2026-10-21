@@ -1041,6 +1041,111 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         process.env.CONSTRUCT_USER = 'alice';
       }
 
+      // Split-brain `@comms` recovery for legacy-paired project teammates:
+      // Simulate Alice and Bob having joined `acme/shared_app` prior to `@comms` existing,
+      // so each independently generates a random solo `@comms` group when sending a message,
+      // and verify `syncProject('acme/shared_app')` bridges both messages and converges `@comms`.
+      {
+        const { DatabaseSync } = require('node:sqlite');
+        store.closeAllDbs();
+        const aliceDbRaw = new DatabaseSync(path.join(aliceHome, 'construct.db'));
+        aliceDbRaw.prepare("DELETE FROM mls_groups WHERE project LIKE '@comms%'").run();
+        aliceDbRaw.close();
+        const bobDbRaw = new DatabaseSync(path.join(bobHome, 'construct.db'));
+        bobDbRaw.prepare("DELETE FROM mls_groups WHERE project LIKE '@comms%'").run();
+        bobDbRaw.close();
+
+        // Alice sends a message while `@comms` is uninitialized (creates random solo `@comms` group A)
+        const aliceSplitMsg = store.sendMessage({
+          project: 'acme/shared_app',
+          to: 'bob',
+          via: 'random',
+          body: 'Split-brain test from Alice (simulating M#18/M#19 created before project sync)',
+        });
+        // Advance `acme/shared_app` last_sync_hlc past `aliceSplitMsg.hlc` to simulate orphan state
+        const postMsgFrame = store.recordFrame({
+          project: 'acme/shared_app',
+          kind: 'finding',
+          summary: 'Frame recorded after split-brain message',
+        });
+        assert.ok(postMsgFrame.frame.seq > 0);
+
+        // Switch to Bob: Bob sends a message on his own isolated random `@comms` group B and pushes to relay
+        process.env.CONSTRUCT_DB = path.join(bobHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(bobHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(bobHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = bobSrc;
+        process.env.CONSTRUCT_USER = 'bob';
+
+        const bobSplitMsg = store.sendMessage({
+          project: 'acme/shared_app',
+          to: 'alice',
+          via: 'bob',
+          body: 'Split-brain test from Bob (simulating historical @comms envelope on relay)',
+        });
+        // Set Bob's solo `@comms` relay to relaySrv.url and publish Bob's isolated `@comms` envelope
+        store.closeAllDbs();
+        const bobDbRelay = new DatabaseSync(path.join(bobHome, 'construct.db'));
+        bobDbRelay
+          .prepare("UPDATE mls_groups SET relays = ? WHERE project = '@comms'")
+          .run(JSON.stringify([relaySrv.url]));
+        bobDbRelay.close();
+        await store.syncProject('comms');
+
+        // Switch back to Alice, set Alice's solo `@comms` relay to relaySrv.url, and sync `acme/shared_app`
+        process.env.CONSTRUCT_DB = path.join(aliceHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(aliceHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(aliceHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = aliceSrc;
+        process.env.CONSTRUCT_USER = 'alice';
+        store.closeAllDbs();
+        const aliceDbRelay = new DatabaseSync(path.join(aliceHome, 'construct.db'));
+        aliceDbRelay
+          .prepare("UPDATE mls_groups SET relays = ? WHERE project = '@comms'")
+          .run(JSON.stringify([relaySrv.url]));
+        aliceDbRelay.close();
+
+        await store.syncProject('acme/shared_app');
+
+        // Bob syncs `acme/shared_app` -> must receive Alice's message AND bridge his `@comms` group
+        process.env.CONSTRUCT_DB = path.join(bobHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(bobHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(bobHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = bobSrc;
+        process.env.CONSTRUCT_USER = 'bob';
+        await store.syncProject('acme/shared_app');
+
+        const bobMsgsAfterBridge = store.listMessages();
+        assert.ok(
+          bobMsgsAfterBridge.some((m) => m.uid === aliceSplitMsg.uid),
+          'Bob must receive Alice split-brain message over shared project sync'
+        );
+
+        // Alice syncs `acme/shared_app` -> must converge `@comms` and decrypt Bob's historical `@comms` envelope
+        process.env.CONSTRUCT_DB = path.join(aliceHome, 'construct.db');
+        process.env.CONSTRUCT_IDENTITY_FILE = path.join(aliceHome, 'identity.json');
+        process.env.CONSTRUCT_ROM_FILE = path.join(aliceHome, 'active-rom.md');
+        process.env.CONSTRUCT_SRC_ROOT = aliceSrc;
+        process.env.CONSTRUCT_USER = 'alice';
+        await store.syncProject('acme/shared_app');
+
+        const aliceMsgsAfterBridge = store.listMessages();
+        assert.ok(
+          aliceMsgsAfterBridge.some((m) => m.uid === bobSplitMsg.uid),
+          'Alice must receive Bob split-brain message after in-band @comms convergence'
+        );
+
+        store.closeAllDbs();
+        const aCheck = new DatabaseSync(path.join(aliceHome, 'construct.db'), { readOnly: true });
+        const bCheck = new DatabaseSync(path.join(bobHome, 'construct.db'), { readOnly: true });
+        const aComms = aCheck.prepare("SELECT group_id, epoch_secret FROM mls_groups WHERE project = '@comms'").get();
+        const bComms = bCheck.prepare("SELECT group_id, epoch_secret FROM mls_groups WHERE project = '@comms'").get();
+        aCheck.close();
+        bCheck.close();
+        assert.equal(aComms.group_id, bComms.group_id, 'Alice and Bob @comms group_id must converge');
+        assert.equal(aComms.epoch_secret, bComms.epoch_secret, 'Alice and Bob @comms epoch_secret must converge');
+      }
+
       // Invite URI encryption check: stripping the `#...` fragment key fails to unwrap `epochSecret`
       const crdtMod = require('../src/crdt');
       const relayMod = require('../src/relay');

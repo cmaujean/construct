@@ -590,8 +590,8 @@ SYNOPSIS
 
 DESCRIPTION
   Pulls encrypted Epoch-Keyed AEAD packets from configured WebSocket relays (plus @comms),
-  verifies Ed25519 sender signatures and inner AAD, merges HLC-CRDT operations, and pushes
-  new local delta operations.`,
+  verifies Ed25519 sender signatures and inner AAD, converges @comms keys in-band across
+  paired project groups, merges HLC-CRDT operations, and pushes new local delta operations.`,
 
   invite: `NAME
   construct invite - Generate a signed out-of-band project or @comms invitation URI
@@ -2191,5 +2191,10 @@ async function main(argv) {
   } catch (err) {
     console.error(`error: ${err.message}`);
     process.exitCode = 1;
+  } finally {
+    try {
+      store.closeAllDbs();
+    } catch (_) {}
+    process.exit(process.exitCode || 0);
   }
 })();
