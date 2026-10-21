@@ -629,10 +629,10 @@ SYNOPSIS
   /construct dashboard`,
 
   'hud-server': `NAME
-  construct hud-server - Run the local loopback HUD & Docs server on 127.0.0.1:47420
+  construct hud-server - Run or restart the local loopback HUD & Docs server on 127.0.0.1:47420
 
 SYNOPSIS
-  construct hud-server [--port 47420]`,
+  construct hud-server [--port 47420] [--restart]`,
 
   site: `NAME
   construct site (alias: docs-site) - Generate the 17-page GitHub Pages Brochure & Docs Hub
@@ -751,6 +751,7 @@ const OPTIONS = {
   closed: { type: 'boolean' },
   all: { type: 'boolean' },
   use: { type: 'boolean' },
+  restart: { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 };
@@ -1820,7 +1821,7 @@ async function main(argv) {
 
     case 'hud-server': {
       const port = o.port ? Number(o.port) : 47420;
-      const srv = await store.startStandaloneHudServer(port);
+      const srv = await store.startStandaloneHudServer(port, undefined, { restart: Boolean(o.restart) });
       if (!srv) return 0; // Port already bound by active instance
       return new Promise(() => {}); // Keep alive in background
     }

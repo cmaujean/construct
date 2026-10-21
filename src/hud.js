@@ -1335,9 +1335,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   return { outFile, projectOutFile, html, hud, projectCount: projects.length, openCount: hud.openCount };
 }
 
-function startStandaloneHudServer(port = 47420, file = dbPath()) {
+function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
   const http = require('node:http');
   return new Promise((resolve) => {
+    const bindServer = () => {
     const server = http.createServer((req, res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -1510,6 +1511,38 @@ function startStandaloneHudServer(port = 47420, file = dbPath()) {
     server.listen(port, '127.0.0.1', () => {
       resolve(server);
     });
+    };
+
+    if (options && options.restart) {
+      try {
+        const req = http.request(
+          {
+            hostname: '127.0.0.1',
+            port,
+            path: '/action',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 1500,
+          },
+          (res) => {
+            res.resume();
+            res.on('end', () => setTimeout(bindServer, 120));
+          }
+        );
+        req.on('error', () => bindServer());
+        req.on('timeout', () => {
+          try {
+            req.destroy();
+          } catch (_) {}
+          bindServer();
+        });
+        req.write(JSON.stringify({ action: 'shutdown', permanent: true }));
+        req.end();
+        return;
+      } catch (_) {}
+    }
+
+    bindServer();
   });
 }
 

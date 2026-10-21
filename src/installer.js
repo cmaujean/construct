@@ -512,6 +512,7 @@ function upgradeConstruct(options = {}, file = dbPath()) {
     return syncActiveRomInDb(db);
   }, file);
 
+  const romFile = typeof syncRes === 'string' ? syncRes : syncRes?.path || '';
   const pluginPath = installPluginFile(configDir);
 
   // If Claude Code, Cursor, Gemini CLI, Windsurf, or Codex were previously configured on this machine,
@@ -520,9 +521,10 @@ function upgradeConstruct(options = {}, file = dbPath()) {
   let claudeUpgraded = false;
   if (options.claude || fs.existsSync(path.join(claudeDir, 'agents'))) {
     try {
+      fs.mkdirSync(claudeDir, { recursive: true });
       const claudeMdPath = path.join(claudeDir, 'CLAUDE.md');
-      if (syncRes?.path && fs.existsSync(syncRes.path)) {
-        fs.copyFileSync(syncRes.path, claudeMdPath);
+      if (romFile && fs.existsSync(romFile)) {
+        fs.copyFileSync(romFile, claudeMdPath);
       }
       withDb((db) => writeClaudeSubagentsInDb(db, claudeDir), file);
       claudeUpgraded = true;
@@ -531,8 +533,8 @@ function upgradeConstruct(options = {}, file = dbPath()) {
 
   try {
     const cursorRule = path.join(os.homedir(), '.cursor', 'rules', 'construct.mdc');
-    if (syncRes?.path && fs.existsSync(cursorRule)) {
-      const baseRomMd = fs.readFileSync(syncRes.path, 'utf8');
+    if (romFile && fs.existsSync(cursorRule)) {
+      const baseRomMd = fs.readFileSync(romFile, 'utf8');
       fs.writeFileSync(
         cursorRule,
         `---\ndescription: Construct Base Cartridge (Operator Agreement, Core Protocol & Global Gotchas)\nalwaysApply: true\n---\n\n${baseRomMd}`,
@@ -540,14 +542,14 @@ function upgradeConstruct(options = {}, file = dbPath()) {
       );
     }
     const geminiMd = path.join(os.homedir(), '.gemini', 'GEMINI.md');
-    if (syncRes?.path && fs.existsSync(geminiMd)) fs.copyFileSync(syncRes.path, geminiMd);
+    if (romFile && fs.existsSync(geminiMd)) fs.copyFileSync(romFile, geminiMd);
     const windsurfRules = path.join(os.homedir(), '.codeium', 'windsurf', 'memories', 'global_rules.md');
-    if (syncRes?.path && fs.existsSync(windsurfRules)) fs.copyFileSync(syncRes.path, windsurfRules);
+    if (romFile && fs.existsSync(windsurfRules)) fs.copyFileSync(romFile, windsurfRules);
     const codexMd = path.join(os.homedir(), '.codex', 'AGENTS.md');
-    if (syncRes?.path && fs.existsSync(codexMd)) fs.copyFileSync(syncRes.path, codexMd);
+    if (romFile && fs.existsSync(codexMd)) fs.copyFileSync(romFile, codexMd);
     const ompDir = options.ompDir || process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), '.omp', 'agent');
     const ompMd = path.join(ompDir, 'AGENTS.md');
-    if (syncRes?.path && fs.existsSync(ompMd)) fs.copyFileSync(syncRes.path, ompMd);
+    if (romFile && fs.existsSync(ompMd)) fs.copyFileSync(romFile, ompMd);
     const ompExt = path.join(ompDir, 'extensions', 'construct.js');
     if (fs.existsSync(ompExt)) {
       const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
@@ -560,7 +562,7 @@ function upgradeConstruct(options = {}, file = dbPath()) {
     previousSha,
     currentSha,
     pullOutput,
-    romFile: syncRes.path,
+    romFile,
     pluginPath,
     claudeUpgraded,
   };

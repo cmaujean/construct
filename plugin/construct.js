@@ -591,6 +591,7 @@ export default {
 
     // 4. Start local loopback HUD control server (`127.0.0.1:47420`) + Idle-Session Courier Wake-Up
     let hudServer = null
+    let hudYieldUntil = 0
     let lastDiskHudKey = ""
     let courierPollTimer = null
     let lastBgSyncMs = 0
@@ -647,7 +648,7 @@ export default {
 
     courierPollTimer = setInterval(() => {
       try {
-        if (hudServer && !hudServer.listening) {
+        if (hudServer && !hudServer.listening && Date.now() >= hudYieldUntil) {
           try {
             hudServer.listen(47420, "127.0.0.1")
           } catch (_) {}
@@ -740,6 +741,21 @@ export default {
               const proj = String(payload.project || "")
               const dir = String(payload.dir || "")
 
+              if (rawAction === "shutdown") {
+                hudYieldUntil = payload.permanent ? Number.MAX_SAFE_INTEGER : Date.now() + 5000
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, shutdown: true }))
+                setImmediate(async () => {
+                  try {
+                    hudServer?.close()
+                  } catch (_) {}
+                  try {
+                    await reloadConstructEngine()
+                  } catch (_) {}
+                })
+                return
+              }
+
               if (rawAction === "reply" && payload.id && payload.body) {
                 const args = ["reply", String(payload.id)]
                 if (payload.via) args.push("--via", String(payload.via))
@@ -801,6 +817,7 @@ export default {
 
               if (rawAction === "upgrade") {
                 const out = runConstruct(["upgrade"])
+                await reloadConstructEngine()
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, upgraded: out, hud: snap }))

@@ -1400,9 +1400,12 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.match(dash.html, /Construct Comms &amp; Courier Log — acme\/shared_app/);
 
       // Running `upgradeConstruct` pulls, syncs ROMs, reinstalls plugin, and clears `behindCount` to 0
+      const bobClaudeDir = path.join(bobHome, '.claude');
       let currentMockHead = '111aaaa';
       const upRes = store.upgradeConstruct({
         configDir: path.join(bobHome, '.config', 'opencode'),
+        claudeDir: bobClaudeDir,
+        claude: true,
         execGitFn: (args) => {
           if (args[0] === 'rev-parse') return currentMockHead;
           if (args[0] === 'pull') {
@@ -1415,6 +1418,14 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.equal(upRes.upgraded, true);
       assert.equal(upRes.previousSha, '111aaaa');
       assert.equal(upRes.currentSha, '222bbbb');
+      assert.ok(
+        typeof upRes.romFile === 'string' && upRes.romFile.endsWith('active-rom.md') && fs.existsSync(upRes.romFile),
+        `upgradeConstruct must return a valid romFile path (got ${upRes.romFile})`
+      );
+      assert.equal(upRes.claudeUpgraded, true);
+      assert.ok(fs.existsSync(path.join(bobClaudeDir, 'CLAUDE.md')), 'upgradeConstruct must sync CLAUDE.md when claude is enabled');
+      const installedPluginSrc = fs.readFileSync(upRes.pluginPath, 'utf8');
+      assert.match(installedPluginSrc, /rawAction === "shutdown"/, 'plugin/construct.js must handle rawAction === "shutdown" to yield port 47420 cleanly');
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).upstreamUpdate.behindCount, 0);
 
       // 4h. PR-Driven Workflow (`syncGithubPrs`, `openGithubPr`, `reviewGithubPr`, `mergeGithubPr`)
