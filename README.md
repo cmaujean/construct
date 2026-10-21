@@ -455,7 +455,7 @@ construct issues [sync <project> | publish <seq>] [--dir <repo_dir>]
 construct pr [sync <project> | open <project> --title ".." | review <project> <pr_num> --approve | merge <project> <pr_num>] [--to <user>] [--via <messenger>]
 construct hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
 construct dashboard [--out <html_path>] [--project <proj>] [--session <session_id>]
-construct hud-server [--port 47420]
+construct hud-server [--port 47420] [--restart]
 construct edit <seq> [--summary ".."] [--detail ".."] [--verified ".."]
 
 # Crew Banks, Bench substitutions, session slotting, dial tuning & directives
