@@ -455,7 +455,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
-      hudSchemaVersion: 5,
+      hudSchemaVersion: 6,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -799,12 +799,20 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     <span id="roster-pills">${rosterPills}</span>
   </div>
 
-  <div class="control-deck">
-    <div>
-      <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
-      <span class="sub" style="margin-left:8px;">(Project: <code id="target-scope-label">${escapeHtml(hud.project)}</code>)</span>
-      <span id="hud-toast"></span>
+  <div class="control-deck" id="hud-crew-drawer">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <strong>INTERACTIVE CREW SWITCHER &amp; BENCH DECK</strong>
+        <span class="sub">(Project: <code id="target-scope-label">${escapeHtml(hud.project)}</code>)</span>
+        <span class="badge ok" id="crew-active-bank-badge">${escapeHtml(hud.emblem || '🦾')} ${escapeHtml(hud.pack || hud.romName)}</span>
+        <span class="badge">15 Banks · 24 Bench</span>
+        <span id="hud-toast"></span>
+      </div>
+      <div>
+        <button class="crew-btn" id="crew-drawer-toggle-btn" onclick="toggleCrewDrawer()">▾ Collapse</button>
+      </div>
     </div>
+    <div id="hud-crew-body-wrap">
     <div class="btn-row">
       <button class="crew-btn ${hud.pack === 'sprawl' ? 'active' : ''}" data-pack="sprawl" onclick="switchCrew('use','sprawl')">🌃 Sprawl</button>
       <button class="crew-btn ${hud.pack === 'nightcity' ? 'active' : ''}" data-pack="nightcity" onclick="switchCrew('use','nightcity')">🦾 Night City</button>
@@ -848,6 +856,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn" data-sub="jules" onclick="switchCrew('sub','jules')">⚡ Jules (A/B Probe)</button>
       <button class="crew-btn" data-sub="reed" onclick="switchCrew('sub','reed')">🛡️ Reed (FIA)</button>
       <button class="crew-btn" data-sub="marly" onclick="switchCrew('sub','marly')">🎨 Marly</button>
+    </div>
     </div>
   </div>
 
@@ -906,13 +915,14 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    const HUD_SCHEMA_VERSION = 5;
+    const HUD_SCHEMA_VERSION = 6;
     const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
     let selectedCommsFilter = 'all';
     let commsDrawerCollapsed = false;
+    let crewDrawerCollapsed = false;
     const expandedCommsIds = new Set();
     let latestCommsArr = ${JSON.stringify(commsList)};
     let latestOpId = ${JSON.stringify(activeOpId)};
@@ -1051,6 +1061,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
       const romNameEl = document.getElementById('active-rom-name');
       if (romNameEl && h.romName) romNameEl.textContent = String(h.romName).toUpperCase();
+      const crewBankBadge = document.getElementById('crew-active-bank-badge');
+      if (crewBankBadge) {
+        crewBankBadge.textContent = (h.emblem || '🦾') + ' ' + (h.pack || h.romName || '');
+      }
       const pillsEl = document.getElementById('roster-pills');
       if (pillsEl && Array.isArray(h.roster)) {
         pillsEl.innerHTML = '';
@@ -1337,6 +1351,14 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       if (bodyWrap) bodyWrap.style.display = commsDrawerCollapsed ? 'none' : 'block';
       if (toggleBtn) toggleBtn.textContent = commsDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
       if (!commsDrawerCollapsed) renderCommsTable(latestCommsArr, latestOpId);
+    }
+
+    function toggleCrewDrawer() {
+      crewDrawerCollapsed = !crewDrawerCollapsed;
+      const bodyWrap = document.getElementById('hud-crew-body-wrap');
+      const toggleBtn = document.getElementById('crew-drawer-toggle-btn');
+      if (bodyWrap) bodyWrap.style.display = crewDrawerCollapsed ? 'none' : 'block';
+      if (toggleBtn) toggleBtn.textContent = crewDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
     }
 
     function toggleCommsMsgExpand(btnEl) {
