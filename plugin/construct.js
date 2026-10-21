@@ -768,6 +768,37 @@ export default {
                 return
               }
 
+              if (rawAction === "clear-cli") {
+                const engine = loadSharedMcpEngine() || mcpEngine
+                if (engine) mcpEngine = engine
+                try {
+                  const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+                  storeMod.clearLastCliOutput()
+                } catch (_) {}
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
+              if (rawAction === "cli" && payload.args) {
+                const engine = loadSharedMcpEngine({ bustCache: true }) || mcpEngine
+                if (engine) mcpEngine = engine
+                const cliRes = mcpEngine?.executeConstructSlashCommand
+                  ? mcpEngine.executeConstructSlashCommand(String(payload.args), {
+                      sessionId: sid,
+                      cwd: dir || lastActiveDir || ctx.location?.directory || "",
+                    })
+                  : null
+                if (cliRes?.reloadPlugin) {
+                  await reloadConstructEngine()
+                }
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, cli: cliRes, hud: snap }))
+                return
+              }
+
               if (rawAction === "upgrade") {
                 const out = runConstruct(["upgrade"])
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")

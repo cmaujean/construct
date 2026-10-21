@@ -3273,6 +3273,8 @@ const {
 const hudMod = createHudModule({
   dbPath,
   withDb,
+  tx,
+  nowIso,
   expandHome,
   normalizeProject,
   hydrateFrame,
@@ -3305,6 +3307,8 @@ const hudMod = createHudModule({
   siteMod,
 });
 const {
+  setLastCliOutput,
+  clearLastCliOutput,
   getHudSnapshot,
   generateDashboardHtml,
   startStandaloneHudServer,
@@ -3373,6 +3377,8 @@ module.exports = {
   reviewGithubPr,
   mergeGithubPr,
   getHudSnapshot,
+  setLastCliOutput,
+  clearLastCliOutput,
   generateDashboardHtml,
   startStandaloneHudServer,
   checkConstructUpstream,

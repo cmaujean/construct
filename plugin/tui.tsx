@@ -234,14 +234,40 @@ export default Plugin.define({
       commands: [
         {
           id: "construct.hud",
-          title: "Construct HUD: Switch Crew Bank or Bench Specialist",
+          title: "Construct HUD: Run Command, Switch Crew Bank, or Sub Bench Specialist",
           group: "Construct",
           bind: "ctrl+shift+g",
           palette: true,
-          slash: { name: "construct", aliases: ["crew", "hud"], arguments: false },
+          slash: { name: "construct", aliases: ["crew", "hud"], arguments: true },
           enabled: () => true,
           suggested: true,
-          run: async () => {
+          run: async (input) => {
+            const rawArg = String(input || "").trim()
+            if (rawArg) {
+              try {
+                const res = await fetch("http://127.0.0.1:47420/action", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    action: "cli",
+                    args: rawArg,
+                    dir: String(context.location?.directory || ""),
+                  }),
+                })
+                const data = await res.json()
+                if (data?.hud?.pill) {
+                  updateHud((draft) => {
+                    Object.assign(draft, data.hud)
+                  })
+                }
+                context.ui.dialog.set({ size: "large", centered: true })
+                await context.ui.dialog.alert({
+                  title: `Construct — /construct ${rawArg}`,
+                  message: String(data?.cli?.output || "(done)"),
+                })
+                return
+              } catch (_) {}
+            }
             await refreshHud()
             const choice = await context.ui.dialog.select({
               title: `Construct HUD — ${hud.pill}`,

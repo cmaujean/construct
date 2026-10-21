@@ -2100,6 +2100,18 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(promptCalls.length, 0);
     assert.equal(shellCalls[0].command, 'construct help tape');
 
+    // Verify `executeConstructSlashCommand` persists `lastCliOutput` into `getHudSnapshot` and `#hud-cli-output` in `generateDashboardHtml`
+    const hudWithCli = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
+    assert.ok(hudWithCli.lastCliOutput);
+    assert.equal(hudWithCli.lastCliOutput.cmd, '/construct help tape');
+    assert.match(hudWithCli.lastCliOutput.output, /construct tape - Sequential playback/);
+    const dashWithCli = store.generateDashboardHtml({ dir: tmp.dir, sessionId: 'slash_ses_1', noServerSpawn: true });
+    assert.match(dashWithCli.html, /id="hud-cli-output"/);
+    assert.match(dashWithCli.html, /construct tape - Sequential playback/);
+    store.clearLastCliOutput();
+    const hudCleared = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
+    assert.equal(hudCleared.lastCliOutput, null);
+
     // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
     store.setHead('acme/alpha', {
       state: 'main at f4864f0. Merged PR #102 (90bdfd3) and fixed GH #114 (f4864f0: preserve full state line past column 70)',

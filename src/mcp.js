@@ -225,6 +225,17 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     output = `error: ${(err.stderr && String(err.stderr).trim()) || err.message}`;
   }
 
+  try {
+    if (typeof store.setLastCliOutput === 'function') {
+      store.setLastCliOutput({
+        cmd: `/construct ${raw}`,
+        output: output || '(done)',
+        isError,
+        ts: new Date().toISOString(),
+      });
+    }
+  } catch (_) {}
+
   const romSubCmd = String(cliArgs[1] || '').toLowerCase();
   const reloadPlugin =
     kind === 'reload' ||
@@ -1876,55 +1887,31 @@ async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, se
   const rawArg = String(prompt?.text || '').trim();
   const tokens = parseSlashArgs(rawArg);
 
-  // Zero-roundtrip path: when `/construct <subcommand>` is given, execute directly via
-  // `POST /api/session/{sessionID}/shell` (`ctx.session.shell` or `service.json` loopback)
-  // so the output renders natively in the transcript in <100ms with 0 model roundtrips and 0 LLM tokens.
+  // Zero-roundtrip path: when `/construct <subcommand>` is given, execute synchronously via
+  // `executeConstructSlashCommand` (which also populates `#hud-cli-drawer` in the Review-Pane HUD),
+  // hot-reload if needed, and also dispatch `POST /api/session/{sessionID}/shell` when explicitly
+  // passed via `ctx.session.shell`.
   if (tokens.length > 0) {
-    const first = String(tokens[0] || '').toLowerCase();
-    let cliArgs = [...tokens];
-    if (first === 'reload' || first === 'hot-reload') {
-      cliArgs = ['init', '--all', ...tokens.slice(1)];
-    } else if (first === 'sub' && tokens[1] && isValidRomTarget(tokens[1])) {
-      cliArgs = ['rom', 'sub', tokens[1].toLowerCase(), '--session', String(sessionID), ...tokens.slice(2)];
-    } else if (first === 'use' && tokens[1] && isValidRomTarget(tokens[1])) {
-      cliArgs = ['rom', 'use', tokens[1].toLowerCase(), '--session', String(sessionID), ...tokens.slice(2)];
-    } else if (!CONSTRUCT_CLI_COMMANDS.has(first) && isValidRomTarget(tokens.join(','))) {
-      cliArgs = ['rom', 'use', tokens.join(',').toLowerCase(), '--session', String(sessionID)];
-    } else {
-      const isHelp =
-        first === 'help' ||
-        first === '--help' ||
-        first === '-h' ||
-        tokens.includes('--help') ||
-        tokens.includes('-h');
-      const noAutoDir = new Set(['init', 'upgrade', 'self-update', 'site', 'docs-site', 'help', '--help', '-h']);
-      if (!isHelp && sessionID && !tokens.includes('--session')) {
-        cliArgs.push('--session', String(sessionID));
-      }
-      if (!isHelp && sessDir && !noAutoDir.has(first) && !tokens.includes('--dir')) {
-        cliArgs.push('--dir', String(sessDir));
-      }
+    const res = executeConstructSlashCommand(rawArg, {
+      sessionId: sessionID,
+      cwd: sessDir,
+    });
+    if (typeof ctx?.session?.shell === 'function') {
+      const quotedArgs = (res.cliArgs || tokens)
+        .map((a) => (/[\s"'\\]/.test(a) ? `"${String(a).replace(/(["\\])/g, '\\$1')}"` : a))
+        .join(' ');
+      await ctx.session.shell({
+        sessionID,
+        command: `construct ${quotedArgs}`,
+      });
     }
-
-    const quotedArgs = cliArgs
-      .map((a) => (/[\s"'\\]/.test(a) ? `"${String(a).replace(/(["\\])/g, '\\$1')}"` : a))
-      .join(' ');
-    const binSlash = CONSTRUCT_BIN.replace(/\\/g, '/');
-    const shellCmd = typeof ctx?.session?.shell === 'function' ? `construct ${quotedArgs}` : `node "${binSlash}" ${quotedArgs}`;
-    const shellDispatched = await invokeOpenCodeSessionShell(ctx, sessionID, shellCmd);
-    if (shellDispatched) {
-      const cmd0 = String(cliArgs[0] || '').toLowerCase();
-      if (
-        (first === 'reload' || first === 'hot-reload' || ['init', 'upgrade', 'self-update', 'rom'].includes(cmd0)) &&
-        typeof reloadConstructEngine === 'function'
-      ) {
-        await reloadConstructEngine();
-      }
-      if (typeof syncSessionHud === 'function') {
-        await syncSessionHud(sessionID, sessDir);
-      }
-      return;
+    if (res.reloadPlugin && typeof reloadConstructEngine === 'function') {
+      await reloadConstructEngine();
     }
+    if (typeof syncSessionHud === 'function') {
+      await syncSessionHud(sessionID, sessDir);
+    }
+    return res;
   }
 
   const res = executeConstructSlashCommand(rawArg, {
@@ -1943,6 +1930,7 @@ async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, se
     text: res.promptText,
     delivery,
   });
+  return res;
 }
 
 module.exports = {

@@ -10,6 +10,8 @@ function createHudModule(deps) {
   const {
     dbPath,
     withDb,
+    tx,
+    nowIso,
     expandHome,
     normalizeProject,
     hydrateFrame,
@@ -209,6 +211,43 @@ function listActiveTabsInDb(db, file = dbPath()) {
     }
   }
   return out.slice(0, 8);
+}
+
+function getLastCliOutputInDb(db) {
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'last_cli_output'").get();
+    if (row && row.value) {
+      return JSON.parse(row.value);
+    }
+  } catch (_) {}
+  return null;
+}
+
+function setLastCliOutput(payload, file = dbPath()) {
+  const now = typeof nowIso === 'function' ? nowIso() : new Date().toISOString();
+  const obj = {
+    cmd: String(payload?.cmd || ''),
+    output: String(payload?.output || ''),
+    isError: Boolean(payload?.isError),
+    ts: payload?.ts || now,
+  };
+  return withDb((db) => {
+    db.prepare(
+      `INSERT INTO meta (key, value, updated)
+       VALUES ('last_cli_output', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated = excluded.updated`
+    ).run(JSON.stringify(obj), now);
+    return obj;
+  }, file);
+}
+
+function clearLastCliOutput(file = dbPath()) {
+  return withDb((db) => {
+    db.prepare("DELETE FROM meta WHERE key = 'last_cli_output'").run();
+    return true;
+  }, file);
 }
 
 function getHudSnapshot(options = {}, file = dbPath()) {
@@ -412,6 +451,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     if (upstreamUpdate?.behindCount > 0) {
       pillParts.push(`⬆️${upstreamUpdate.behindCount} update`);
     }
+    const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
       sessionId,
@@ -442,6 +482,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       driftCount,
       hasMlsGroup: Boolean(mlsRow),
       upstreamUpdate,
+      lastCliOutput,
       pill: pillParts.join(' · '),
       tabBadge,
       tabs,
@@ -721,6 +762,24 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
   <div id="hud-upgrade-alert-wrap" class="upgrade-alert-box" style="display:${upInfo.behindCount > 0 ? 'block' : 'none'};">${upgradeAlertHtml}</div>
   <div id="hud-courier-alert-wrap" class="courier-alert-box" style="display:${unreadComms.length ? 'block' : 'none'};">${unreadAlertHtml}</div>
+
+  <div class="control-deck" id="hud-cli-drawer" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <strong>CONSTRUCT CLI CONSOLE</strong>
+        <code id="hud-cli-cmd-label" style="font-size:11.5px;">${escapeHtml(hud.lastCliOutput?.cmd || '')}</code>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+        <input type="text" class="reply-input" id="hud-cli-input" style="width:260px;" placeholder="Command (e.g. help, help tape, tape -n 10)..." onkeydown="handleCliKey(event,this)" />
+        <button class="crew-btn active" onclick="runHudCliFromInput()">▶ Run</button>
+        <button class="crew-btn" data-cli="help" onclick="runHudCliButton(this)">📖 Help</button>
+        <button class="crew-btn" data-cli="tape -n 12" onclick="runHudCliButton(this)">📼 Tape</button>
+        <button class="crew-btn" data-cli="projects" onclick="runHudCliButton(this)">🗂️ Projects</button>
+        <button class="crew-btn" id="hud-cli-clear-btn" style="display:${hud.lastCliOutput?.output ? 'inline-block' : 'none'};" onclick="clearHudCli()">✕ Clear</button>
+      </div>
+    </div>
+    <pre id="hud-cli-output" style="display:${hud.lastCliOutput?.output ? 'block' : 'none'};margin:8px 0 0 0;padding:10px 12px;background:#090c10;border:1px solid var(--border);border-radius:6px;color:#e6edf3;font-size:11.5px;line-height:1.45;overflow-x:auto;max-height:440px;overflow-y:auto;">${escapeHtml(hud.lastCliOutput?.output || '')}</pre>
+  </div>
 
   <div class="roster-bar">
     <strong style="margin-right:6px;">ACTIVE 9-SEAT CREW (<span id="active-rom-name">${escapeHtml(hud.romName.toUpperCase())}</span>):</strong>
@@ -1018,6 +1077,23 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           ).join('');
         }
       }
+
+      const cliLabel = document.getElementById('hud-cli-cmd-label');
+      const cliOut = document.getElementById('hud-cli-output');
+      const cliClear = document.getElementById('hud-cli-clear-btn');
+      if (cliOut) {
+        if (h.lastCliOutput && h.lastCliOutput.output) {
+          if (cliLabel) cliLabel.textContent = h.lastCliOutput.cmd || '';
+          cliOut.textContent = h.lastCliOutput.output;
+          cliOut.style.display = 'block';
+          if (cliClear) cliClear.style.display = 'inline-block';
+        } else {
+          if (cliLabel) cliLabel.textContent = '';
+          cliOut.textContent = '';
+          cliOut.style.display = 'none';
+          if (cliClear) cliClear.style.display = 'none';
+        }
+      }
     }
 
     async function pollHud() {
@@ -1156,6 +1232,58 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
           if (data.hud) applyHudToDom(data.hud);
           if (toast) toast.textContent = '✓ Construct upgraded to latest!';
         }
+      } catch (_) {}
+    }
+
+    async function runHudCli(argsStr) {
+      const clean = String(argsStr || '').trim().replace(/^\\/construct\\s+/i, '');
+      if (!clean) return;
+      const toast = document.getElementById('hud-toast');
+      if (toast) toast.textContent = 'Running construct ' + clean + '...';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'cli', args: clean, sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.hud) {
+          applyHudToDom(data.hud);
+          if (toast) toast.textContent = '✓ Executed: /construct ' + clean;
+        }
+      } catch (_) {}
+    }
+
+    function runHudCliFromInput() {
+      const el = document.getElementById('hud-cli-input');
+      if (!el) return;
+      const val = String(el.value || '').trim();
+      if (!val) return;
+      void runHudCli(val);
+    }
+
+    function runHudCliButton(btnEl) {
+      if (!btnEl) return;
+      const cmd = btnEl.getAttribute('data-cli');
+      if (cmd) void runHudCli(cmd);
+    }
+
+    function handleCliKey(ev, inputEl) {
+      if (ev && ev.key === 'Enter' && inputEl) {
+        ev.preventDefault();
+        runHudCliFromInput();
+      }
+    }
+
+    async function clearHudCli() {
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'clear-cli', sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.hud) applyHudToDom(data.hud);
       } catch (_) {}
     }
 
@@ -1317,6 +1445,28 @@ function startStandaloneHudServer(port = 47420, file = dbPath()) {
               res.end(JSON.stringify({ ok: true, hud: snap }));
               return;
             }
+            if (rawAction === 'clear-cli') {
+              clearLastCliOutput(file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              generateDashboardHtml({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir, noServerSpawn: true }, file);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              return;
+            }
+
+            if (rawAction === 'cli' && payload.args) {
+              const mcpMod = require('./mcp');
+              const cliRes = mcpMod.executeConstructSlashCommand(String(payload.args), {
+                sessionId: sid,
+                cwd: dir,
+              });
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              generateDashboardHtml({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir, noServerSpawn: true }, file);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, cli: cliRes, hud: snap }));
+              return;
+            }
+
             if (rawAction === 'upgrade') {
               const up = upgradeConstruct({}, file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
@@ -1378,6 +1528,8 @@ function startStandaloneHudServer(port = 47420, file = dbPath()) {
     PACK_EMBLEM_MAP,
     detectFocusedDirFromOpenCodeLog,
     listActiveTabsInDb,
+    setLastCliOutput,
+    clearLastCliOutput,
     getHudSnapshot,
     generateDashboardHtml,
     startStandaloneHudServer,
