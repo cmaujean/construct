@@ -2234,16 +2234,6 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(promptCalls.length, 1);
     assert.match(promptCalls[0].text, /tools\.browser\.preview/);
 
-    // Verify `/construct hud reload` regenerates the HUD and sets `reloadPlugin: true` without treating `reload` as `project: "reload"`
-    const hudReloadRes = mcp.executeConstructSlashCommand('hud reload', {
-      sessionId: 'slash_ses_1',
-      cwd: tmp.dir,
-    });
-    assert.equal(hudReloadRes.isError, false);
-    assert.equal(hudReloadRes.reloadPlugin, true);
-    assert.equal(hudReloadRes.openHud, true);
-    assert.doesNotMatch(hudReloadRes.output, /· reload · 0f/);
-
     // Verify `construct reload`, `construct <bank>`, `construct use <bank>`, and `construct sub <specialist>`
     // work identically on the CLI (`bin/construct.js`) and via `/construct` (`executeConstructSlashCommand`)
     const reloadCliDir = path.join(tmp.dir, 'reload-cfg');
@@ -2289,6 +2279,17 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     store.clearLastCliOutput();
     const hudCleared = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
     assert.equal(hudCleared.lastCliOutput, null);
+
+    // Verify `/construct hud reload` regenerates the HUD and sets `reloadPlugin: true` without treating `reload` as `project: "reload"`
+    const hudReloadRes = mcp.executeConstructSlashCommand('hud reload', {
+      sessionId: 'slash_ses_1',
+      cwd: tmp.dir,
+    });
+    assert.equal(hudReloadRes.isError, false);
+    assert.equal(hudReloadRes.reloadPlugin, true);
+    assert.equal(hudReloadRes.openHud, true);
+    assert.doesNotMatch(hudReloadRes.output, /· reload · 0f/);
+    store.clearLastCliOutput();
 
     // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
     store.setHead('acme/alpha', {
