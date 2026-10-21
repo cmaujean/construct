@@ -101,6 +101,7 @@ const CONSTRUCT_CLI_COMMANDS = new Set([
   'dashboard',
   'view',
   'hud-server',
+  'pocket',
   'edit',
   'projects',
   'ls',

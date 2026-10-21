@@ -692,6 +692,8 @@ export default {
                   ? "text/css; charset=utf-8"
                   : ext === ".js"
                   ? "application/javascript; charset=utf-8"
+                  : ext === ".webmanifest"
+                  ? "application/manifest+json; charset=utf-8"
                   : "text/html; charset=utf-8"
               res.writeHead(200, { "Content-Type": mime })
               res.end(fs.readFileSync(absFile))
@@ -700,6 +702,53 @@ export default {
           } catch (_) {}
           res.writeHead(404)
           res.end("Not found")
+          return
+        }
+        if (req.method === "GET" && req.url?.startsWith("/pocket/snapshot")) {
+          void (async () => {
+            try {
+              const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
+              const qSid = parsedUrl.searchParams.get("sessionId") || lastActiveSessionId || ""
+              const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+              const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+              const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: qSid, dir: lastActiveDir })
+              res.writeHead(200, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: true, snapshot: snap }))
+            } catch (err) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: err.message }))
+            }
+          })()
+          return
+        }
+        if (req.method === "POST" && req.url?.startsWith("/pocket/cmd")) {
+          let body = ""
+          req.on("data", (chunk) => {
+            if (body.length < 32768) body += chunk
+          })
+          req.on("end", async () => {
+            try {
+              const cmdPayload = JSON.parse(body || "{}")
+              const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+              const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+              const mcpMod = loadSharedMcpEngine() || mcpEngine
+              const bState = {
+                activeSessionId: cmdPayload.sessionId || lastActiveSessionId || "",
+                activeDir: lastActiveDir || ctx.location?.directory || "",
+              }
+              await pocketMod.executePocketCommand(storeMod, mcpMod, cmdPayload, bState)
+              if (bState.activeSessionId) lastActiveSessionId = bState.activeSessionId
+              const snap = await pocketMod.collectPocketSnapshot(storeMod, {
+                sessionId: bState.activeSessionId,
+                dir: bState.activeDir,
+              })
+              res.writeHead(200, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: true, snapshot: snap }))
+            } catch (err) {
+              res.writeHead(500, { "Content-Type": "application/json" })
+              res.end(JSON.stringify({ ok: false, error: err.message }))
+            }
+          })
           return
         }
         if (req.method === "GET" && req.url?.startsWith("/hud")) {
@@ -784,6 +833,25 @@ export default {
                 return
               }
 
+              if (rawAction === "pocket-qr") {
+                const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+                const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+                const mcpMod = loadSharedMcpEngine() || mcpEngine
+                const cfg = pocketMod.loadOrCreatePocketConfig({ rotate: Boolean(payload.rotate) })
+                const url = pocketMod.buildPocketPairingUrl(cfg)
+                const localUrl = pocketMod.buildPocketPairingUrl(cfg, { baseUrl: "http://127.0.0.1:47420/docs/pocket.html" })
+                const svg = pocketMod.renderQrCodeSvg(url)
+                if (!hudServer._pocketBridge) {
+                  hudServer._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpMod, {
+                    sessionId: sid || lastActiveSessionId,
+                    dir: dir || lastActiveDir,
+                  })
+                }
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }))
+                return
+              }
+
               if (rawAction === "clear-cli") {
                 const engine = loadSharedMcpEngine() || mcpEngine
                 if (engine) mcpEngine = engine
@@ -850,7 +918,18 @@ export default {
         res.end()
       })
       hudServer.on("error", () => {})
-      hudServer.listen(47420, "127.0.0.1")
+      hudServer.listen(47420, "127.0.0.1", () => {
+        try {
+          const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+          if (fs.existsSync(pocketMod.pocketFilePath()) && !hudServer._pocketBridge) {
+            const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+            hudServer._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpEngine, {
+              sessionId: lastActiveSessionId,
+              dir: lastActiveDir,
+            })
+          }
+        } catch (_) {}
+      })
     } catch (_) {}
 
     return () => {

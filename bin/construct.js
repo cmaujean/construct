@@ -752,6 +752,8 @@ const OPTIONS = {
   all: { type: 'boolean' },
   use: { type: 'boolean' },
   restart: { type: 'boolean' },
+  rotate: { type: 'boolean' },
+  daemon: { type: 'boolean' },
   json: { type: 'boolean' },
   help: { type: 'boolean', short: 'h' },
 };
@@ -1824,6 +1826,38 @@ async function main(argv) {
       const srv = await store.startStandaloneHudServer(port, undefined, { restart: Boolean(o.restart) });
       if (!srv) return 0; // Port already bound by active instance
       return new Promise(() => {}); // Keep alive in background
+    }
+
+    case 'pocket': {
+      const pocketMod = require('../src/pocket');
+      const cfg = pocketMod.loadOrCreatePocketConfig({
+        rotate: Boolean(o.rotate),
+        relays: o.relays,
+      });
+      const url = pocketMod.buildPocketPairingUrl(cfg);
+      const localUrl = pocketMod.buildPocketPairingUrl(cfg, {
+        baseUrl: 'http://127.0.0.1:47420/docs/pocket.html',
+      });
+      const qrTerm = pocketMod.renderQrCodeTerminal(url);
+      if (o.json) {
+        console.log(JSON.stringify({ url, localUrl, relays: cfg.relays, created: cfg.created }, null, 2));
+      } else {
+        console.log('Construct Pocket — Encrypted Mobile Thin-Client Bridge (AES-256-GCM + WebSocket Relays)');
+        console.log(`Relays:        ${cfg.relays.join(', ')}`);
+        console.log(`Mobile URL:    ${url}`);
+        console.log(`Local Preview: ${localUrl}\n`);
+        console.log(qrTerm);
+        console.log('\nScan the QR code above with your phone camera (or click "📱 Pair Phone" in the Review-Pane HUD).');
+      }
+      if (o.daemon) {
+        pocketMod.startPocketBridge(store, mcp, {
+          sessionId: o.session || '',
+          dir: o.dir || process.cwd(),
+        });
+        console.log('Pocket bridge daemon listening on relays...');
+        return new Promise(() => {});
+      }
+      return 0;
     }
 
     case 'hud':

@@ -2231,6 +2231,78 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const storeLineCount = fs.readFileSync(path.join(__dirname, '..', 'src', 'store.js'), 'utf8').split('\n').length;
     assert.ok(storeLineCount < 3600, `expected src/store.js < 3600 lines, got ${storeLineCount}`);
 
+    // 6. Construct Pocket (`src/pocket.js` & `docs/pocket.html` — Node <-> W3C WebCrypto AES-256-GCM + QR + Relay Bridge)
+    const pocket = require('../src/pocket');
+    const vm = require('node:vm');
+    const pocketCfgFile = path.join(tmp.dir, 'pocket.json');
+    const pCfg1 = pocket.loadOrCreatePocketConfig({}, pocketCfgFile);
+    assert.equal(Buffer.from(pCfg1.seed, 'base64url').length, 32);
+    assert.equal(pCfg1.stateRouteTag.length, 64);
+    assert.equal(pCfg1.cmdRouteTag.length, 64);
+    assert.notEqual(pCfg1.stateRouteTag, pCfg1.cmdRouteTag);
+
+    // Verify QR Code matrix & SVG generation
+    const pairingUrl = pocket.buildPocketPairingUrl(pCfg1);
+    assert.match(pairingUrl, /https:\/\/cmaujean\.github\.io\/construct\/pocket\.html#k=/);
+    const qrMat = pocket.generateQrMatrix(pairingUrl);
+    assert.equal(qrMat.size, 37); // Version 5 (37x37)
+    const qrSvg = pocket.renderQrCodeSvg(pairingUrl);
+    assert.match(qrSvg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+
+    // Verify `docs/pocket.html` exists, has no README.md / docs/index.html leak, and its `<script>` compiles cleanly
+    const pocketHtmlPath = path.join(__dirname, '..', 'docs', 'pocket.html');
+    assert.ok(fs.existsSync(pocketHtmlPath));
+    const pocketHtml = fs.readFileSync(pocketHtmlPath, 'utf8');
+    const pocketScriptMatch = pocketHtml.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(pocketScriptMatch, 'docs/pocket.html must contain a <script> block');
+    assert.doesNotThrow(() => new vm.Script(pocketScriptMatch[1]), 'docs/pocket.html <script> must be valid JS');
+
+    // Verify Node `node:crypto` <-> W3C WebCrypto (`globalThis.crypto.subtle`) AES-256-GCM & HKDF interoperability
+    const sampleSnap = { v: 1, type: 'snapshot', activeSessionId: 'ses_mob_1', hud: { pill: '🦾 nightcity · #289' } };
+    const sealedPc = pocket.sealPocketEnvelope(pCfg1, 'pc2phone', sampleSnap);
+    const openedNode = pocket.openPocketEnvelope(pCfg1, 'pc2phone', sealedPc);
+    assert.deepEqual(openedNode, sampleSnap);
+
+    // Reject wrong direction (`phone2pc` vs `pc2phone`)
+    assert.throws(() => pocket.openPocketEnvelope(pCfg1, 'phone2pc', sealedPc), /direction/i);
+
+    // Decrypt `sealedPc` using W3C `crypto.subtle` (exact browser path in `docs/pocket.html`)
+    const seedBytes = Buffer.from(pCfg1.seed, 'base64url');
+    const webBaseKey = await globalThis.crypto.subtle.importKey('raw', seedBytes, 'HKDF', false, ['deriveKey', 'deriveBits']);
+    const webAeadKey = await globalThis.crypto.subtle.deriveKey(
+      { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: new TextEncoder().encode('construct-pocket-v1|aead') },
+      webBaseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    const webAad = new TextEncoder().encode(`construct-pocket-v1|pc2phone|${pCfg1.stateRouteTag}`);
+    const webPlainBuf = await globalThis.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: Buffer.from(sealedPc.iv, 'base64'), additionalData: webAad, tagLength: 128 },
+      webAeadKey,
+      Buffer.from(sealedPc.ct, 'base64')
+    );
+    const openedWeb = JSON.parse(new TextDecoder().decode(webPlainBuf));
+    assert.deepEqual(openedWeb, sampleSnap);
+
+    // Encrypt a `phone2pc` command using W3C `crypto.subtle` and decrypt with Node `pocket.openPocketEnvelope`
+    const phoneCmd = { action: 'construct-cli', args: 'discworld', sessionId: 'ses_mob_1' };
+    const cmdIv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+    const cmdAad = new TextEncoder().encode(`construct-pocket-v1|phone2pc|${pCfg1.cmdRouteTag}`);
+    const cmdCtBuf = await globalThis.crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv: cmdIv, additionalData: cmdAad, tagLength: 128 },
+      webAeadKey,
+      new TextEncoder().encode(JSON.stringify(phoneCmd))
+    );
+    const openedCmd = pocket.openPocketEnvelope(pCfg1, 'phone2pc', {
+      v: 1,
+      dir: 'phone2pc',
+      iv: Buffer.from(cmdIv).toString('base64'),
+      ct: Buffer.from(cmdCtBuf).toString('base64'),
+      ts: Date.now(),
+    });
+    assert.deepEqual(openedCmd, phoneCmd);
+
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');
     const siteRes = store.generateDocsSite({ outDir: siteOutDir });

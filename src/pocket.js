@@ -1,0 +1,888 @@
+'use strict';
+// Construct Pocket: Zero-VPN Encrypted Mobile Thin-Client Bridge.
+//
+// Connects a standalone mobile PWA (`docs/pocket.html` on GitHub Pages or local HUD server)
+// to this machine's live OpenCode server (`127.0.0.1:45278`) and Construct DB (`construct.db`)
+// over zero-signup NIP-01 WebSocket relays (`wss://nos.lol`, `wss://relay.damus.io`, or custom).
+//
+// Cryptographic contract (100% compatible between Node `node:crypto` and Browser `crypto.subtle`):
+//   - Master pairing seed `k`: 256-bit random secret (`crypto.randomBytes(32)`), carried only
+//     in the QR/URL `#k=<base64url>` fragment (never sent in HTTP requests to GitHub Pages).
+//   - Key derivation via `HKDF-SHA256` (32-byte zero salt):
+//       1. `aeadKey`:       info = `construct-pocket-v1|aead`        (32 bytes, AES-256-GCM)
+//       2. `stateRouteTag`: info = `construct-pocket-v1|route-state` (64 hex chars, PC -> Phone `#d` tag)
+//       3. `cmdRouteTag`:   info = `construct-pocket-v1|route-cmd`   (64 hex chars, Phone -> PC `#d` tag)
+//   - Payload encryption: `AES-256-GCM` with 96-bit random IV, 128-bit auth tag appended to
+//     ciphertext (`ciphertext || tag`, matching W3C WebCrypto `SubtleCrypto`), and authenticated
+//     `AAD` = `construct-pocket-v1|<dir>|<routeTag>`.
+//   - Outer relay transport: NIP-01 kind `4420` signed with BIP-340 `secp256k1` Schnorr (`src/relay.js`).
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const relay = require('./relay');
+const crdt = require('./crdt');
+
+const DEFAULT_POCKET_FILE = path.join(os.homedir(), '.config', 'opencode', 'pocket.json');
+const DEFAULT_PWA_BASE_URL = 'https://cmaujean.github.io/construct/pocket.html';
+
+function pocketFilePath() {
+  return process.env.CONSTRUCT_POCKET_FILE || DEFAULT_POCKET_FILE;
+}
+
+function derivePocketKeys(seedBase64Url) {
+  const seedBytes = Buffer.from(String(seedBase64Url || '').trim(), 'base64url');
+  if (seedBytes.length < 16) {
+    throw new Error('Pocket pairing seed must be at least 128 bits (256 bits recommended)');
+  }
+  const zeroSalt = Buffer.alloc(32, 0);
+  const aeadKey = Buffer.from(
+    crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|aead', 32)
+  );
+  const stateRouteTag = Buffer.from(
+    crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|route-state', 32)
+  ).toString('hex');
+  const cmdRouteTag = Buffer.from(
+    crypto.hkdfSync('sha256', seedBytes, zeroSalt, 'construct-pocket-v1|route-cmd', 32)
+  ).toString('hex');
+  return {
+    seed: seedBytes.toString('base64url'),
+    aeadKey,
+    stateRouteTag,
+    cmdRouteTag,
+  };
+}
+
+function loadOrCreatePocketConfig(options = {}, file = pocketFilePath()) {
+  if (!options.rotate && fs.existsSync(file)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (existing && existing.seed) {
+        if (options.relays) {
+          existing.relays = Array.isArray(options.relays)
+            ? options.relays
+            : String(options.relays)
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean);
+          fs.writeFileSync(file, JSON.stringify(existing, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+        }
+        const keys = derivePocketKeys(existing.seed);
+        return { ...existing, ...keys };
+      }
+    } catch (_) {}
+  }
+
+  const seed = crypto.randomBytes(32).toString('base64url');
+  const relays = options.relays
+    ? Array.isArray(options.relays)
+      ? options.relays
+      : String(options.relays)
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+    : [...crdt.DEFAULT_RELAYS];
+  const cfg = {
+    version: 1,
+    seed,
+    relays,
+    pwaBaseUrl: options.pwaBaseUrl || DEFAULT_PWA_BASE_URL,
+    created: new Date().toISOString(),
+  };
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+  const keys = derivePocketKeys(seed);
+  return { ...cfg, ...keys };
+}
+
+function buildPocketPairingUrl(cfg, options = {}) {
+  const baseUrl = options.baseUrl || cfg.pwaBaseUrl || DEFAULT_PWA_BASE_URL;
+  const relays = Array.isArray(cfg.relays) ? cfg.relays : [...crdt.DEFAULT_RELAYS];
+  const isDefaultRelays =
+    relays.length === crdt.DEFAULT_RELAYS.length &&
+    relays.every((r, i) => r === crdt.DEFAULT_RELAYS[i]);
+  const relayParam = !isDefaultRelays && relays.length ? `&r=${encodeURIComponent(relays.join(','))}` : '';
+  return `${baseUrl}#k=${cfg.seed}${relayParam}`;
+}
+
+// Seal a JSON payload with AES-256-GCM (WebCrypto-compatible `ciphertext || 16-byte tag`).
+function sealPocketEnvelope(keys, direction, payloadObj) {
+  const routeTag = direction === 'pc2phone' ? keys.stateRouteTag : keys.cmdRouteTag;
+  const aadStr = `construct-pocket-v1|${direction}|${routeTag}`;
+  const aad = Buffer.from(aadStr, 'utf8');
+  const iv = crypto.randomBytes(12);
+  const plaintext = Buffer.from(JSON.stringify(payloadObj), 'utf8');
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', keys.aeadKey, iv, { authTagLength: 16 });
+  cipher.setAAD(aad, { plaintextLength: plaintext.length });
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const ctWithTag = Buffer.concat([ciphertext, tag]);
+
+  return {
+    v: 1,
+    dir: direction,
+    iv: iv.toString('base64'),
+    ct: ctWithTag.toString('base64'),
+    ts: Date.now(),
+  };
+}
+
+function openPocketEnvelope(keys, expectedDirection, envelope) {
+  if (!envelope || envelope.v !== 1 || envelope.dir !== expectedDirection) {
+    throw new Error(`Invalid Pocket envelope direction (expected ${expectedDirection})`);
+  }
+  const routeTag = expectedDirection === 'pc2phone' ? keys.stateRouteTag : keys.cmdRouteTag;
+  const aadStr = `construct-pocket-v1|${expectedDirection}|${routeTag}`;
+  const aad = Buffer.from(aadStr, 'utf8');
+  const iv = Buffer.from(String(envelope.iv || ''), 'base64');
+  const ctWithTag = Buffer.from(String(envelope.ct || ''), 'base64');
+  if (iv.length !== 12 || ctWithTag.length < 16) {
+    throw new Error('Malformed Pocket AES-GCM IV or ciphertext');
+  }
+  const ciphertext = ctWithTag.subarray(0, ctWithTag.length - 16);
+  const tag = ctWithTag.subarray(ctWithTag.length - 16);
+
+  const decipher = crypto.createDecipheriv('aes-256-gcm', keys.aeadKey, iv, { authTagLength: 16 });
+  decipher.setAAD(aad, { plaintextLength: ciphertext.length });
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  return JSON.parse(plaintext.toString('utf8'));
+}
+
+// --- Zero-Dependency ISO/IEC 18004 QR Code Generator (Byte Mode, ECC Level L, Versions 1..10) ---
+const QR_VERSIONS = Object.freeze([
+  null,
+  { v: 1, size: 21, totalCodewords: 26, ecCodewordsPerBlock: 7, blocks1: 1, data1: 19, blocks2: 0, data2: 0, align: [] },
+  { v: 2, size: 25, totalCodewords: 44, ecCodewordsPerBlock: 10, blocks1: 1, data1: 34, blocks2: 0, data2: 0, align: [6, 18] },
+  { v: 3, size: 29, totalCodewords: 70, ecCodewordsPerBlock: 15, blocks1: 1, data1: 55, blocks2: 0, data2: 0, align: [6, 22] },
+  { v: 4, size: 33, totalCodewords: 100, ecCodewordsPerBlock: 20, blocks1: 1, data1: 80, blocks2: 0, data2: 0, align: [6, 26] },
+  { v: 5, size: 37, totalCodewords: 134, ecCodewordsPerBlock: 26, blocks1: 1, data1: 108, blocks2: 0, data2: 0, align: [6, 30] },
+  { v: 6, size: 41, totalCodewords: 172, ecCodewordsPerBlock: 18, blocks1: 2, data1: 68, blocks2: 0, data2: 0, align: [6, 34] },
+  { v: 7, size: 45, totalCodewords: 196, ecCodewordsPerBlock: 20, blocks1: 2, data1: 78, blocks2: 0, data2: 0, align: [6, 22, 38] },
+  { v: 8, size: 49, totalCodewords: 242, ecCodewordsPerBlock: 24, blocks1: 2, data1: 97, blocks2: 0, data2: 0, align: [6, 24, 42] },
+  { v: 9, size: 53, totalCodewords: 292, ecCodewordsPerBlock: 30, blocks1: 2, data1: 116, blocks2: 0, data2: 0, align: [6, 26, 46] },
+  { v: 10, size: 57, totalCodewords: 346, ecCodewordsPerBlock: 18, blocks1: 2, data1: 68, blocks2: 2, data2: 69, align: [6, 28, 50] },
+]);
+
+const GF_EXP = new Uint8Array(512);
+const GF_LOG = new Uint8Array(256);
+(function initGf256() {
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    GF_EXP[i] = x;
+    GF_LOG[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  for (let i = 255; i < 512; i++) GF_EXP[i] = GF_EXP[i - 255];
+})();
+
+function gfMul(a, b) {
+  if (a === 0 || b === 0) return 0;
+  return GF_EXP[GF_LOG[a] + GF_LOG[b]];
+}
+
+function rsGeneratorPoly(degree) {
+  let poly = new Uint8Array([1]);
+  for (let i = 0; i < degree; i++) {
+    const next = new Uint8Array(poly.length + 1);
+    const root = GF_EXP[i];
+    for (let j = 0; j < poly.length; j++) {
+      next[j] ^= poly[j];
+      next[j + 1] ^= gfMul(poly[j], root);
+    }
+    poly = next;
+  }
+  return poly;
+}
+
+function rsRemainder(dataBytes, degree) {
+  const gen = rsGeneratorPoly(degree);
+  const rem = new Uint8Array(degree);
+  for (let i = 0; i < dataBytes.length; i++) {
+    const factor = dataBytes[i] ^ rem[0];
+    rem.copyWithin(0, 1);
+    rem[degree - 1] = 0;
+    if (factor !== 0) {
+      for (let j = 0; j < degree; j++) {
+        rem[j] ^= gfMul(gen[j + 1], factor);
+      }
+    }
+  }
+  return rem;
+}
+
+function generateQrMatrix(text) {
+  const bytes = Buffer.from(String(text || ''), 'utf8');
+  let spec = null;
+  for (let v = 1; v < QR_VERSIONS.length; v++) {
+    const candidate = QR_VERSIONS[v];
+    const totalDataCap = candidate.blocks1 * candidate.data1 + candidate.blocks2 * candidate.data2;
+    const headerBytes = v <= 9 ? 2 : 3;
+    if (bytes.length + headerBytes <= totalDataCap) {
+      spec = candidate;
+      break;
+    }
+  }
+  if (!spec) {
+    throw new Error(`QR payload too long (${bytes.length} bytes; max 271 bytes)`);
+  }
+
+  const totalDataCodewords = spec.blocks1 * spec.data1 + spec.blocks2 * spec.data2;
+  const bits = [];
+  const pushBits = (val, len) => {
+    for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1);
+  };
+
+  // Byte mode indicator (0100) + character count
+  pushBits(0b0100, 4);
+  pushBits(bytes.length, spec.v <= 9 ? 8 : 16);
+  for (const b of bytes) pushBits(b, 8);
+
+  // Terminator (up to 4 zero bits) + byte boundary padding
+  const maxBits = totalDataCodewords * 8;
+  for (let i = 0; i < 4 && bits.length < maxBits; i++) bits.push(0);
+  while (bits.length % 8 !== 0) bits.push(0);
+
+  const dataCodewords = new Uint8Array(totalDataCodewords);
+  for (let i = 0; i < bits.length / 8; i++) {
+    let byteVal = 0;
+    for (let b = 0; b < 8; b++) byteVal = (byteVal << 1) | bits[i * 8 + b];
+    dataCodewords[i] = byteVal;
+  }
+  const padBytes = [0xec, 0x11];
+  for (let i = bits.length / 8, p = 0; i < totalDataCodewords; i++, p ^= 1) {
+    dataCodewords[i] = padBytes[p];
+  }
+
+  // Split into blocks and compute Reed-Solomon EC codewords
+  const dataBlocks = [];
+  const ecBlocks = [];
+  let offset = 0;
+  for (let i = 0; i < spec.blocks1; i++) {
+    const blk = dataCodewords.subarray(offset, offset + spec.data1);
+    offset += spec.data1;
+    dataBlocks.push(blk);
+    ecBlocks.push(rsRemainder(blk, spec.ecCodewordsPerBlock));
+  }
+  for (let i = 0; i < spec.blocks2; i++) {
+    const blk = dataCodewords.subarray(offset, offset + spec.data2);
+    offset += spec.data2;
+    dataBlocks.push(blk);
+    ecBlocks.push(rsRemainder(blk, spec.ecCodewordsPerBlock));
+  }
+
+  const finalCodewords = [];
+  const maxDataLen = Math.max(spec.data1, spec.data2);
+  for (let i = 0; i < maxDataLen; i++) {
+    for (const blk of dataBlocks) {
+      if (i < blk.length) finalCodewords.push(blk[i]);
+    }
+  }
+  for (let i = 0; i < spec.ecCodewordsPerBlock; i++) {
+    for (const ec of ecBlocks) {
+      finalCodewords.push(ec[i]);
+    }
+  }
+
+  const size = spec.size;
+  const modules = Array.from({ length: size }, () => new Uint8Array(size));
+  const isFunction = Array.from({ length: size }, () => new Uint8Array(size));
+
+  const setFunctionModule = (r, c, dark) => {
+    if (r < 0 || r >= size || c < 0 || c >= size) return;
+    modules[r][c] = dark ? 1 : 0;
+    isFunction[r][c] = 1;
+  };
+
+  // Finder patterns + separators
+  const drawFinder = (topR, leftC) => {
+    for (let dr = -1; dr <= 7; dr++) {
+      for (let dc = -1; dc <= 7; dc++) {
+        const r = topR + dr;
+        const c = leftC + dc;
+        if (r < 0 || r >= size || c < 0 || c >= size) continue;
+        const inOuter = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+        const onBorder = dr === 0 || dr === 6 || dc === 0 || dc === 6;
+        const inCore = dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4;
+        setFunctionModule(r, c, inOuter && (onBorder || inCore));
+      }
+    }
+  };
+  drawFinder(0, 0);
+  drawFinder(0, size - 7);
+  drawFinder(size - 7, 0);
+
+  // Timing patterns
+  for (let i = 8; i < size - 8; i++) {
+    setFunctionModule(6, i, i % 2 === 0);
+    setFunctionModule(i, 6, i % 2 === 0);
+  }
+
+  // Alignment patterns
+  const alignCoords = spec.align;
+  for (let i = 0; i < alignCoords.length; i++) {
+    for (let j = 0; j < alignCoords.length; j++) {
+      if (
+        (i === 0 && j === 0) ||
+        (i === 0 && j === alignCoords.length - 1) ||
+        (i === alignCoords.length - 1 && j === 0)
+      ) {
+        continue;
+      }
+      const cr = alignCoords[i];
+      const cc = alignCoords[j];
+      for (let dr = -2; dr <= 2; dr++) {
+        for (let dc = -2; dc <= 2; dc++) {
+          const dark = Math.max(Math.abs(dr), Math.abs(dc)) !== 1;
+          setFunctionModule(cr + dr, cc + dc, dark);
+        }
+      }
+    }
+  }
+
+  // Reserve format info + dark module
+  for (let i = 0; i <= 8; i++) {
+    if (i !== 6) {
+      if (!isFunction[8][i]) setFunctionModule(8, i, false);
+      if (!isFunction[i][8]) setFunctionModule(i, 8, false);
+    }
+  }
+  for (let i = 0; i < 8; i++) {
+    if (!isFunction[8][size - 1 - i]) setFunctionModule(8, size - 1 - i, false);
+    if (!isFunction[size - 1 - i][8]) setFunctionModule(size - 1 - i, 8, false);
+  }
+  setFunctionModule(size - 8, 8, true);
+
+  // Version info (for versions >= 7)
+  if (spec.v >= 7) {
+    let rem = spec.v;
+    for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+    const vBits = (spec.v << 12) | rem;
+    for (let i = 0; i < 18; i++) {
+      const dark = Boolean((vBits >>> i) & 1);
+      const a = size - 11 + (i % 3);
+      const b = Math.floor(i / 3);
+      setFunctionModule(a, b, dark);
+      setFunctionModule(b, a, dark);
+    }
+  }
+
+  // Place data & EC bits in zigzag columns
+  let bitIdx = 0;
+  const totalBits = finalCodewords.length * 8;
+  let upward = true;
+  for (let right = size - 1; right >= 1; right -= 2) {
+    if (right === 6) right = 5;
+    for (let vert = 0; vert < size; vert++) {
+      const r = upward ? size - 1 - vert : vert;
+      for (let j = 0; j < 2; j++) {
+        const c = right - j;
+        if (!isFunction[r][c]) {
+          let dark = false;
+          if (bitIdx < totalBits) {
+            const cw = finalCodewords[bitIdx >>> 3];
+            dark = Boolean((cw >>> (7 - (bitIdx & 7))) & 1);
+            bitIdx++;
+          }
+          // Apply mask 0: `(r + c) % 2 === 0`
+          if ((r + c) % 2 === 0) dark = !dark;
+          modules[r][c] = dark ? 1 : 0;
+        }
+      }
+    }
+    upward = !upward;
+  }
+
+  // Write Format Information for ECC Level L (01) + Mask 0 (000) -> data = 0b01000
+  const fmtData = (0b01 << 3) | 0b000;
+  let fmtRem = fmtData;
+  for (let i = 0; i < 10; i++) fmtRem = (fmtRem << 1) ^ ((fmtRem >>> 9) * 0x537);
+  const fmtBits = ((fmtData << 10) | fmtRem) ^ 0x5412;
+
+  for (let i = 0; i <= 5; i++) setFunctionModule(8, i, Boolean((fmtBits >>> i) & 1));
+  setFunctionModule(8, 7, Boolean((fmtBits >>> 6) & 1));
+  setFunctionModule(8, 8, Boolean((fmtBits >>> 7) & 1));
+  setFunctionModule(7, 8, Boolean((fmtBits >>> 8) & 1));
+  for (let i = 9; i < 15; i++) setFunctionModule(14 - i, 8, Boolean((fmtBits >>> i) & 1));
+
+  for (let i = 0; i < 8; i++) setFunctionModule(size - 1 - i, 8, Boolean((fmtBits >>> i) & 1));
+  for (let i = 8; i < 15; i++) setFunctionModule(8, size - 15 + i, Boolean((fmtBits >>> i) & 1));
+
+  return { size, modules, version: spec.v };
+}
+
+function renderQrCodeSvg(text, { margin = 3, scale = 5 } = {}) {
+  const { size, modules } = generateQrMatrix(text);
+  const total = size + margin * 2;
+  const px = total * scale;
+  let pathData = '';
+  for (let r = 0; r < size; r++) {
+    for (let c = 0; c < size; c++) {
+      if (modules[r][c]) {
+        pathData += `M${c + margin},${r + margin}h1v1h-1z`;
+      }
+    }
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${total} ${total}" width="${px}" height="${px}" shape-rendering="crispEdges"><rect width="${total}" height="${total}" fill="#ffffff"/><path d="${pathData}" fill="#000000"/></svg>`;
+}
+
+function renderQrCodeTerminal(text, { margin = 2 } = {}) {
+  const { size, modules } = generateQrMatrix(text);
+  const total = size + margin * 2;
+  const getMod = (r, c) => {
+    const mr = r - margin;
+    const mc = c - margin;
+    if (mr < 0 || mr >= size || mc < 0 || mc >= size) return 0; // white quiet zone
+    return modules[mr][mc] ? 1 : 0;
+  };
+  const lines = [];
+  for (let r = 0; r < total; r += 2) {
+    let rowStr = '  ';
+    for (let c = 0; c < total; c++) {
+      const topDark = getMod(r, c) === 1;
+      const botDark = r + 1 < total ? getMod(r + 1, c) === 1 : false;
+      if (topDark && botDark) rowStr += ' ';
+      else if (topDark && !botDark) rowStr += '▄';
+      else if (!topDark && botDark) rowStr += '▀';
+      else rowStr += '█';
+    }
+    lines.push(rowStr);
+  }
+  return lines.join('\n');
+}
+
+// --- OpenCode Server & Construct Snapshot Collector ---
+function resolveOpenCodeServiceConfig() {
+  const candidates = [];
+  if (process.env.XDG_STATE_HOME) {
+    candidates.push(path.join(process.env.XDG_STATE_HOME, 'opencode', 'service.json'));
+  }
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir();
+  if (home) {
+    candidates.push(path.join(home, '.local', 'state', 'opencode', 'service.json'));
+  }
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (parsed?.url && parsed?.password) return parsed;
+      } catch (_) {}
+    }
+  }
+  return null;
+}
+
+async function fetchOpenCodeApi(endpointPath, { method = 'GET', body = undefined } = {}) {
+  const svc = resolveOpenCodeServiceConfig();
+  if (!svc?.url || !svc?.password || typeof fetch !== 'function') return null;
+  const auth = 'Basic ' + Buffer.from(`opencode:${svc.password}`).toString('base64');
+  const url = `${String(svc.url).replace(/\/+$/, '')}${endpointPath}`;
+  const headers = { Authorization: auth };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const resp = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (resp.status === 204) return { ok: true };
+  if (!resp.ok) return null;
+  return await resp.json();
+}
+
+function summarizeOpenCodeMessage(msg) {
+  if (!msg || typeof msg !== 'object') return null;
+  const created = msg.time?.created || 0;
+  if (msg.type === 'user') {
+    return {
+      id: msg.id,
+      role: 'user',
+      text: String(msg.text || ''),
+      created,
+    };
+  }
+  if (msg.type === 'shell') {
+    return {
+      id: msg.id,
+      role: 'shell',
+      command: String(msg.command || ''),
+      status: String(msg.status || 'exited'),
+      output: String(msg.output?.output || '').slice(0, 4000),
+      created,
+    };
+  }
+  if (msg.type === 'assistant') {
+    const textParts = [];
+    const thinkingParts = [];
+    const tools = [];
+    for (const part of Array.isArray(msg.content) ? msg.content : []) {
+      if (part.type === 'text' && part.text) textParts.push(part.text);
+      else if (part.type === 'reasoning' && part.text) thinkingParts.push(part.text);
+      else if (part.type === 'tool') {
+        const st = part.state?.status || 'completed';
+        let preview = '';
+        if (Array.isArray(part.state?.content)) {
+          const firstText = part.state.content.find((c) => c && typeof c.text === 'string');
+          if (firstText) preview = firstText.text.slice(0, 600);
+        }
+        tools.push({
+          id: part.id,
+          name: part.name,
+          status: st,
+          preview,
+        });
+      }
+    }
+    return {
+      id: msg.id,
+      role: 'assistant',
+      text: textParts.join('\n\n'),
+      thinking: thinkingParts.join('\n').slice(0, 1200),
+      tools,
+      streaming: !msg.time?.completed && !msg.finish,
+      created,
+    };
+  }
+  return null;
+}
+
+async function collectPocketSnapshot(store, options = {}) {
+  let sessions = [];
+  let activeSessionId = String(options.sessionId || '');
+  let messages = [];
+  let pendingForms = [];
+  let pendingPermissions = [];
+  let sessionBusy = false;
+
+  try {
+    const sessJson = await fetchOpenCodeApi('/api/session');
+    if (Array.isArray(sessJson?.data)) {
+      // Exclude ephemeral child subagent sessions unless explicitly selected
+      sessions = sessJson.data
+        .filter((s) => !s.parentID || s.id === activeSessionId)
+        .slice(0, 15)
+        .map((s) => ({
+          id: s.id,
+          title: s.title || s.id.slice(0, 10),
+          dir: s.location?.directory || '',
+          updated: s.time?.updated || 0,
+          idle: s.time?.idle || 0,
+        }));
+      if (!activeSessionId && sessions.length > 0) {
+        activeSessionId = sessions[0].id;
+      }
+    }
+  } catch (_) {}
+
+  let activeDir = String(options.dir || '');
+  if (activeSessionId) {
+    const matchedSess = sessions.find((s) => s.id === activeSessionId);
+    if (matchedSess && matchedSess.dir && !activeDir) {
+      activeDir = matchedSess.dir;
+    }
+    if (matchedSess && matchedSess.updated > (matchedSess.idle || 0) + 1500) {
+      sessionBusy = true;
+    }
+    try {
+      const [msgJson, formJson, permJson] = await Promise.all([
+        fetchOpenCodeApi(`/api/session/${encodeURIComponent(activeSessionId)}/message`),
+        fetchOpenCodeApi(`/api/session/${encodeURIComponent(activeSessionId)}/form`),
+        fetchOpenCodeApi(`/api/session/${encodeURIComponent(activeSessionId)}/permission`),
+      ]);
+      if (Array.isArray(msgJson?.data)) {
+        // `/api/session/{id}/message` returns newest-first; take top 18 and reverse to chronological
+        messages = msgJson.data
+          .slice(0, 18)
+          .reverse()
+          .map(summarizeOpenCodeMessage)
+          .filter(Boolean);
+        if (messages.some((m) => m.streaming)) sessionBusy = true;
+      }
+      if (Array.isArray(formJson?.data)) {
+        pendingForms = formJson.data;
+      }
+      if (Array.isArray(permJson?.data)) {
+        pendingPermissions = permJson.data;
+      }
+    } catch (_) {}
+  }
+
+  let hud = null;
+  try {
+    hud = store.getHudSnapshot({
+      sessionId: activeSessionId,
+      dir: activeDir,
+      project: options.project || '',
+    });
+  } catch (_) {}
+
+  return {
+    v: 1,
+    type: 'snapshot',
+    ts: Date.now(),
+    activeSessionId,
+    sessionBusy,
+    sessions,
+    messages,
+    pendingForms,
+    pendingPermissions,
+    hud,
+  };
+}
+
+async function executePocketCommand(store, mcp, cmdPayload = {}, bridgeState = {}) {
+  const action = String(cmdPayload.action || '').trim().toLowerCase();
+  const targetSessionId = String(cmdPayload.sessionId || bridgeState.activeSessionId || '');
+  const targetDir = String(cmdPayload.dir || bridgeState.activeDir || process.cwd());
+
+  if (action === 'select-session' && cmdPayload.sessionId) {
+    bridgeState.activeSessionId = String(cmdPayload.sessionId);
+    if (cmdPayload.dir) bridgeState.activeDir = String(cmdPayload.dir);
+    return { ok: true, action };
+  }
+
+  if (action === 'new-session') {
+    const created = await fetchOpenCodeApi('/api/session', {
+      method: 'POST',
+      body: { title: String(cmdPayload.title || 'Mobile Session') },
+    });
+    if (created?.data?.id) {
+      bridgeState.activeSessionId = created.data.id;
+    }
+    return { ok: Boolean(created?.data?.id), action, sessionId: created?.data?.id || '' };
+  }
+
+  if (action === 'prompt' && targetSessionId && cmdPayload.text) {
+    const delivery = cmdPayload.delivery === 'queue' ? 'queue' : 'steer';
+    await fetchOpenCodeApi(`/api/session/${encodeURIComponent(targetSessionId)}/prompt`, {
+      method: 'POST',
+      body: {
+        text: String(cmdPayload.text),
+        delivery,
+      },
+    });
+    return { ok: true, action };
+  }
+
+  if (action === 'interrupt' && targetSessionId) {
+    await fetchOpenCodeApi(`/api/session/${encodeURIComponent(targetSessionId)}/interrupt`, {
+      method: 'POST',
+      body: { continue: false },
+    });
+    return { ok: true, action };
+  }
+
+  if (action === 'reply-form' && targetSessionId && cmdPayload.formId) {
+    await fetchOpenCodeApi(
+      `/api/session/${encodeURIComponent(targetSessionId)}/form/${encodeURIComponent(cmdPayload.formId)}/reply`,
+      {
+        method: 'POST',
+        body: { answers: cmdPayload.answers || {} },
+      }
+    );
+    return { ok: true, action };
+  }
+
+  if (action === 'reply-permission' && targetSessionId && cmdPayload.requestId) {
+    const decision = ['once', 'always', 'reject'].includes(cmdPayload.decision) ? cmdPayload.decision : 'reject';
+    await fetchOpenCodeApi(
+      `/api/session/${encodeURIComponent(targetSessionId)}/permission/${encodeURIComponent(cmdPayload.requestId)}/reply`,
+      {
+        method: 'POST',
+        body: { decision },
+      }
+    );
+    return { ok: true, action };
+  }
+
+  if (action === 'construct-cli' && cmdPayload.args) {
+    const res = mcp.executeConstructSlashCommand(String(cmdPayload.args), {
+      sessionId: targetSessionId,
+      cwd: targetDir,
+    });
+    return { ok: !res.isError, action, cli: res };
+  }
+
+  if (action === 'ack-msg' && cmdPayload.id) {
+    store.ackMessage(cmdPayload.id);
+    return { ok: true, action };
+  }
+
+  if (action === 'hide-msg' && cmdPayload.id) {
+    store.hideMessage(cmdPayload.id);
+    return { ok: true, action };
+  }
+
+  if (action === 'reply-msg' && cmdPayload.id && cmdPayload.body) {
+    store.replyMessage(cmdPayload.id, String(cmdPayload.body), {
+      via: cmdPayload.via || '',
+      sessionId: targetSessionId,
+    });
+    return { ok: true, action };
+  }
+
+  if (action === 'send-msg' && cmdPayload.to && cmdPayload.body) {
+    store.sendMessage({
+      to: String(cmdPayload.to),
+      via: cmdPayload.via || '',
+      body: String(cmdPayload.body),
+      sessionId: targetSessionId,
+    });
+    return { ok: true, action };
+  }
+
+  return { ok: true, action: action || 'ping' };
+}
+
+// --- Persistent Multi-Relay WebSocket Bridge Daemon ---
+function startPocketBridge(store, mcp, options = {}) {
+  const cfg = loadOrCreatePocketConfig(options);
+  const bridgeState = {
+    activeSessionId: options.sessionId || '',
+    activeDir: options.dir || process.cwd(),
+    seenCmdIds: new Set(),
+    sockets: new Map(),
+    stopped: false,
+    lastSnapshotHash: '',
+  };
+
+  const broadcastSnapshot = async (force = false) => {
+    if (bridgeState.stopped) return null;
+    try {
+      const currentCfg = loadOrCreatePocketConfig();
+      const snap = await collectPocketSnapshot(store, {
+        sessionId: bridgeState.activeSessionId,
+        dir: bridgeState.activeDir,
+      });
+      if (snap.activeSessionId && !bridgeState.activeSessionId) {
+        bridgeState.activeSessionId = snap.activeSessionId;
+      }
+      const sigObj = {
+        sid: snap.activeSessionId,
+        busy: snap.sessionBusy,
+        lastMsg: snap.messages[snap.messages.length - 1]?.id || '',
+        lastMsgLen: snap.messages[snap.messages.length - 1]?.text?.length || 0,
+        forms: snap.pendingForms.length,
+        perms: snap.pendingPermissions.length,
+        pill: snap.hud?.pill || '',
+        cliTs: snap.hud?.lastCliOutput?.ts || '',
+      };
+      const sigStr = JSON.stringify(sigObj);
+      if (!force && sigStr === bridgeState.lastSnapshotHash) return snap;
+      bridgeState.lastSnapshotHash = sigStr;
+
+      const sealed = sealPocketEnvelope(currentCfg, 'pc2phone', snap);
+      const event = relay.buildNostrWrapperEvent(currentCfg.stateRouteTag, sealed);
+      const msgStr = JSON.stringify(['EVENT', event]);
+      for (const ws of bridgeState.sockets.values()) {
+        if (ws && ws.readyState === 1) {
+          try {
+            ws.send(msgStr);
+          } catch (_) {}
+        }
+      }
+      return snap;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const handleIncomingRelayEvent = async (ev) => {
+    if (!ev || !ev.id || bridgeState.seenCmdIds.has(ev.id)) return;
+    bridgeState.seenCmdIds.add(ev.id);
+    while (bridgeState.seenCmdIds.size > 200) {
+      const oldest = bridgeState.seenCmdIds.values().next().value;
+      bridgeState.seenCmdIds.delete(oldest);
+    }
+    try {
+      const currentCfg = loadOrCreatePocketConfig();
+      const rawEnvelope = JSON.parse(Buffer.from(String(ev.content || ''), 'base64').toString('utf8'));
+      const cmdPayload = openPocketEnvelope(currentCfg, 'phone2pc', rawEnvelope);
+      if (Math.abs(Date.now() - Number(rawEnvelope.ts || 0)) > 5 * 60 * 1000) return;
+      await executePocketCommand(store, mcp, cmdPayload, bridgeState);
+      await broadcastSnapshot(true);
+    } catch (_) {}
+  };
+
+  const connectRelay = (url) => {
+    if (bridgeState.stopped) return;
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (_) {
+      return;
+    }
+    bridgeState.sockets.set(url, ws);
+    const subId = 'p_' + crypto.randomBytes(4).toString('hex');
+
+    ws.onopen = () => {
+      try {
+        const currentCfg = loadOrCreatePocketConfig();
+        const sinceSec = Math.floor(Date.now() / 1000) - 30;
+        ws.send(JSON.stringify(['REQ', subId, { kinds: [4420], '#d': [currentCfg.cmdRouteTag], since: sinceSec }]));
+        void broadcastSnapshot(true);
+      } catch (_) {}
+    };
+
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(String(msg.data));
+        if (Array.isArray(data) && data[0] === 'EVENT' && data[2]) {
+          void handleIncomingRelayEvent(data[2]);
+        }
+      } catch (_) {}
+    };
+
+    ws.onerror = () => {};
+    ws.onclose = () => {
+      bridgeState.sockets.delete(url);
+      if (!bridgeState.stopped) {
+        setTimeout(() => connectRelay(url), 5000);
+      }
+    };
+  };
+
+  for (const rUrl of cfg.relays) {
+    connectRelay(rUrl);
+  }
+
+  const pollTimer = setInterval(() => {
+    void broadcastSnapshot(false);
+  }, Number(options.pollIntervalMs || 2000));
+  if (typeof pollTimer.unref === 'function') pollTimer.unref();
+
+  return {
+    cfg,
+    bridgeState,
+    broadcastSnapshot,
+    stop() {
+      bridgeState.stopped = true;
+      clearInterval(pollTimer);
+      for (const ws of bridgeState.sockets.values()) {
+        try {
+          ws.close();
+        } catch (_) {}
+      }
+      bridgeState.sockets.clear();
+    },
+  };
+}
+
+module.exports = {
+  DEFAULT_POCKET_FILE,
+  DEFAULT_PWA_BASE_URL,
+  pocketFilePath,
+  derivePocketKeys,
+  loadOrCreatePocketConfig,
+  buildPocketPairingUrl,
+  sealPocketEnvelope,
+  openPocketEnvelope,
+  generateQrMatrix,
+  renderQrCodeSvg,
+  renderQrCodeTerminal,
+  collectPocketSnapshot,
+  executePocketCommand,
+  startPocketBridge,
+};

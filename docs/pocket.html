@@ -1,0 +1,1219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0b0e14" />
+<link rel="manifest" href="pocket.webmanifest" />
+<title>Construct Pocket</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #131822;
+    --panel-alt: #1a2130;
+    --border: #252e3f;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --warn: #d29922;
+    --ok: #3fb950;
+    --danger: #f85149;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    overflow: hidden;
+  }
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-width: 600px;
+    margin: 0 auto;
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+  }
+  /* Header */
+  .top-bar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 10px 8px 10px;
+    flex-shrink: 0;
+  }
+  .top-row-1 {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+  .session-select {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .icon-btn {
+    background: var(--panel-alt);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .icon-btn.primary { border-color: var(--accent); color: var(--accent); }
+  .icon-btn.danger { border-color: var(--danger); color: var(--danger); }
+  .top-row-2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--muted);
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 99px;
+    background: var(--panel-alt);
+    font-size: 11px;
+    color: var(--accent);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .pill.ok { color: var(--ok); background: rgba(63, 185, 80, 0.14); }
+  .pill.warn { color: var(--warn); background: rgba(210, 153, 34, 0.16); }
+  .pill.danger { color: var(--danger); background: rgba(248, 81, 73, 0.16); }
+
+  /* Content Views */
+  .view-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .view-area.active { display: flex; }
+
+  /* Chat Messages */
+  .msg-bubble {
+    border-radius: 10px;
+    padding: 10px 12px;
+    line-height: 1.45;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+    font-size: 13.5px;
+  }
+  .msg-user {
+    align-self: flex-end;
+    background: rgba(88, 166, 255, 0.16);
+    border: 1px solid rgba(88, 166, 255, 0.4);
+    max-width: 88%;
+  }
+  .msg-assistant {
+    align-self: stretch;
+    background: var(--panel);
+    border: 1px solid var(--border);
+  }
+  .msg-shell {
+    align-self: stretch;
+    background: #090c10;
+    border: 1px solid var(--border);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+  }
+  .msg-text {
+    white-space: pre-wrap;
+  }
+  .tool-chip {
+    display: inline-block;
+    margin-top: 6px;
+    margin-right: 5px;
+    padding: 3px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .tool-preview {
+    display: none;
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #080a0f;
+    border-radius: 5px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: pre-wrap;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+
+  /* Interactive Blocker Cards (Forms & Permissions) */
+  .blocker-stack {
+    flex-shrink: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--warn);
+    padding: 8px 10px;
+    max-height: 42vh;
+    overflow-y: auto;
+    display: none;
+  }
+  .blocker-card {
+    background: rgba(210, 153, 34, 0.1);
+    border: 1px solid var(--warn);
+    border-radius: 8px;
+    padding: 9px 10px;
+    margin-bottom: 8px;
+  }
+  .blocker-card:last-child { margin-bottom: 0; }
+  .opt-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-top: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .opt-btn:active, .opt-btn.selected {
+    border-color: var(--accent);
+    background: rgba(88, 166, 255, 0.16);
+  }
+
+  /* Composer */
+  .composer-bar {
+    flex-shrink: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .composer-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 14px;
+    resize: none;
+  }
+  .composer-input:focus { outline: none; border-color: var(--accent); }
+  .composer-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Cards & Grids */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .card-title {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .crew-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .crew-btn {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+    cursor: pointer;
+  }
+  .crew-btn.active {
+    border-color: var(--accent);
+    background: rgba(88, 166, 255, 0.18);
+    color: #fff;
+  }
+  .cli-pre {
+    background: #080a0f;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 8px 0 0 0;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+
+  /* Bottom Tab Nav */
+  .bottom-nav {
+    flex-shrink: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .nav-tab {
+    background: none;
+    border: none;
+    color: var(--muted);
+    padding: 10px 4px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+  }
+  .nav-tab.active {
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.08);
+  }
+
+  /* Pairing Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.78);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 50;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    width: 100%;
+    max-width: 420px;
+  }
+  .text-input {
+    width: 100%;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-family: inherit;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <!-- Header -->
+  <div class="top-bar">
+    <div class="top-row-1">
+      <select id="session-select" class="session-select" onchange="onSelectSession(this.value)">
+        <option value="">Connecting to Construct PC...</option>
+      </select>
+      <button class="icon-btn" onclick="onNewSession()">+ New</button>
+      <button class="icon-btn" onclick="requestRefresh()">↻</button>
+      <button class="icon-btn" onclick="openPairModal()">🔗</button>
+    </div>
+    <div class="top-row-2">
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+        <span id="conn-pill" class="pill warn">🟡 Relay...</span>
+        <span id="hud-pill" class="pill">🦾 construct</span>
+      </div>
+      <span id="busy-pill" class="pill ok">✓ Idle</span>
+    </div>
+  </div>
+
+  <!-- TAB 1: Live Session Chat -->
+  <div id="view-chat" class="view-area active">
+    <div id="chat-messages" style="display:flex;flex-direction:column;gap:10px;">
+      <div class="card" style="text-align:center;color:var(--muted);">
+        Waiting for encrypted snapshot from your PC...
+      </div>
+    </div>
+  </div>
+
+  <!-- Pending Question Forms & Tool Permissions -->
+  <div id="blocker-stack" class="blocker-stack"></div>
+
+  <!-- Sticky Prompt Composer (shown on Chat tab) -->
+  <div id="composer-bar" class="composer-bar">
+    <textarea id="prompt-input" class="composer-input" rows="2" placeholder="Prompt or steer OpenCode session..."></textarea>
+    <div class="composer-actions">
+      <div style="display:flex;gap:6px;">
+        <button class="icon-btn danger" onclick="sendInterrupt()">⏹ Stop</button>
+        <span id="send-toast" style="font-size:11.5px;color:var(--ok);align-self:center;"></span>
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="icon-btn" onclick="sendPrompt('queue')">Queue</button>
+        <button class="icon-btn primary" onclick="sendPrompt('steer')">⚡ Send / Steer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 2: Crew Switcher & Construct CLI -->
+  <div id="view-crew" class="view-area">
+    <div class="card">
+      <div class="card-title">15 Crew Banks (Tap to Slot)</div>
+      <div class="crew-grid" id="crew-bank-grid">
+        <button class="crew-btn" data-pack="sprawl" onclick="runConstructCli('sprawl')">🌃 Sprawl</button>
+        <button class="crew-btn" data-pack="nightcity" onclick="runConstructCli('nightcity')">🦾 Night City</button>
+        <button class="crew-btn" data-pack="anathem" onclick="runConstructCli('anathem')">🏛️ Anathem</button>
+        <button class="crew-btn" data-pack="cryptonomicon" onclick="runConstructCli('cryptonomicon')">🔐 Crypto</button>
+        <button class="crew-btn" data-pack="shadowrun" onclick="runConstructCli('shadowrun')">🐉 Shadowrun</button>
+        <button class="crew-btn" data-pack="dresden" onclick="runConstructCli('dresden')">🕯️ Dresden</button>
+        <button class="crew-btn" data-pack="amber" onclick="runConstructCli('amber')">🦄 Amber</button>
+        <button class="crew-btn" data-pack="laundry" onclick="runConstructCli('laundry')">🐙 Laundry</button>
+        <button class="crew-btn" data-pack="tolkien" onclick="runConstructCli('tolkien')">💍 Tolkien</button>
+        <button class="crew-btn" data-pack="discworld" onclick="runConstructCli('discworld')">🐢 Discworld</button>
+        <button class="crew-btn" data-pack="reamde" onclick="runConstructCli('reamde')">🏔️ REAMDE</button>
+        <button class="crew-btn" data-pack="irondruid" onclick="runConstructCli('irondruid')">🐺 Iron Druid</button>
+        <button class="crew-btn" data-pack="prydain" onclick="runConstructCli('prydain')">⚔️ Prydain</button>
+        <button class="crew-btn" data-pack="clockwork" onclick="runConstructCli('clockwork')">🥛 Clockwork</button>
+        <button class="crew-btn" data-pack="generic" onclick="runConstructCli('generic')">⚙️ Generic</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Bench Substitutions</div>
+      <div class="crew-grid">
+        <button class="crew-btn" onclick="runConstructCli('sub panam')">🔴 Panam</button>
+        <button class="crew-btn" onclick="runConstructCli('sub takemura')">🟣 Takemura</button>
+        <button class="crew-btn" onclick="runConstructCli('sub reed')">🛡️ Reed</button>
+        <button class="crew-btn" onclick="runConstructCli('sub weatherwax')">🟣 Weatherwax</button>
+        <button class="crew-btn" onclick="runConstructCli('sub angua')">🟠 Angua</button>
+        <button class="crew-btn" onclick="runConstructCli('sub death')">🛡️ DEATH</button>
+        <button class="crew-btn" onclick="runConstructCli('sub toot')">⚡ Toot-Toot</button>
+        <button class="crew-btn" onclick="runConstructCli('sub smeagol')">⚡ Sméagol</button>
+        <button class="crew-btn" onclick="runConstructCli('sub lodoghir')">🟣 Lodoghir</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Construct CLI Console</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <input id="cli-input" class="text-input" placeholder="e.g. help, help tape, tape -n 10, zoom 289..." />
+        <button class="icon-btn primary" onclick="runCliFromInput()">▶ Run</button>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="icon-btn" onclick="runConstructCli('help')">📖 Help</button>
+        <button class="icon-btn" onclick="runConstructCli('tape -n 12')">📼 Tape</button>
+        <button class="icon-btn" onclick="runConstructCli('projects')">🗂️ Projects</button>
+        <button class="icon-btn" onclick="runConstructCli('sync')">🔄 Sync</button>
+        <button class="icon-btn" onclick="runConstructCli('upgrade')">⬆️ Upgrade</button>
+      </div>
+      <pre id="cli-output" class="cli-pre">(run any command above)</pre>
+    </div>
+  </div>
+
+  <!-- TAB 3: Construct Comms -->
+  <div id="view-comms" class="view-area">
+    <div class="card">
+      <div class="card-title">Dispatch Courier Cameo</div>
+      <div style="display:flex;gap:6px;margin-bottom:6px;">
+        <input id="msg-to" class="text-input" placeholder="To (e.g. mike)" value="mike" style="width:45%;" />
+        <input id="msg-via" class="text-input" placeholder="Via ROM (e.g. angua, toot)" value="rogue" style="width:55%;" />
+      </div>
+      <div style="display:flex;gap:6px;">
+        <input id="msg-body" class="text-input" placeholder="Message..." />
+        <button class="icon-btn primary" onclick="sendNewCourier()">📬 Send</button>
+      </div>
+    </div>
+    <div id="comms-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+  </div>
+
+  <!-- TAB 4: Tape, State Head & Gotchas -->
+  <div id="view-tape" class="view-area">
+    <div class="card">
+      <div class="card-title">State Head — <span id="tape-proj">workspace</span></div>
+      <div style="font-size:12.5px;"><strong>WHERE IT STANDS:</strong> <span id="tape-state">(unset)</span></div>
+      <div style="font-size:12.5px;margin-top:6px;"><strong>NEXT:</strong> <span id="tape-next">(unset)</span></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Open Threads (<span id="open-count">0</span>)</div>
+      <div id="open-list" style="font-size:12.5px;color:var(--muted);">(none)</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Recent Sequential Tape (Tap #seq to Zoom)</div>
+      <div id="tape-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Project Gotchas</div>
+      <div id="gotcha-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+  </div>
+
+  <!-- Bottom Tab Navigation -->
+  <div class="bottom-nav">
+    <button class="nav-tab active" data-tab="chat" onclick="switchTab('chat')">💬<span>Session</span></button>
+    <button class="nav-tab" data-tab="crew" onclick="switchTab('crew')">🦾<span>Crew &amp; CLI</span></button>
+    <button class="nav-tab" data-tab="comms" onclick="switchTab('comms')">📬<span id="nav-comms-label">Comms</span></button>
+    <button class="nav-tab" data-tab="tape" onclick="switchTab('tape')">📼<span>Tape</span></button>
+  </div>
+</div>
+
+<!-- Pairing Modal -->
+<div id="pair-modal" class="modal-backdrop">
+  <div class="modal-box">
+    <div class="card-title">Construct Pocket Pairing</div>
+    <p style="font-size:12.5px;color:var(--muted);margin-top:0;">
+      Scan the QR code from <code>construct pocket</code> (or click <strong>📱 Pair Phone</strong> in your PC HUD), or paste the pairing URL / <code>#k=...</code> seed below:
+    </p>
+    <input id="pair-seed-input" class="text-input" placeholder="Paste https://...#k=... or seed" style="margin-bottom:8px;" />
+    <input id="pair-relays-input" class="text-input" placeholder="Relays (comma-separated)" value="wss://nos.lol,wss://relay.damus.io" style="margin-bottom:10px;" />
+    <div style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="icon-btn" onclick="closePairModal()">Cancel</button>
+      <button class="icon-btn primary" onclick="savePairingFromModal()">Save &amp; Connect</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- 1. Embedded Pure-BigInt secp256k1 BIP-340 Schnorr Signer (Zero External Dependencies) ---
+const SECP_P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
+const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+const SECP_GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
+const SECP_GY = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
+
+function mod(a, m = SECP_P) {
+  const r = a % m;
+  return r >= 0n ? r : r + m;
+}
+function modPow(base, exp, m = SECP_P) {
+  let res = 1n, b = mod(base, m), e = exp;
+  while (e > 0n) {
+    if (e & 1n) res = (res * b) % m;
+    b = (b * b) % m;
+    e >>= 1n;
+  }
+  return res;
+}
+function modInv(a, m = SECP_P) { return modPow(a, m - 2n, m); }
+function pointDouble(pt) {
+  if (!pt) return null;
+  const [X1, Y1, Z1] = pt;
+  if (Y1 === 0n || Z1 === 0n) return null;
+  const S = mod(4n * X1 * Y1 * Y1);
+  const M = mod(3n * X1 * X1);
+  const X3 = mod(M * M - 2n * S);
+  const Y2 = mod(Y1 * Y1);
+  const Y3 = mod(M * (S - X3) - 8n * Y2 * Y2);
+  const Z3 = mod(2n * Y1 * Z1);
+  return [X3, Y3, Z3];
+}
+function pointAdd(p1, p2) {
+  if (!p1) return p2;
+  if (!p2) return p1;
+  const [X1, Y1, Z1] = p1, [X2, Y2, Z2] = p2;
+  const Z1Z1 = mod(Z1 * Z1), Z2Z2 = mod(Z2 * Z2);
+  const U1 = mod(X1 * Z2Z2), U2 = mod(X2 * Z1Z1);
+  const S1 = mod(Y1 * Z2 * Z2Z2), S2 = mod(Y2 * Z1 * Z1Z1);
+  if (U1 === U2) return S1 === S2 ? pointDouble(p1) : null;
+  const H = mod(U2 - U1), I = mod(4n * H * H), J = mod(H * I);
+  const r = mod(2n * (S2 - S1)), V = mod(U1 * I);
+  const X3 = mod(r * r - J - 2n * V);
+  const Y3 = mod(r * (V - X3) - 2n * S1 * J);
+  const Z3 = mod(((Z1 + Z2) * (Z1 + Z2) - Z1Z1 - Z2Z2) * H);
+  return [X3, Y3, Z3];
+}
+function toAffine(pt) {
+  if (!pt || pt[2] === 0n) return null;
+  const invZ = modInv(pt[2], SECP_P), invZ2 = mod(invZ * invZ), invZ3 = mod(invZ2 * invZ);
+  return [mod(pt[0] * invZ2), mod(pt[1] * invZ3)];
+}
+function pointMul(kScalar) {
+  let k = mod(kScalar, SECP_N);
+  if (k === 0n) return null;
+  let res = null, addend = [SECP_GX, SECP_GY, 1n];
+  while (k > 0n) {
+    if (k & 1n) res = pointAdd(res, addend);
+    addend = pointDouble(addend);
+    k >>= 1n;
+  }
+  return toAffine(res);
+}
+function bytesToHex(u8) {
+  return Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+function hexToBytes(hex) {
+  const clean = String(hex || '').trim();
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+function bigIntTo32Bytes(n) { return hexToBytes(n.toString(16).padStart(64, '0')); }
+function bytesToBigInt(u8) { return BigInt('0x' + bytesToHex(u8)); }
+function base64ToBytes(b64) {
+  const bin = atob(String(b64 || '').replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function bytesToBase64(u8) {
+  let bin = '';
+  for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+  return btoa(bin);
+}
+async function sha256Bytes(...chunks) {
+  const total = chunks.reduce((acc, c) => acc + c.length, 0);
+  const merged = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { merged.set(c, off); off += c.length; }
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', merged));
+}
+async function taggedHash(tag, ...buffers) {
+  const tagBytes = new TextEncoder().encode(tag);
+  const tagHash = await sha256Bytes(tagBytes);
+  return await sha256Bytes(tagHash, tagHash, ...buffers);
+}
+async function schnorrSignWeb(msg32Bytes, privKeyBytes) {
+  const d0 = bytesToBigInt(privKeyBytes);
+  const Ppt = pointMul(d0);
+  const d = (Ppt[1] & 1n) === 0n ? d0 : SECP_N - d0;
+  const pxBytes = bigIntTo32Bytes(Ppt[0]);
+  const dBytes = bigIntTo32Bytes(d);
+  const auxRand = crypto.getRandomValues(new Uint8Array(32));
+  const auxHash = await taggedHash('BIP0340/aux', auxRand);
+  const t = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) t[i] = dBytes[i] ^ auxHash[i];
+  const rand = await taggedHash('BIP0340/nonce', t, pxBytes, msg32Bytes);
+  const k0 = mod(bytesToBigInt(rand), SECP_N);
+  const R = pointMul(k0);
+  const k = (R[1] & 1n) === 0n ? k0 : SECP_N - k0;
+  const rxBytes = bigIntTo32Bytes(R[0]);
+  const eHash = await taggedHash('BIP0340/challenge', rxBytes, pxBytes, msg32Bytes);
+  const e = mod(bytesToBigInt(eHash), SECP_N);
+  const s = mod(k + e * d, SECP_N);
+  const sig = new Uint8Array(64);
+  sig.set(rxBytes, 0);
+  sig.set(bigIntTo32Bytes(s), 32);
+  return { pubkeyHex: bytesToHex(pxBytes), sigHex: bytesToHex(sig) };
+}
+
+// --- 2. Key Derivation & AES-256-GCM Envelope Helpers ---
+let pocketKeys = null;
+let relaySockets = new Map();
+let latestSnapshot = null;
+let currentSessionId = '';
+const isLocalLoopback = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+
+async function deriveWebPocketKeys(seedB64Url) {
+  const seedBytes = base64ToBytes(seedB64Url);
+  const baseKey = await crypto.subtle.importKey('raw', seedBytes, 'HKDF', false, ['deriveBits', 'deriveKey']);
+  const zeroSalt = new Uint8Array(32);
+  const enc = new TextEncoder();
+
+  const aeadKey = await crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-v1|aead') },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  const stateRouteBits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-v1|route-state') },
+    baseKey,
+    256
+  );
+  const cmdRouteBits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-pocket-v1|route-cmd') },
+    baseKey,
+    256
+  );
+  const stateRouteTag = bytesToHex(new Uint8Array(stateRouteBits));
+  const cmdRouteTag = bytesToHex(new Uint8Array(cmdRouteBits));
+
+  // Derive Nostr transport privKey for cmdRouteTag matching `src/relay.js:buildNostrWrapperEvent`
+  const cmdRouteKey = await crypto.subtle.importKey('raw', hexToBytes(cmdRouteTag), 'HKDF', false, ['deriveBits']);
+  const nostrPrivBits = await crypto.subtle.deriveBits(
+    { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: enc.encode('construct-nostr-transport-v1') },
+    cmdRouteKey,
+    256
+  );
+
+  return {
+    seed: seedB64Url,
+    aeadKey,
+    stateRouteTag,
+    cmdRouteTag,
+    nostrPrivKey: new Uint8Array(nostrPrivBits),
+  };
+}
+
+async function openWebPocketEnvelope(keys, expectedDir, envelope) {
+  if (!envelope || envelope.v !== 1 || envelope.dir !== expectedDir) throw new Error('Direction mismatch');
+  const routeTag = expectedDir === 'pc2phone' ? keys.stateRouteTag : keys.cmdRouteTag;
+  const aad = new TextEncoder().encode('construct-pocket-v1|' + expectedDir + '|' + routeTag);
+  const iv = base64ToBytes(envelope.iv);
+  const ctWithTag = base64ToBytes(envelope.ct);
+  const plainBuf = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 },
+    keys.aeadKey,
+    ctWithTag
+  );
+  return JSON.parse(new TextDecoder().decode(plainBuf));
+}
+
+async function sealWebPocketEnvelope(keys, dir, payloadObj) {
+  const routeTag = dir === 'pc2phone' ? keys.stateRouteTag : keys.cmdRouteTag;
+  const aad = new TextEncoder().encode('construct-pocket-v1|' + dir + '|' + routeTag);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const plain = new TextEncoder().encode(JSON.stringify(payloadObj));
+  const ctBuf = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 },
+    keys.aeadKey,
+    plain
+  );
+  return {
+    v: 1,
+    dir,
+    iv: bytesToBase64(iv),
+    ct: bytesToBase64(new Uint8Array(ctBuf)),
+    ts: Date.now(),
+  };
+}
+
+async function buildSignedNostrEvent(keys, routeTag, envelope) {
+  const d0 = bytesToBigInt(keys.nostrPrivKey);
+  const Ppt = pointMul(d0);
+  const pubkey = bytesToHex(bigIntTo32Bytes(Ppt[0]));
+  const created_at = Math.floor(Date.now() / 1000);
+  const kind = 4420;
+  const tags = [['d', routeTag]];
+  const content = bytesToBase64(new TextEncoder().encode(JSON.stringify(envelope)));
+  const serialized = JSON.stringify([0, pubkey, created_at, kind, tags, content]);
+  const idBytes = await sha256Bytes(new TextEncoder().encode(serialized));
+  const id = bytesToHex(idBytes);
+  const { sigHex } = await schnorrSignWeb(idBytes, keys.nostrPrivKey);
+  return { id, pubkey, created_at, kind, tags, content, sig: sigHex };
+}
+
+// --- 3. Pairing Initialization & Relay Connection ---
+function parseHashPairing() {
+  const h = String(location.hash || '').replace(/^#/, '');
+  if (!h) return;
+  const params = new URLSearchParams(h);
+  const k = params.get('k');
+  const r = params.get('r');
+  if (k) {
+    localStorage.setItem('construct_pocket_seed', k.trim());
+    if (r) localStorage.setItem('construct_pocket_relays', r.trim());
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+
+function updateConnBadge() {
+  const pill = document.getElementById('conn-pill');
+  if (!pill) return;
+  let openCount = 0;
+  for (const ws of relaySockets.values()) {
+    if (ws && ws.readyState === 1) openCount++;
+  }
+  if (openCount > 0) {
+    pill.textContent = '🟢 ' + openCount + '/' + relaySockets.size + ' Relays';
+    pill.className = 'pill ok';
+  } else if (isLocalLoopback) {
+    pill.textContent = '🟢 Local Loopback';
+    pill.className = 'pill ok';
+  } else if (!pocketKeys) {
+    pill.textContent = '🔴 Unpaired';
+    pill.className = 'pill danger';
+  } else {
+    pill.textContent = '🟡 Connecting...';
+    pill.className = 'pill warn';
+  }
+}
+
+async function connectRelays() {
+  for (const ws of relaySockets.values()) {
+    try { ws.close(); } catch (_) {}
+  }
+  relaySockets.clear();
+  if (!pocketKeys) {
+    updateConnBadge();
+    return;
+  }
+  const rawRelays = localStorage.getItem('construct_pocket_relays') || 'wss://nos.lol,wss://relay.damus.io';
+  const urls = rawRelays.split(',').map((s) => s.trim()).filter(Boolean);
+  for (const url of urls) {
+    openOneRelay(url);
+  }
+  updateConnBadge();
+}
+
+function openOneRelay(url) {
+  let ws;
+  try {
+    ws = new WebSocket(url);
+  } catch (_) {
+    return;
+  }
+  relaySockets.set(url, ws);
+  const subId = 'm_' + Math.random().toString(16).slice(2, 10);
+
+  ws.onopen = () => {
+    updateConnBadge();
+    if (!pocketKeys) return;
+    ws.send(JSON.stringify(['REQ', subId, { kinds: [4420], '#d': [pocketKeys.stateRouteTag], limit: 5 }]));
+    void sendPocketCommand({ action: 'ping' });
+  };
+
+  ws.onmessage = async (ev) => {
+    try {
+      const msg = JSON.parse(String(ev.data));
+      if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2] && pocketKeys) {
+        const rawEnv = JSON.parse(new TextDecoder().decode(base64ToBytes(msg[2].content)));
+        const snap = await openWebPocketEnvelope(pocketKeys, 'pc2phone', rawEnv);
+        if (!latestSnapshot || Number(snap.ts || 0) >= Number(latestSnapshot.ts || 0)) {
+          latestSnapshot = snap;
+          renderSnapshot(snap);
+        }
+      }
+    } catch (_) {}
+  };
+
+  ws.onclose = () => {
+    updateConnBadge();
+    setTimeout(() => {
+      if (pocketKeys) openOneRelay(url);
+    }, 4000);
+  };
+}
+
+async function sendPocketCommand(cmdObj) {
+  const payload = { ...cmdObj, sessionId: cmdObj.sessionId || currentSessionId, ts: Date.now() };
+  const toast = document.getElementById('send-toast');
+  if (toast) toast.textContent = '⏳ Sending...';
+
+  // Fast local loopback path when opened on the host PC
+  if (isLocalLoopback) {
+    try {
+      const res = await fetch('http://127.0.0.1:47420/pocket/cmd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (data && data.snapshot) {
+        latestSnapshot = data.snapshot;
+        renderSnapshot(data.snapshot);
+        if (toast) toast.textContent = '✓ Sent';
+        return;
+      }
+    } catch (_) {}
+  }
+
+  if (!pocketKeys) {
+    openPairModal();
+    return;
+  }
+  const sealed = await sealWebPocketEnvelope(pocketKeys, 'phone2pc', payload);
+  const nostrEv = await buildSignedNostrEvent(pocketKeys, pocketKeys.cmdRouteTag, sealed);
+  const frame = JSON.stringify(['EVENT', nostrEv]);
+  let sent = 0;
+  for (const ws of relaySockets.values()) {
+    if (ws && ws.readyState === 1) {
+      try {
+        ws.send(frame);
+        sent++;
+      } catch (_) {}
+    }
+  }
+  if (toast) toast.textContent = sent > 0 ? '✓ Dispatched' : '⚠️ Queued';
+}
+
+// --- 4. UI Rendering ---
+function esc(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function renderSnapshot(snap) {
+  if (!snap) return;
+  if (snap.activeSessionId) currentSessionId = snap.activeSessionId;
+
+  // Sessions dropdown
+  const sel = document.getElementById('session-select');
+  if (sel && Array.isArray(snap.sessions)) {
+    sel.innerHTML = snap.sessions
+      .map((s) => '<option value="' + esc(s.id) + '"' + (s.id === currentSessionId ? ' selected' : '') + '>' + esc(s.title) + '</option>')
+      .join('');
+  }
+
+  // Status pills
+  const hudPill = document.getElementById('hud-pill');
+  if (hudPill && snap.hud?.pill) hudPill.textContent = snap.hud.pill;
+
+  const busyPill = document.getElementById('busy-pill');
+  const forms = Array.isArray(snap.pendingForms) ? snap.pendingForms : [];
+  const perms = Array.isArray(snap.pendingPermissions) ? snap.pendingPermissions : [];
+  if (busyPill) {
+    if (forms.length || perms.length) {
+      busyPill.textContent = '⏸ Input Needed (' + (forms.length + perms.length) + ')';
+      busyPill.className = 'pill warn';
+    } else if (snap.sessionBusy) {
+      busyPill.textContent = '⚡ Streaming...';
+      busyPill.className = 'pill warn';
+    } else {
+      busyPill.textContent = '✓ Idle';
+      busyPill.className = 'pill ok';
+    }
+  }
+
+  // Chat messages
+  const chatBox = document.getElementById('chat-messages');
+  if (chatBox && Array.isArray(snap.messages)) {
+    if (!snap.messages.length) {
+      chatBox.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);">No messages in this session yet.</div>';
+    } else {
+      chatBox.innerHTML = snap.messages
+        .map((m) => {
+          if (m.role === 'user') {
+            return '<div class="msg-bubble msg-user"><div class="msg-text">' + esc(m.text) + '</div></div>';
+          }
+          if (m.role === 'shell') {
+            return '<div class="msg-bubble msg-shell"><div style="color:var(--accent);margin-bottom:4px;">$ ' + esc(m.command) + '</div><div class="msg-text">' + esc(m.output) + '</div></div>';
+          }
+          const toolsHtml = Array.isArray(m.tools) && m.tools.length
+            ? '<div>' + m.tools.map((t, idx) =>
+                '<span class="tool-chip" onclick="toggleToolPreview(this)">🔧 ' + esc(t.name) + ' (' + esc(t.status) + ')</span>' +
+                (t.preview ? '<div class="tool-preview">' + esc(t.preview) + '</div>' : '')
+              ).join('') + '</div>'
+            : '';
+          return '<div class="msg-bubble msg-assistant">' +
+            '<div class="msg-text">' + esc(m.text || (m.streaming ? '...' : '')) + '</div>' +
+            toolsHtml +
+            '</div>';
+        })
+        .join('');
+    }
+  }
+
+  // Interactive Blocker Stack (Pending Question Forms & Permissions)
+  const blockerEl = document.getElementById('blocker-stack');
+  if (blockerEl) {
+    if (!forms.length && !perms.length) {
+      blockerEl.style.display = 'none';
+      blockerEl.innerHTML = '';
+    } else {
+      blockerEl.style.display = 'block';
+      const permCards = perms.map((p) =>
+        '<div class="blocker-card">' +
+          '<div style="font-weight:700;color:var(--warn);">🛡️ Permission Requested: ' + esc(p.action || 'tool') + '</div>' +
+          '<div style="font-size:12px;color:var(--muted);margin-top:4px;">' + esc((p.resources || []).join(', ')) + '</div>' +
+          '<div style="display:flex;gap:6px;margin-top:8px;">' +
+            '<button class="icon-btn primary" data-req-id="' + esc(p.id) + '" data-dec="once" onclick="replyPermissionBtn(this)">✓ Approve Once</button>' +
+            '<button class="icon-btn" data-req-id="' + esc(p.id) + '" data-dec="always" onclick="replyPermissionBtn(this)">✓ Always</button>' +
+            '<button class="icon-btn danger" data-req-id="' + esc(p.id) + '" data-dec="reject" onclick="replyPermissionBtn(this)">✕ Deny</button>' +
+          '</div>' +
+        '</div>'
+      ).join('');
+
+      const formCards = forms.map((f) => {
+        const fields = Array.isArray(f.fields) ? f.fields : [];
+        const fieldsHtml = fields.map((fld) => {
+          const opts = Array.isArray(fld.options) ? fld.options : [];
+          const optsHtml = opts.map((o) =>
+            '<button class="opt-btn" data-form-id="' + esc(f.id) + '" data-field-id="' + esc(fld.id || fld.name || '0') + '" data-val="' + esc(o.value ?? o.label ?? o) + '" onclick="replyFormOptionBtn(this)">' +
+              '<strong>' + esc(o.label ?? o.value ?? o) + '</strong>' +
+              (o.description ? '<div style="font-size:11.5px;color:var(--muted);margin-top:2px;">' + esc(o.description) + '</div>' : '') +
+            '</button>'
+          ).join('');
+          return '<div style="margin-top:6px;"><div style="font-weight:600;">' + esc(fld.label || fld.question || fld.id || 'Question') + '</div>' + optsHtml + '</div>';
+        }).join('');
+        return '<div class="blocker-card"><div style="font-weight:700;color:var(--warn);">❓ Question Waiting for Your Answer</div>' + fieldsHtml + '</div>';
+      }).join('');
+
+      blockerEl.innerHTML = permCards + formCards;
+    }
+  }
+
+  // Crew & CLI tab
+  const h = snap.hud;
+  if (h) {
+    document.querySelectorAll('#crew-bank-grid .crew-btn').forEach((btn) => {
+      if (btn.getAttribute('data-pack') === h.pack) btn.classList.add('active');
+      else btn.classList.remove('active');
+    });
+    const cliOut = document.getElementById('cli-output');
+    if (cliOut && h.lastCliOutput && h.lastCliOutput.output) {
+      cliOut.textContent = (h.lastCliOutput.cmd ? '$ ' + h.lastCliOutput.cmd + '\n\n' : '') + h.lastCliOutput.output;
+    }
+
+    // Comms tab
+    const commsArr = Array.isArray(h.comms) ? h.comms : [];
+    const navComms = document.getElementById('nav-comms-label');
+    if (navComms) {
+      navComms.textContent = h.inboxPendingCount ? 'Comms (' + h.inboxPendingCount + ')' : 'Comms';
+    }
+    const commsList = document.getElementById('comms-list');
+    if (commsList) {
+      commsList.innerHTML = commsArr.length
+        ? commsArr.map((m) =>
+            '<div class="card">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                '<strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + ' (' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + ')</strong>' +
+                '<span class="pill ' + (m.status === 'pending' ? 'warn' : 'ok') + '">M#' + esc(m.id) + ' · ' + esc(m.status) + '</span>' +
+              '</div>' +
+              '<div style="margin-top:6px;font-size:13px;">"' + esc(m.body) + '"</div>' +
+              (m.replyBody ? '<div style="margin-top:5px;font-size:12px;color:var(--ok);">-&gt; ' + esc(m.replyRom) + ': "' + esc(m.replyBody) + '"</div>' : '') +
+              '<div style="display:flex;gap:6px;margin-top:8px;">' +
+                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="ackMsgBtn(this)">✓ Ack</button>' +
+                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="hideMsgBtn(this)">👁️ Hide</button>' +
+              '</div>' +
+            '</div>'
+          ).join('')
+        : '<div class="card" style="color:var(--muted);">No Construct Courier messages.</div>';
+    }
+
+    // Tape & Gotchas tab
+    const tpProj = document.getElementById('tape-proj');
+    const tpState = document.getElementById('tape-state');
+    const tpNext = document.getElementById('tape-next');
+    if (tpProj) tpProj.textContent = h.project || 'workspace';
+    if (tpState) tpState.textContent = h.state || '(unset)';
+    if (tpNext) tpNext.textContent = h.next || '(unset)';
+
+    const openCnt = document.getElementById('open-count');
+    const openListEl = document.getElementById('open-list');
+    const openThreads = Array.isArray(h.openThreads) ? h.openThreads : [];
+    if (openCnt) openCnt.textContent = String(openThreads.length);
+    if (openListEl) {
+      openListEl.innerHTML = openThreads.length
+        ? openThreads.map((f) => '<div style="padding:4px 0;border-bottom:1px solid var(--border);"><code>#' + esc(f.seq) + '</code> ' + esc(f.summary) + '</div>').join('')
+        : '(none)';
+    }
+
+    const tapeListEl = document.getElementById('tape-list');
+    const recentTape = Array.isArray(h.recentTape) ? h.recentTape : [];
+    if (tapeListEl) {
+      tapeListEl.innerHTML = recentTape.map((f) =>
+        '<div style="padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:6px;cursor:pointer;" data-seq="' + esc(f.seq) + '" onclick="zoomSeqBtn(this)">' +
+          '<div style="display:flex;justify-content:space-between;"><code style="color:var(--accent);">#' + esc(f.seq) + ' [' + esc(f.kind) + ']</code><span style="font-size:11px;color:var(--muted);">' + esc(f.ts) + '</span></div>' +
+          '<div style="font-size:12.5px;margin-top:3px;">' + esc(f.summary) + '</div>' +
+        '</div>'
+      ).join('');
+    }
+
+    const gotchaListEl = document.getElementById('gotcha-list');
+    const gotchas = Array.isArray(h.gotchas) ? h.gotchas : [];
+    if (gotchaListEl) {
+      gotchaListEl.innerHTML = gotchas.length
+        ? gotchas.map((g) =>
+            '<div style="padding:6px;background:var(--bg);border:1px solid var(--border);border-radius:6px;">' +
+              '<div><code>G#' + esc(g.id) + '</code> <strong>' + esc(g.title) + '</strong></div>' +
+              (g.fix ? '<div style="font-size:12px;color:var(--muted);margin-top:3px;">-&gt; ' + esc(g.fix) + '</div>' : '') +
+            '</div>'
+          ).join('')
+        : '<div style="color:var(--muted);">(none)</div>';
+    }
+  }
+}
+
+function toggleToolPreview(chipEl) {
+  const next = chipEl.nextElementSibling;
+  if (next && next.classList.contains('tool-preview')) {
+    next.style.display = next.style.display === 'block' ? 'none' : 'block';
+  }
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.view-area').forEach((el) => el.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach((el) => el.classList.remove('active'));
+  const targetView = document.getElementById('view-' + tabName);
+  if (targetView) targetView.classList.add('active');
+  const targetBtn = document.querySelector('.nav-tab[data-tab="' + tabName + '"]');
+  if (targetBtn) targetBtn.classList.add('active');
+  const comp = document.getElementById('composer-bar');
+  if (comp) comp.style.display = tabName === 'chat' ? 'flex' : 'none';
+}
+
+function onSelectSession(sid) {
+  if (!sid) return;
+  currentSessionId = sid;
+  void sendPocketCommand({ action: 'select-session', sessionId: sid });
+}
+
+function onNewSession() {
+  const title = prompt('New session title:', 'Mobile Session');
+  if (!title) return;
+  void sendPocketCommand({ action: 'new-session', title });
+}
+
+function sendPrompt(delivery) {
+  const el = document.getElementById('prompt-input');
+  if (!el) return;
+  const text = String(el.value || '').trim();
+  if (!text) return;
+  el.value = '';
+  void sendPocketCommand({ action: 'prompt', text, delivery });
+}
+
+function sendInterrupt() {
+  void sendPocketCommand({ action: 'interrupt' });
+}
+
+function replyPermissionBtn(btnEl) {
+  const reqId = btnEl.getAttribute('data-req-id');
+  const dec = btnEl.getAttribute('data-dec');
+  if (reqId && dec) {
+    void sendPocketCommand({ action: 'reply-permission', requestId: reqId, decision: dec });
+  }
+}
+
+function replyFormOptionBtn(btnEl) {
+  const formId = btnEl.getAttribute('data-form-id');
+  const fieldId = btnEl.getAttribute('data-field-id');
+  const val = btnEl.getAttribute('data-val');
+  if (formId && fieldId) {
+    const answers = {};
+    answers[fieldId] = val;
+    void sendPocketCommand({ action: 'reply-form', formId, answers });
+  }
+}
+
+function runConstructCli(argsStr) {
+  void sendPocketCommand({ action: 'construct-cli', args: argsStr });
+}
+
+function runCliFromInput() {
+  const el = document.getElementById('cli-input');
+  if (!el) return;
+  const val = String(el.value || '').trim();
+  if (!val) return;
+  void sendPocketCommand({ action: 'construct-cli', args: val });
+}
+
+function zoomSeqBtn(el) {
+  const seq = el.getAttribute('data-seq');
+  if (!seq) return;
+  switchTab('crew');
+  void sendPocketCommand({ action: 'construct-cli', args: 'zoom ' + seq });
+}
+
+function ackMsgBtn(el) {
+  const id = Number(el.getAttribute('data-msg-id'));
+  if (id) void sendPocketCommand({ action: 'ack-msg', id });
+}
+
+function hideMsgBtn(el) {
+  const id = Number(el.getAttribute('data-msg-id'));
+  if (id) void sendPocketCommand({ action: 'hide-msg', id });
+}
+
+function sendNewCourier() {
+  const to = document.getElementById('msg-to')?.value?.trim();
+  const via = document.getElementById('msg-via')?.value?.trim();
+  const bodyEl = document.getElementById('msg-body');
+  const body = bodyEl?.value?.trim();
+  if (!to || !body) return;
+  bodyEl.value = '';
+  void sendPocketCommand({ action: 'send-msg', to, via, body });
+}
+
+function requestRefresh() {
+  void sendPocketCommand({ action: 'ping' });
+}
+
+function openPairModal() {
+  const modal = document.getElementById('pair-modal');
+  if (modal) modal.classList.add('open');
+}
+
+function closePairModal() {
+  const modal = document.getElementById('pair-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+async function savePairingFromModal() {
+  const rawInput = String(document.getElementById('pair-seed-input')?.value || '').trim();
+  const rawRelays = String(document.getElementById('pair-relays-input')?.value || '').trim();
+  let seed = rawInput;
+  if (rawInput.includes('#')) {
+    const hashParams = new URLSearchParams(rawInput.split('#')[1]);
+    seed = hashParams.get('k') || seed;
+  }
+  if (seed) {
+    localStorage.setItem('construct_pocket_seed', seed);
+    if (rawRelays) localStorage.setItem('construct_pocket_relays', rawRelays);
+    pocketKeys = await deriveWebPocketKeys(seed);
+    closePairModal();
+    await connectRelays();
+  }
+}
+
+async function bootPocketApp() {
+  parseHashPairing();
+  const savedSeed = localStorage.getItem('construct_pocket_seed');
+  if (savedSeed) {
+    try {
+      pocketKeys = await deriveWebPocketKeys(savedSeed);
+    } catch (_) {}
+  }
+  await connectRelays();
+
+  if (isLocalLoopback) {
+    setInterval(async () => {
+      try {
+        const res = await fetch('http://127.0.0.1:47420/pocket/snapshot?sessionId=' + encodeURIComponent(currentSessionId || ''));
+        const data = await res.json();
+        if (data && data.snapshot) {
+          latestSnapshot = data.snapshot;
+          renderSnapshot(data.snapshot);
+        }
+      } catch (_) {}
+    }, 1500);
+  } else if (!pocketKeys) {
+    openPairModal();
+  }
+}
+
+void bootPocketApp();
+</script>
+</body>
+</html>

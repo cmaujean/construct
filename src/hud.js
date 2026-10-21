@@ -775,9 +775,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         <button class="crew-btn" data-cli="help" onclick="runHudCliButton(this)">📖 Help</button>
         <button class="crew-btn" data-cli="tape -n 12" onclick="runHudCliButton(this)">📼 Tape</button>
         <button class="crew-btn" data-cli="projects" onclick="runHudCliButton(this)">🗂️ Projects</button>
+        <button class="crew-btn" onclick="togglePocketQr(false)">📱 Pair Phone</button>
         <button class="crew-btn" id="hud-cli-clear-btn" style="display:${hud.lastCliOutput?.output ? 'inline-block' : 'none'};" onclick="clearHudCli()">✕ Clear</button>
       </div>
     </div>
+    <div id="hud-pocket-qr" style="display:none;margin-top:10px;padding:12px;background:#090c10;border:1px solid var(--border);border-radius:6px;"></div>
     <pre id="hud-cli-output" style="display:${hud.lastCliOutput?.output ? 'block' : 'none'};margin:8px 0 0 0;padding:10px 12px;background:#090c10;border:1px solid var(--border);border-radius:6px;color:#e6edf3;font-size:11.5px;line-height:1.45;overflow-x:auto;max-height:440px;overflow-y:auto;">${escapeHtml(hud.lastCliOutput?.output || '')}</pre>
   </div>
 
@@ -1287,6 +1289,43 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       } catch (_) {}
     }
 
+    async function togglePocketQr(rotateKey) {
+      const box = document.getElementById('hud-pocket-qr');
+      if (!box) return;
+      if (!rotateKey && box.style.display === 'block') {
+        box.style.display = 'none';
+        return;
+      }
+      box.style.display = 'block';
+      box.innerHTML = '<span class="sub">Generating 256-bit AES-GCM Pocket pairing QR...</span>';
+      try {
+        const res = await fetch('http://127.0.0.1:47420/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'pocket-qr', rotate: Boolean(rotateKey), sessionID: selectedSessionId, project: selectedProject })
+        });
+        const data = await res.json();
+        if (data && data.ok && data.svg) {
+          box.innerHTML =
+            '<div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">' +
+              '<div style="background:#fff;padding:6px;border-radius:6px;flex-shrink:0;">' + data.svg + '</div>' +
+              '<div style="flex:1;min-width:220px;">' +
+                '<div style="font-weight:700;color:#fff;margin-bottom:4px;">📱 Construct Pocket — Encrypted Mobile Thin Client</div>' +
+                '<div class="sub" style="margin-bottom:8px;">Scan with your phone camera to open the PWA over encrypted WebSocket relays (zero VPN / zero port-forwarding). The 256-bit key stays in the <code>#k=...</code> hash fragment and is never sent to GitHub Pages.</div>' +
+                '<input type="text" class="reply-input" style="width:100%;margin-bottom:8px;" readonly value="' + esc(data.url) + '" onclick="this.select()" />' +
+                '<div style="display:flex;gap:6px;flex-wrap:wrap;">' +
+                  '<a class="crew-btn active" style="text-decoration:none;" href="' + esc(data.localUrl) + '" target="_blank">🌐 Open Local Preview</a>' +
+                  '<button class="crew-btn" onclick="togglePocketQr(true)">🔄 Rotate Key</button>' +
+                  '<button class="crew-btn" onclick="document.getElementById(&quot;hud-pocket-qr&quot;).style.display=&quot;none&quot;">✕ Hide QR</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+        }
+      } catch (_) {
+        box.innerHTML = '<span class="sub">Run "construct pocket" in terminal to view pairing QR.</span>';
+      }
+    }
+
     void pollHud();
     window.addEventListener('focus', () => void pollHud());
     document.addEventListener('visibilitychange', () => {
@@ -1362,6 +1401,8 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
                 ? 'text/css; charset=utf-8'
                 : ext === '.js'
                 ? 'application/javascript; charset=utf-8'
+                : ext === '.webmanifest'
+                ? 'application/manifest+json; charset=utf-8'
                 : 'text/html; charset=utf-8';
             res.writeHead(200, { 'Content-Type': mime });
             res.end(fs.readFileSync(absFile));
@@ -1370,6 +1411,46 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
         } catch (_) {}
         res.writeHead(404);
         res.end('Not found');
+        return;
+      }
+      if (req.method === 'GET' && req.url?.startsWith('/pocket/snapshot')) {
+        void (async () => {
+          try {
+            const parsedUrl = new URL(req.url, `http://127.0.0.1:${port}`);
+            const qSid = parsedUrl.searchParams.get('sessionId') || '';
+            const pocketMod = require('./pocket');
+            const storeMod = require('./store');
+            const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: qSid });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, snapshot: snap }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        })();
+        return;
+      }
+      if (req.method === 'POST' && req.url?.startsWith('/pocket/cmd')) {
+        let body = '';
+        req.on('data', (chunk) => {
+          if (body.length < 32768) body += chunk;
+        });
+        req.on('end', async () => {
+          try {
+            const cmdPayload = JSON.parse(body || '{}');
+            const pocketMod = require('./pocket');
+            const storeMod = require('./store');
+            const mcpMod = require('./mcp');
+            const bState = { activeSessionId: cmdPayload.sessionId || '', activeDir: process.cwd() };
+            await pocketMod.executePocketCommand(storeMod, mcpMod, cmdPayload, bState);
+            const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: bState.activeSessionId });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true, snapshot: snap }));
+          } catch (err) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: err.message }));
+          }
+        });
         return;
       }
       if (req.method === 'GET' && req.url?.startsWith('/hud')) {
@@ -1446,6 +1527,22 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               res.end(JSON.stringify({ ok: true, hud: snap }));
               return;
             }
+            if (rawAction === 'pocket-qr') {
+              const pocketMod = require('./pocket');
+              const storeMod = require('./store');
+              const mcpMod = require('./mcp');
+              const cfg = pocketMod.loadOrCreatePocketConfig({ rotate: Boolean(payload.rotate) });
+              const url = pocketMod.buildPocketPairingUrl(cfg);
+              const localUrl = pocketMod.buildPocketPairingUrl(cfg, { baseUrl: `http://127.0.0.1:${port}/docs/pocket.html` });
+              const svg = pocketMod.renderQrCodeSvg(url);
+              if (!server._pocketBridge) {
+                server._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpMod, { sessionId: sid, dir });
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, url, localUrl, svg, relays: cfg.relays }));
+              return;
+            }
+
             if (rawAction === 'clear-cli') {
               clearLastCliOutput(file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
