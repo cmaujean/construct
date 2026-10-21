@@ -584,7 +584,7 @@ const CONSTRUCT_TOOL_SPECS = Object.freeze([
       properties: {
         action: {
           type: 'string',
-          enum: ['msg', 'reply', 'ack', 'hide', 'purge', 'inbox', 'drop', 'apply-drop'],
+          enum: ['msg', 'reply', 'seen', 'ack', 'hide', 'purge', 'inbox', 'drop', 'apply-drop'],
         },
         project: { type: 'string', description: 'Optional project key (comms are person-to-person across all shared MLS groups; omit project to route automatically to the recipient)' },
         to: { type: 'string', description: 'Recipient operator id (for msg/inbox/drop), e.g. mike' },
@@ -835,6 +835,10 @@ function executeMcpTool(name, input = {}, meta = {}) {
         if (sessionID) args.push('--session', String(sessionID));
         args.push(String(input.body));
         return runConstructCli(args);
+      }
+      if (input.action === 'seen') {
+        const m = store.seenMessage(input.id);
+        return `marked [M#${m.id}] as seen`;
       }
       if (input.action === 'ack') {
         const m = store.ackMessage(input.id);

@@ -594,7 +594,9 @@ function backfillProjectCrdtLogInDb(db, project, identityFile, options = {}) {
       if (!isComms && !sameOrRelatedProject(m.project, project)) continue;
       const isLocalSender = !m.from_did || m.from_did === identity.did;
       const isLocalReplier =
-        (m.status === 'replied' || m.status === 'delivered') && m.from_did && m.from_did !== identity.did;
+        (m.status === 'seen' || m.status === 'replied' || m.status === 'delivered') &&
+        m.from_did &&
+        m.from_did !== identity.did;
       if (!isLocalSender && !isLocalReplier) continue;
 
       const existingOp = checkMsgOpStmt.get(project, m.uid);
@@ -956,14 +958,14 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
         );
         applied++;
       } else if ((p.replyHlc || p.hlc || op.hlc) > (existing.reply_hlc || existing.hlc || '')) {
-        const nextStatus =
-          existing.status === 'hidden' || existing.status === 'delivered'
-            ? existing.status
-            : p.status || existing.status;
+        const rankMap = { pending: 1, seen: 2, replied: 3, delivered: 4, hidden: 5 };
+        const curRank = rankMap[existing.status] || 1;
+        const incRank = rankMap[p.status] || 1;
+        const nextStatus = incRank >= curRank ? p.status || existing.status : existing.status;
         updateMsgStmt.run(
           nextStatus,
-          p.replyBody ?? existing.reply_body,
-          p.replyRom ?? existing.reply_rom,
+          p.replyBody || existing.reply_body,
+          p.replyRom || existing.reply_rom,
           p.replyHlc || op.hlc,
           p.uid
         );

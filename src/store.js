@@ -2320,6 +2320,52 @@ function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = d
   );
 }
 
+function seenMessage(idOrUid, file = dbPath()) {
+  return withDb(
+    (db) =>
+      tx(db, () => {
+        const key = String(idOrUid || '').replace(/^[#M]+/i, '').trim();
+        const row = /^\d+$/.test(key)
+          ? db.prepare('SELECT * FROM messages WHERE id = ?').get(Number(key))
+          : db.prepare('SELECT * FROM messages WHERE uid = ?').get(key);
+        if (!row) throw new Error(`no construct message matching "${idOrUid}"`);
+        if (row.status !== 'pending') {
+          return crdt.hydrateMessage(row);
+        }
+
+        const identity = crdt.loadOrCreateIdentity();
+        const replyHlc = crdt.nextHlc(identity.did, row.reply_hlc || row.hlc);
+        db.prepare("UPDATE messages SET status = 'seen', reply_hlc = ? WHERE id = ?").run(replyHlc, row.id);
+        const updated = crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
+
+        ensureMlsGroupInDb(db, '@comms', {});
+        crdt.appendCrdtOpInDb(db, {
+          project: '@comms',
+          entity: 'message',
+          recordUid: updated.uid,
+          payload: {
+            uid: updated.uid,
+            hlc: updated.hlc,
+            project: updated.project || 'global',
+            fromUser: updated.fromUser,
+            fromRom: updated.fromRom,
+            fromDid: updated.fromDid || identity.did,
+            toUser: updated.toUser,
+            body: updated.body,
+            status: updated.status,
+            replyBody: updated.replyBody || '',
+            replyRom: updated.replyRom || '',
+            replyHlc: updated.replyHlc,
+            created: updated.created,
+          },
+        });
+
+        return updated;
+      }),
+    file
+  );
+}
+
 function ackMessage(idOrUid, file = dbPath()) {
   return withDb(
     (db) =>
@@ -3406,6 +3452,7 @@ const hudMod = createHudModule({
   subRom,
   setDefaultRom,
   ackMessage,
+  seenMessage,
   hideMessage,
   purgeMessage,
   deleteMessage,
@@ -3475,6 +3522,7 @@ module.exports = {
   sendMessage,
   replyMessage,
   ackMessage,
+  seenMessage,
   hideMessage,
   purgeMessage,
   deleteMessage,

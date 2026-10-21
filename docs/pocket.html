@@ -462,6 +462,24 @@
         <button class="icon-btn primary" onclick="sendNewCourier()">📬 Send</button>
       </div>
     </div>
+
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+        <div class="card-title" style="margin-bottom:0;">📬 Comms Log</div>
+        <div style="display:flex;gap:5px;">
+          <button class="icon-btn" id="mob-comms-expand-all" onclick="toggleMobExpandAllComms()">↕ All</button>
+          <button class="icon-btn" id="mob-comms-drawer-btn" onclick="toggleMobCommsDrawer()">▾ Collapse</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;" id="mob-comms-filters">
+        <button class="icon-btn primary" data-filter="all" onclick="setMobCommsFilter(this)">All (<span id="mob-cnt-all">0</span>)</button>
+        <button class="icon-btn" data-filter="pending" onclick="setMobCommsFilter(this)">📥 Pending (<span id="mob-cnt-pending">0</span>)</button>
+        <button class="icon-btn" data-filter="awaiting" onclick="setMobCommsFilter(this)">⏳ Awaiting (<span id="mob-cnt-awaiting">0</span>)</button>
+        <button class="icon-btn" data-filter="seen" onclick="setMobCommsFilter(this)">👁️ Seen (<span id="mob-cnt-seen">0</span>)</button>
+        <button class="icon-btn" data-filter="complete" onclick="setMobCommsFilter(this)">✓ Complete (<span id="mob-cnt-complete">0</span>)</button>
+      </div>
+    </div>
+
     <div id="comms-list" style="display:flex;flex-direction:column;gap:8px;"></div>
   </div>
 
@@ -639,7 +657,25 @@ let pocketKeys = null;
 let relaySockets = new Map();
 let latestSnapshot = null;
 let currentSessionId = '';
+let mobCommsFilter = 'all';
+let mobCommsCollapsed = false;
+const mobExpandedMsgIds = new Set();
 const isLocalLoopback = location.hostname === '127.0.0.1' || location.hostname === 'localhost';
+
+function classifyMobCommsBucket(m, opId) {
+  const isOutgoing = Boolean(opId && String(m.fromUser || '').toLowerCase() === opId);
+  if (m.status === 'delivered' || (!isOutgoing && m.status === 'replied')) return 'complete';
+  if (m.status === 'seen') return 'seen';
+  if (isOutgoing && m.status === 'pending') return 'awaiting';
+  return 'pending';
+}
+
+function mobBucketLabel(bucket, m, isOutgoing) {
+  if (bucket === 'pending') return isOutgoing && m.status === 'replied' ? '📥 Reply' : '📥 Pending';
+  if (bucket === 'awaiting') return '⏳ Awaiting';
+  if (bucket === 'seen') return isOutgoing ? '👁️ Seen by ' + (m.toUser || 'peer') : '👁️ Seen';
+  return '✓ Complete';
+}
 
 async function deriveWebPocketKeys(seedB64Url) {
   const seedBytes = base64ToBytes(seedB64Url);
@@ -999,35 +1035,64 @@ function renderSnapshot(snap) {
 
     // Comms tab
     const commsArr = Array.isArray(h.comms) ? h.comms : [];
+    const opId = String(h.operatorId || '').toLowerCase();
+    const counts = { all: commsArr.length, pending: 0, awaiting: 0, seen: 0, complete: 0 };
+    commsArr.forEach((m) => {
+      const b = classifyMobCommsBucket(m, opId);
+      counts[b] = (counts[b] || 0) + 1;
+    });
+    ['all', 'pending', 'awaiting', 'seen', 'complete'].forEach((k) => {
+      const el = document.getElementById('mob-cnt-' + k);
+      if (el) el.textContent = String(counts[k] || 0);
+    });
     const navComms = document.getElementById('nav-comms-label');
     if (navComms) {
-      navComms.textContent = h.inboxPendingCount ? 'Comms (' + h.inboxPendingCount + ')' : 'Comms';
+      navComms.textContent = counts.pending > 0 ? 'Comms (' + counts.pending + ')' : 'Comms';
     }
     const commsList = document.getElementById('comms-list');
-    const opId = String(h.operatorId || '').toLowerCase();
     if (commsList) {
-      commsList.innerHTML = commsArr.length
-        ? commsArr.map((m) => {
-            const isOutgoing = opId && String(m.fromUser || '').toLowerCase() === opId;
-            const canAck = (!isOutgoing && m.status === 'pending') || (isOutgoing && m.status === 'replied');
-            const awaitingSpan = isOutgoing && m.status === 'pending'
-              ? '<span style="font-size:11.5px;color:var(--muted);align-self:center;">⏳ Awaiting ' + esc(m.toUser) + ' ack/reply</span>'
+      commsList.style.display = mobCommsCollapsed ? 'none' : 'flex';
+      const filtered = mobCommsFilter === 'all'
+        ? commsArr
+        : commsArr.filter((m) => classifyMobCommsBucket(m, opId) === mobCommsFilter);
+      commsList.innerHTML = filtered.length
+        ? filtered.map((m) => {
+            const bucket = classifyMobCommsBucket(m, opId);
+            const isOutgoing = Boolean(opId && String(m.fromUser || '').toLowerCase() === opId);
+            const isIncomingActionable = !isOutgoing && (m.status === 'pending' || m.status === 'seen');
+            const canAck = isIncomingActionable || (isOutgoing && m.status === 'replied');
+            const isExpanded = mobExpandedMsgIds.has(Number(m.id));
+            const rawBody = String(m.body || '');
+            const preview = rawBody.replace(/\s+/g, ' ').trim();
+            const bodyHtml = isExpanded
+              ? '<div style="margin-top:6px;font-size:13px;white-space:pre-wrap;line-height:1.45;">"' + esc(rawBody) + '"</div>'
+              : '<div style="margin-top:6px;font-size:13px;color:var(--muted);">"' + esc(preview.length > 110 ? preview.slice(0, 110) + '...' : preview) + '"</div>';
+            const replyHtml = m.replyBody
+              ? (isExpanded
+                  ? '<div style="margin-top:6px;font-size:12.5px;color:var(--ok);white-space:pre-wrap;">-&gt; ' + esc(m.replyRom) + ': "' + esc(m.replyBody) + '"</div>'
+                  : '<div style="margin-top:4px;font-size:12px;color:var(--ok);">-&gt; ' + esc(m.replyRom) + ': "' + esc(String(m.replyBody).replace(/\s+/g, ' ').slice(0, 90)) + (m.replyBody.length > 90 ? '...' : '') + '"</div>')
               : '';
+            const awaitingSpan = bucket === 'awaiting'
+              ? '<span style="font-size:11.5px;color:var(--muted);align-self:center;">⏳ Awaiting ' + esc(m.toUser) + '</span>'
+              : '';
+            const autoSeenAttr = !isOutgoing && m.status === 'pending' ? '1' : '0';
             return '<div class="card">' +
-              '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+              '<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">' +
                 '<strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + ' (' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + ')</strong>' +
-                '<span class="pill ' + (m.status === 'pending' ? 'warn' : 'ok') + '">M#' + esc(m.id) + ' · ' + esc(m.status) + '</span>' +
+                '<span class="pill ' + (bucket === 'pending' || bucket === 'awaiting' ? 'warn' : 'ok') + '">M#' + esc(m.id) + ' · ' + esc(mobBucketLabel(bucket, m, isOutgoing)) + '</span>' +
               '</div>' +
-              '<div style="margin-top:6px;font-size:13px;">"' + esc(m.body) + '"</div>' +
-              (m.replyBody ? '<div style="margin-top:5px;font-size:12px;color:var(--ok);">-&gt; ' + esc(m.replyRom) + ': "' + esc(m.replyBody) + '"</div>' : '') +
-              '<div style="display:flex;gap:6px;margin-top:8px;">' +
+              bodyHtml +
+              replyHtml +
+              '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">' +
+                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" data-auto-seen="' + autoSeenAttr + '" onclick="toggleMobMsgExpand(this)">' + (isExpanded ? '▾ Collapse' : '▸ Expand') + '</button>' +
                 awaitingSpan +
-                (canAck ? '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="ackMsgBtn(this)">✓ Ack</button>' : '') +
-                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="hideMsgBtn(this)">👁️ Hide</button>' +
+                (!isOutgoing && m.status === 'pending' ? '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="seenMsgBtn(this)">👁️ Seen</button>' : '') +
+                (canAck ? '<button class="icon-btn primary" data-msg-id="' + esc(m.id) + '" onclick="ackMsgBtn(this)">✓ Ack</button>' : '') +
+                '<button class="icon-btn" data-msg-id="' + esc(m.id) + '" onclick="hideMsgBtn(this)">🗄️ Hide</button>' +
               '</div>' +
             '</div>';
           }).join('')
-        : '<div class="card" style="color:var(--muted);">No Construct Courier messages.</div>';
+        : '<div class="card" style="color:var(--muted);">No messages in "' + esc(mobCommsFilter) + '" section.</div>';
     }
 
     // Tape & Gotchas tab
@@ -1158,6 +1223,54 @@ function zoomSeqBtn(el) {
 function ackMsgBtn(el) {
   const id = Number(el.getAttribute('data-msg-id'));
   if (id) void sendPocketCommand({ action: 'ack-msg', id });
+}
+
+function seenMsgBtn(el) {
+  const id = Number(el.getAttribute('data-msg-id'));
+  if (id) void sendPocketCommand({ action: 'seen-msg', id });
+}
+
+function setMobCommsFilter(btnEl) {
+  if (!btnEl) return;
+  mobCommsFilter = btnEl.getAttribute('data-filter') || 'all';
+  document.querySelectorAll('#mob-comms-filters .icon-btn').forEach((b) => {
+    if (b.getAttribute('data-filter') === mobCommsFilter) b.classList.add('primary');
+    else b.classList.remove('primary');
+  });
+  if (mobCommsCollapsed) toggleMobCommsDrawer();
+  else if (latestSnapshot) renderSnapshot(latestSnapshot);
+}
+
+function toggleMobCommsDrawer() {
+  mobCommsCollapsed = !mobCommsCollapsed;
+  const btn = document.getElementById('mob-comms-drawer-btn');
+  if (btn) btn.textContent = mobCommsCollapsed ? '▸ Expand' : '▾ Collapse';
+  if (latestSnapshot) renderSnapshot(latestSnapshot);
+}
+
+function toggleMobMsgExpand(btnEl) {
+  const id = Number(btnEl.getAttribute('data-msg-id'));
+  const autoSeen = btnEl.getAttribute('data-auto-seen') === '1';
+  if (!id) return;
+  if (mobExpandedMsgIds.has(id)) {
+    mobExpandedMsgIds.delete(id);
+  } else {
+    mobExpandedMsgIds.add(id);
+    if (autoSeen) {
+      void sendPocketCommand({ action: 'seen-msg', id });
+    }
+  }
+  if (latestSnapshot) renderSnapshot(latestSnapshot);
+}
+
+function toggleMobExpandAllComms() {
+  const commsArr = Array.isArray(latestSnapshot?.hud?.comms) ? latestSnapshot.hud.comms : [];
+  if (mobExpandedMsgIds.size >= commsArr.length && commsArr.length > 0) {
+    mobExpandedMsgIds.clear();
+  } else {
+    commsArr.forEach((m) => mobExpandedMsgIds.add(Number(m.id)));
+  }
+  if (latestSnapshot) renderSnapshot(latestSnapshot);
 }
 
 function hideMsgBtn(el) {

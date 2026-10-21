@@ -2018,10 +2018,30 @@ async function main(argv) {
       return 0;
     }
 
+    case 'seen':
+    case 'seen-msg': {
+      if (!rest[0]) throw new Error('usage: construct seen <msg_id>');
+      const m = store.seenMessage(rest[0]);
+      if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          await store.syncProject('comms');
+        } catch (_) {}
+        try {
+          store.generateDashboardHtml();
+        } catch (_) {}
+      }
+      if (o.json) console.log(JSON.stringify(m, null, 2));
+      else console.log(`marked [M#${m.id}] as seen`);
+      return 0;
+    }
+
     case 'ack': {
       if (!rest[0]) throw new Error('usage: construct ack <msg_id>');
       const m = store.ackMessage(rest[0]);
       if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+        try {
+          await store.syncProject('comms');
+        } catch (_) {}
         try {
           store.generateDashboardHtml();
         } catch (_) {}

@@ -640,16 +640,19 @@ function compactHudForPocket(rawHud) {
       status: g.status,
       fix: String(g.fix || '').slice(0, 160),
     })),
-    comms: (Array.isArray(rawHud.comms) ? rawHud.comms : []).slice(0, 8).map((m) => ({
+    comms: (Array.isArray(rawHud.comms) ? rawHud.comms : []).slice(0, 12).map((m) => ({
       id: m.id,
       status: m.status,
+      project: m.project || 'global',
+      created: m.created || '',
       fromUser: m.fromUser,
       fromRom: m.fromRom,
       fromGlyph: m.fromGlyph || '📬',
       toUser: m.toUser,
       replyRom: m.replyRom,
-      body: String(m.body || '').slice(0, 280),
-      replyBody: m.replyBody ? String(m.replyBody).slice(0, 220) : '',
+      replyGlyph: m.replyGlyph || '📬',
+      body: String(m.body || '').slice(0, 2200),
+      replyBody: m.replyBody ? String(m.replyBody).slice(0, 1200) : '',
     })),
     lastCliOutput: rawHud.lastCliOutput
       ? {
@@ -820,8 +823,19 @@ async function executePocketCommand(store, mcp, cmdPayload = {}, bridgeState = {
     return { ok: !res.isError, action, cli: res };
   }
 
+  if (action === 'seen-msg' && cmdPayload.id) {
+    store.seenMessage(cmdPayload.id);
+    if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+      void store.syncProject('comms').catch(() => {});
+    }
+    return { ok: true, action };
+  }
+
   if (action === 'ack-msg' && cmdPayload.id) {
     store.ackMessage(cmdPayload.id);
+    if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+      void store.syncProject('comms').catch(() => {});
+    }
     return { ok: true, action };
   }
 

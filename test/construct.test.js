@@ -2440,6 +2440,21 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       /sender pubkey does not match/
     );
 
+    // Verify `store.seenMessage` transitions `pending` -> `seen` (without downgrading `replied` or `delivered`)
+    const msgForSeen = store.sendMessage({
+      project: 'acme/guarded',
+      to: 'bob',
+      via: 'judy',
+      body: 'Long multi-paragraph Courier message testing expand-to-seen and bucket counters',
+    });
+    assert.equal(msgForSeen.status, 'pending');
+    const markedSeen = store.seenMessage(msgForSeen.id);
+    assert.equal(markedSeen.status, 'seen');
+    const markedDelivered = store.ackMessage(msgForSeen.id);
+    assert.equal(markedDelivered.status, 'delivered');
+    const seenAfterAck = store.seenMessage(msgForSeen.id);
+    assert.equal(seenAfterAck.status, 'delivered', 'seenMessage must not downgrade delivered status');
+
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');
     const siteRes = store.generateDocsSite({ outDir: siteOutDir });

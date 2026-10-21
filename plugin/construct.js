@@ -862,6 +862,14 @@ export default {
                 return
               }
 
+              if (rawAction === "seen" && payload.id) {
+                runConstruct(["seen", String(payload.id)])
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, hud: snap }))
+                return
+              }
+
               if (rawAction === "ack" && payload.id) {
                 runConstruct(["ack", String(payload.id)])
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")

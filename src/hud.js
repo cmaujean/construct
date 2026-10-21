@@ -30,6 +30,7 @@ function createHudModule(deps) {
     useRom,
     subRom,
     setDefaultRom,
+    seenMessage,
     ackMessage,
     hideMessage,
     purgeMessage,
@@ -454,7 +455,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
-      hudSchemaVersion: 3,
+      hudSchemaVersion: 4,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -858,12 +859,27 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     <div style="margin-top:4px;"><strong>NEXT:</strong> <span id="hud-head-next">${escapeHtml(hud.next || '(unset)')}</span></div>
   </div>
 
-  <h2 id="hud-comms-heading">Construct Comms &amp; Courier Log — ${escapeHtml(hud.project)} (${commsList.length})</h2>
-  <div class="table-scroll">
-    <table>
-      <thead><tr><th style="width:95px;">ID / Status</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply</th></tr></thead>
-      <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
-    </table>
+  <div class="control-deck" id="hud-comms-drawer" style="margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+        <strong id="hud-comms-heading">📬 Construct Comms &amp; Courier Log — ${escapeHtml(hud.project)}</strong>
+      </div>
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
+        <button class="crew-btn active" id="comms-filter-all" data-filter="all" onclick="setCommsFilterBtn(this)">All (<span id="comms-cnt-all">${commsList.length}</span>)</button>
+        <button class="crew-btn" id="comms-filter-pending" data-filter="pending" onclick="setCommsFilterBtn(this)">📥 Pending (<span id="comms-cnt-pending">0</span>)</button>
+        <button class="crew-btn" id="comms-filter-awaiting" data-filter="awaiting" onclick="setCommsFilterBtn(this)">⏳ Awaiting Reply (<span id="comms-cnt-awaiting">0</span>)</button>
+        <button class="crew-btn" id="comms-filter-seen" data-filter="seen" onclick="setCommsFilterBtn(this)">👁️ Seen (<span id="comms-cnt-seen">0</span>)</button>
+        <button class="crew-btn" id="comms-filter-complete" data-filter="complete" onclick="setCommsFilterBtn(this)">✓ Ack'd &amp; Complete (<span id="comms-cnt-complete">0</span>)</button>
+        <button class="crew-btn" id="comms-expand-all-btn" onclick="toggleExpandAllComms()">↕ Expand All</button>
+        <button class="crew-btn" id="comms-drawer-toggle-btn" onclick="toggleCommsDrawer()">▾ Collapse</button>
+      </div>
+    </div>
+    <div class="table-scroll" id="hud-comms-body-wrap" style="margin-top:8px;max-height:360px;">
+      <table>
+        <thead><tr><th style="width:105px;">ID / Bucket</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply (Click Expand for Full Text)</th></tr></thead>
+        <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
+      </table>
+    </div>
   </div>
 
   <h2 id="hud-open-heading">Open Verification Threads — ${escapeHtml(hud.project)} (${openThreads.length})</h2>
@@ -889,11 +905,110 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    const HUD_SCHEMA_VERSION = 3;
+    const HUD_SCHEMA_VERSION = 4;
     const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
+    let selectedCommsFilter = 'all';
+    let commsDrawerCollapsed = false;
+    const expandedCommsIds = new Set();
+    let latestCommsArr = ${JSON.stringify(commsList)};
+    let latestOpId = ${JSON.stringify(activeOpId)};
+
+    function classifyCommsBucket(m, opId) {
+      const isOutgoing = Boolean(opId && String(m.fromUser || '').toLowerCase() === opId);
+      if (m.status === 'delivered' || (!isOutgoing && m.status === 'replied')) return 'complete';
+      if (m.status === 'seen') return 'seen';
+      if (isOutgoing && m.status === 'pending') return 'awaiting';
+      return 'pending';
+    }
+
+    function bucketBadgeLabel(bucket, m, isOutgoing) {
+      if (bucket === 'pending') return isOutgoing && m.status === 'replied' ? '📥 Reply Received' : '📥 Needs Action';
+      if (bucket === 'awaiting') return '⏳ Awaiting Reply';
+      if (bucket === 'seen') return isOutgoing ? '👁️ Seen by ' + (m.toUser || 'peer') : '👁️ Seen';
+      return '✓ Acked / Complete';
+    }
+
+    function renderCommsTable(commsArr, opId) {
+      const counts = { all: commsArr.length, pending: 0, awaiting: 0, seen: 0, complete: 0 };
+      commsArr.forEach((m) => {
+        const b = classifyCommsBucket(m, opId);
+        counts[b] = (counts[b] || 0) + 1;
+      });
+      ['all', 'pending', 'awaiting', 'seen', 'complete'].forEach((k) => {
+        const el = document.getElementById('comms-cnt-' + k);
+        if (el) el.textContent = String(counts[k] || 0);
+        const btn = document.getElementById('comms-filter-' + k);
+        if (btn) {
+          if (selectedCommsFilter === k) btn.classList.add('active');
+          else btn.classList.remove('active');
+        }
+      });
+
+      const commsTbody = document.getElementById('hud-comms-tbody');
+      if (!commsTbody) return;
+      const filtered = selectedCommsFilter === 'all'
+        ? commsArr
+        : commsArr.filter((m) => classifyCommsBucket(m, opId) === selectedCommsFilter);
+
+      if (!filtered.length) {
+        commsTbody.innerHTML = '<tr><td colspan="3">(no messages in "' + esc(selectedCommsFilter) + '" section)</td></tr>';
+        return;
+      }
+
+      commsTbody.innerHTML = filtered.map((m) => {
+        const bucket = classifyCommsBucket(m, opId);
+        const stClass = bucket === 'pending' || bucket === 'awaiting' ? 'warn' : 'ok';
+        const isOutgoing = Boolean(opId && String(m.fromUser || '').toLowerCase() === opId);
+        const isIncomingActionable = !isOutgoing && (m.status === 'pending' || m.status === 'seen');
+        const canAck = isIncomingActionable || (isOutgoing && m.status === 'replied');
+        const isExpanded = expandedCommsIds.has(Number(m.id));
+        const rawBody = String(m.body || '');
+        const singleLinePreview = rawBody.replace(/\\s+/g, ' ').trim();
+        const isLong = rawBody.length > 130 || rawBody.includes('\\n') || Boolean(m.replyBody);
+        const displayBodyHtml = isExpanded
+          ? '<div style="white-space:pre-wrap;line-height:1.45;color:#fff;margin-bottom:4px;">"' + esc(rawBody) + '"</div>'
+          : '<div>"' + esc(singleLinePreview.length > 130 ? singleLinePreview.slice(0, 130) + '...' : singleLinePreview) + '"</div>';
+
+        const replyHtml = m.replyBody
+          ? (isExpanded
+              ? '<div class="sub" style="margin-top:6px;white-space:pre-wrap;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
+              : '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ':</strong> "' + esc(String(m.replyBody).replace(/\\s+/g, ' ').slice(0, 100)) + (m.replyBody.length > 100 ? '...' : '') + '"</div>')
+          : '';
+
+        const awaitingHtml = bucket === 'awaiting'
+          ? '<span class="sub" style="margin-right:6px;">⏳ Awaiting ' + esc(m.toUser) + ' seen/ack/reply</span>'
+          : (isOutgoing && m.status === 'seen'
+              ? '<span class="sub" style="margin-right:6px;color:var(--accent);">👁️ Seen by ' + esc(m.toUser) + ' (awaiting reply/ack)</span>'
+              : '');
+
+        const autoSeenAttr = !isOutgoing && m.status === 'pending' ? '1' : '0';
+        const expandBtnHtml = isLong || autoSeenAttr === '1'
+          ? '<button class="crew-btn" data-msg-id="' + esc(m.id) + '" data-auto-seen="' + autoSeenAttr + '" onclick="toggleCommsMsgExpand(this)">' + (isExpanded ? '▾ Collapse' : '▸ Expand') + '</button>'
+          : '';
+
+        const seenBtnHtml = !isOutgoing && m.status === 'pending'
+          ? '<button class="crew-btn" onclick="seenCourier(' + esc(m.id) + ',this)">👁️ Seen</button>'
+          : '';
+
+        const actHtml = '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
+          expandBtnHtml +
+          awaitingHtml +
+          (isIncomingActionable
+            ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" data-msg-id="' + esc(m.id) + '" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />' +
+              '<button class="crew-btn" id="row-reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Reply</button>'
+            : '') +
+          seenBtnHtml +
+          (canAck ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
+          '<button class="crew-btn" title="Hide message M#' + esc(m.id) + ' (kept in archive)" onclick="deleteCourier(' + esc(m.id) + ',this)">🗄️ Hide</button></div>';
+
+        return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(bucketBadgeLabel(bucket, m, isOutgoing)) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
+          '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
+          '<td>' + displayBodyHtml + replyHtml + actHtml + '</td></tr>';
+      }).join('');
+    }
 
     function esc(s) {
       return String(s || '')
@@ -1024,35 +1139,11 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         }
       }
 
-      if (commsHeading) commsHeading.textContent = 'Construct Comms & Courier Log — ' + (h.project || 'workspace') + ' (' + commsArr.length + ')';
-      if (commsTbody && !isTypingReply) {
-        if (!commsArr.length) {
-          commsTbody.innerHTML = '<tr><td colspan="3">(no messages in construct comms log)</td></tr>';
-        } else {
-          commsTbody.innerHTML = commsArr.map((m) => {
-            const stClass = m.status === 'pending' ? 'warn' : 'ok';
-            const isOutgoing = String(m.fromUser || '').toLowerCase() === opId;
-            const isIncomingPending = !isOutgoing && m.status === 'pending';
-            const canAck = (isIncomingPending || (isOutgoing && m.status === 'replied')) && m.status !== 'delivered';
-            const replyHtml = m.replyBody
-              ? '<div class="sub" style="margin-top:4px;color:var(--ok);"><strong>-&gt; ' + esc(m.replyGlyph || '📬') + ' ' + esc(m.replyRom) + ' (' + esc(m.toUser) + '):</strong> "' + esc(m.replyBody) + '"</div>'
-              : '';
-            const awaitingHtml = isOutgoing && m.status === 'pending'
-              ? '<span class="sub" style="margin-right:6px;">⏳ Awaiting ' + esc(m.toUser) + ' ack/reply</span>'
-              : '';
-            const actHtml = '<div style="margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap;">' +
-              awaitingHtml +
-              (isIncomingPending
-                ? '<input type="text" class="reply-input" id="row-reply-' + esc(m.id) + '" data-msg-id="' + esc(m.id) + '" placeholder="Reply..." onkeydown="handleReplyKey(event,this)" />' +
-                  '<button class="crew-btn" id="row-reply-btn-' + esc(m.id) + '" onclick="replyCourier(' + esc(m.id) + ',this.previousElementSibling.id,this)">⚡ Reply</button>'
-                : '') +
-              (canAck ? '<button class="crew-btn" onclick="ackCourier(' + esc(m.id) + ',this)">✓ Ack</button>' : '') +
-              '<button class="crew-btn" title="Hide message M#' + esc(m.id) + ' (kept in archive)" onclick="deleteCourier(' + esc(m.id) + ',this)">👁️ Hide</button></div>';
-            return '<tr><td><code>M#' + esc(m.id) + '</code><div style="margin-top:3px;"><span class="badge ' + stClass + '">' + esc(m.status) + '</span></div><div class="sub">' + esc(m.created) + '</div></td>' +
-              '<td><strong>' + esc(m.fromGlyph || '📬') + ' ' + esc(m.fromRom) + '</strong><div class="sub">' + esc(m.fromUser) + ' -&gt; ' + esc(m.toUser) + '</div><div class="sub"><span class="badge">' + esc(m.project || 'global') + '</span></div></td>' +
-              '<td>"' + esc(m.body) + '"' + replyHtml + actHtml + '</td></tr>';
-          }).join('');
-        }
+      if (commsHeading) commsHeading.textContent = '📬 CONSTRUCT COMMS — ' + (h.project || 'workspace');
+      latestCommsArr = commsArr;
+      latestOpId = opId;
+      if (!isTypingReply) {
+        renderCommsTable(commsArr, opId);
       }
 
       const openHeading = document.getElementById('hud-open-heading');
@@ -1212,6 +1303,69 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
+    async function seenCourier(msgId, btnEl) {
+      if (btnEl) {
+        if (btnEl.disabled) return;
+        btnEl.disabled = true;
+        btnEl.textContent = '👁️...';
+      }
+      try {
+        const data = await postHudAction({ action: 'seen', id: msgId, sessionID: selectedSessionId, project: selectedProject });
+        if (data && data.ok && data.hud) {
+          applyHudToDom(data.hud);
+        }
+      } catch (_) {
+        if (btnEl) btnEl.disabled = false;
+      }
+    }
+
+    function setCommsFilterBtn(btnEl) {
+      if (!btnEl) return;
+      selectedCommsFilter = btnEl.getAttribute('data-filter') || 'all';
+      if (commsDrawerCollapsed) {
+        toggleCommsDrawer();
+      } else {
+        renderCommsTable(latestCommsArr, latestOpId);
+      }
+    }
+
+    function toggleCommsDrawer() {
+      commsDrawerCollapsed = !commsDrawerCollapsed;
+      const bodyWrap = document.getElementById('hud-comms-body-wrap');
+      const toggleBtn = document.getElementById('comms-drawer-toggle-btn');
+      if (bodyWrap) bodyWrap.style.display = commsDrawerCollapsed ? 'none' : 'block';
+      if (toggleBtn) toggleBtn.textContent = commsDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
+      if (!commsDrawerCollapsed) renderCommsTable(latestCommsArr, latestOpId);
+    }
+
+    function toggleCommsMsgExpand(btnEl) {
+      if (!btnEl) return;
+      const msgId = Number(btnEl.getAttribute('data-msg-id'));
+      const autoSeen = btnEl.getAttribute('data-auto-seen') === '1';
+      if (!msgId) return;
+      if (expandedCommsIds.has(msgId)) {
+        expandedCommsIds.delete(msgId);
+      } else {
+        expandedCommsIds.add(msgId);
+        if (autoSeen) {
+          void seenCourier(msgId, null);
+        }
+      }
+      renderCommsTable(latestCommsArr, latestOpId);
+    }
+
+    function toggleExpandAllComms() {
+      const btn = document.getElementById('comms-expand-all-btn');
+      if (expandedCommsIds.size >= latestCommsArr.length && latestCommsArr.length > 0) {
+        expandedCommsIds.clear();
+        if (btn) btn.textContent = '↕ Expand All';
+      } else {
+        latestCommsArr.forEach((m) => expandedCommsIds.add(Number(m.id)));
+        if (btn) btn.textContent = '↕ Collapse All';
+      }
+      renderCommsTable(latestCommsArr, latestOpId);
+    }
+
     async function deleteCourier(msgId, btnEl) {
       if (btnEl) {
         if (btnEl.disabled) return;
@@ -1317,6 +1471,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
+    renderCommsTable(latestCommsArr, latestOpId);
     void pollHud();
     window.addEventListener('focus', () => void pollHud());
     document.addEventListener('visibilitychange', () => {
@@ -1528,6 +1683,21 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               }
               return;
             }
+            if (rawAction === 'seen' && payload.id) {
+              seenMessage(payload.id, file);
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: snap.project, dir: snap.dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, hud: snap }));
+              if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+                setImmediate(() => {
+                  syncProject('comms', {}, file).catch(() => {});
+                });
+              }
+              return;
+            }
             if (rawAction === 'ack' && payload.id) {
               ackMessage(payload.id, file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
@@ -1536,6 +1706,11 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               } catch (_) {}
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, hud: snap }));
+              if (process.env.CONSTRUCT_NO_AUTOSYNC !== '1') {
+                setImmediate(() => {
+                  syncProject('comms', {}, file).catch(() => {});
+                });
+              }
               return;
             }
             if (rawAction === 'delete-msg' && payload.id) {
