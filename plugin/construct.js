@@ -539,20 +539,14 @@ export default {
               const engine = loadSharedMcpEngine() || mcpEngine
               if (engine) mcpEngine = engine
 
-              if (mcpEngine && typeof mcpEngine.executeConstructSlashCommand === "function") {
-                const res = mcpEngine.executeConstructSlashCommand(rawArg, {
-                  sessionId: sessionID,
-                  cwd: sessDir,
-                })
-                if (res.reloadPlugin) {
-                  await reloadConstructEngine()
-                }
-                await syncSessionHud(sessionID, sessDir)
-                await ctx.session.prompt({
-                  ...prompt,
+              if (mcpEngine && typeof mcpEngine.handleOpenCodeSlashCommand === "function") {
+                await mcpEngine.handleOpenCodeSlashCommand(ctx, {
                   sessionID,
-                  text: res.promptText,
+                  prompt,
                   delivery,
+                  sessDir,
+                  reloadConstructEngine,
+                  syncSessionHud,
                 })
                 return
               }

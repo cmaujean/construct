@@ -1829,6 +1829,78 @@ export default function constructOmpExtension(pi) {
 `;
 }
 
+async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, sessDir = '', reloadConstructEngine, syncSessionHud }) {
+  const rawArg = String(prompt?.text || '').trim();
+  const tokens = parseSlashArgs(rawArg);
+
+  // Zero-roundtrip path: when `/construct <subcommand>` is given and `ctx.session.shell` is available,
+  // execute directly via `ctx.session.shell` so the output renders natively in the transcript in <100ms
+  // with 0 model roundtrips and 0 LLM tokens.
+  if (tokens.length > 0 && typeof ctx?.session?.shell === 'function') {
+    const first = String(tokens[0] || '').toLowerCase();
+    let cliArgs = [...tokens];
+    if (first === 'reload' || first === 'hot-reload') {
+      cliArgs = ['init', '--all', ...tokens.slice(1)];
+    } else if (first === 'sub' && tokens[1] && isValidRomTarget(tokens[1])) {
+      cliArgs = ['rom', 'sub', tokens[1].toLowerCase(), '--session', String(sessionID), ...tokens.slice(2)];
+    } else if (first === 'use' && tokens[1] && isValidRomTarget(tokens[1])) {
+      cliArgs = ['rom', 'use', tokens[1].toLowerCase(), '--session', String(sessionID), ...tokens.slice(2)];
+    } else if (!CONSTRUCT_CLI_COMMANDS.has(first) && isValidRomTarget(tokens.join(','))) {
+      cliArgs = ['rom', 'use', tokens.join(',').toLowerCase(), '--session', String(sessionID)];
+    } else {
+      const isHelp =
+        first === 'help' ||
+        first === '--help' ||
+        first === '-h' ||
+        tokens.includes('--help') ||
+        tokens.includes('-h');
+      const noAutoDir = new Set(['init', 'upgrade', 'self-update', 'site', 'docs-site', 'help', '--help', '-h']);
+      if (!isHelp && sessionID && !tokens.includes('--session')) {
+        cliArgs.push('--session', String(sessionID));
+      }
+      if (!isHelp && sessDir && !noAutoDir.has(first) && !tokens.includes('--dir')) {
+        cliArgs.push('--dir', String(sessDir));
+      }
+    }
+
+    const quotedArgs = cliArgs
+      .map((a) => (/[\s"'\\]/.test(a) ? `"${String(a).replace(/(["\\])/g, '\\$1')}"` : a))
+      .join(' ');
+    await ctx.session.shell({
+      sessionID,
+      command: `construct ${quotedArgs}`,
+    });
+    const cmd0 = String(cliArgs[0] || '').toLowerCase();
+    if (
+      (first === 'reload' || first === 'hot-reload' || ['init', 'upgrade', 'self-update', 'rom'].includes(cmd0)) &&
+      typeof reloadConstructEngine === 'function'
+    ) {
+      await reloadConstructEngine();
+    }
+    if (typeof syncSessionHud === 'function') {
+      await syncSessionHud(sessionID, sessDir);
+    }
+    return;
+  }
+
+  const res = executeConstructSlashCommand(rawArg, {
+    sessionId: sessionID,
+    cwd: sessDir,
+  });
+  if (res.reloadPlugin && typeof reloadConstructEngine === 'function') {
+    await reloadConstructEngine();
+  }
+  if (typeof syncSessionHud === 'function') {
+    await syncSessionHud(sessionID, sessDir);
+  }
+  await ctx.session.prompt({
+    ...prompt,
+    sessionID,
+    text: res.promptText,
+    delivery,
+  });
+}
+
 module.exports = {
   CONSTRUCT_TOOL_SPECS,
   MCP_TOOLS,
@@ -1846,6 +1918,7 @@ module.exports = {
   resolveSubagentRomFromHookPayload,
   parseSlashArgs,
   executeConstructSlashCommand,
+  handleOpenCodeSlashCommand,
   resolveNodeExecutable,
   runClaudeHook,
   runCursorHook,

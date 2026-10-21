@@ -1717,7 +1717,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     }
   });
 
-  it('serves all 11 tools over the JSON-RPC 2.0 MCP server and runs Claude Code context/pre-tool hooks', () => {
+  it('serves all 11 tools over the JSON-RPC 2.0 MCP server and runs Claude Code context/pre-tool hooks', async () => {
     const mcp = require('../src/mcp');
 
     // 1. JSON-RPC `initialize` and `tools/list`
@@ -2078,6 +2078,27 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       cwd: tmp.dir,
     });
     assert.match(slashHelpAlias.output, /construct projects \(alias: ls\)/);
+
+    // Verify `handleOpenCodeSlashCommand` executes non-empty `/construct <cmd>` via `ctx.session.shell` (0 model roundtrips)
+    const shellCalls = [];
+    const promptCalls = [];
+    await mcp.handleOpenCodeSlashCommand(
+      {
+        session: {
+          shell: async (req) => shellCalls.push(req),
+          prompt: async (req) => promptCalls.push(req),
+        },
+      },
+      {
+        sessionID: 'slash_ses_1',
+        prompt: { text: 'help tape' },
+        delivery: 'steer',
+        sessDir: tmp.dir,
+      }
+    );
+    assert.equal(shellCalls.length, 1);
+    assert.equal(promptCalls.length, 0);
+    assert.equal(shellCalls[0].command, 'construct help tape');
 
     // Verify `construct ls` prints the full project state line beyond 70 characters without mid-word clipping
     store.setHead('acme/alpha', {

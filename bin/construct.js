@@ -9,116 +9,51 @@ const fs = require('node:fs');
 const store = require('../src/store');
 const mcp = require('../src/mcp');
 
-const USAGE = `usage: construct <command> [args]
+const USAGE = `CONSTRUCT — Sequential Memory Tape, 15 Crew Banks (179 ROMs) & Encrypted CRDT Sync
+usage: construct <command> [args] [options]    (In-session: /construct <command> [args])
+       construct help <command>                (Detailed flags & examples: /construct help <command>)
 
-Setup, Self-Update & Instruction Assimilation:
-  init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all] [--json]
-                              One-command setup for OpenCode (plus Claude Code, Cursor, Gemini CLI,
-                              Windsurf, Codex, and Oh My Pi): generates DID identity, seeds all 15 Crew
-                              Banks (179 ROMs), installs plugins/hooks/MCP configs, and compiles active-rom.md.
-  upgrade [--check] [--json]  Check or fast-forward pull origin/main, reseed ROMs, and refresh plugins/hooks.
-  mcp                         Run Construct as a stdio JSON-RPC 2.0 MCP server (tools, prompts, resources,
-                              and initialize.result.instructions for any MCP coding agent).
-  claude-hook [context | pre-tool | subagent-start]
-  cursor-hook [session-start | before-prompt | before-shell | post-tool]
-  gemini-hook [before-agent | session-start | before-tool]
-  omp-hook [before-agent | before-tool | after-tool | command]
-                              Lifecycle & shell-guard hook runners for Claude Code, Cursor, Gemini CLI, and Oh My Pi.
-  assimilate [<dir>] [--project <proj>] [--remove-files] [--json]
-                              Scan a directory for existing AI instruction files (AGENTS.md,
-                              CLAUDE.md, GEMINI.md, .cursorrules) and import agreements,
-                              gotchas, and script commands into construct.db (never writes files
-                              into the project repo).
+SETUP, SELF-UPDATE & ASSIMILATION
+  init [--all | --omp | --claude ...]      Initialize DID identity, DB, 179 ROMs & agent integrations
+  upgrade [--check]                        Pull origin/main, reseed ROMs & refresh all agent plugins
+  reload                                   Re-stamp configs & hot-reload plugin engine in memory (/construct)
+  assimilate [<dir>] [--project <proj>]    Import AGENTS.md, CLAUDE.md, GEMINI.md & .cursorrules into DB
 
-Sequential Tape, Provenance, GitHub Issues/PRs & HUD:
-  boot <project> [-n <tape_len>] [--session <id>] [--dir <path>] [--json]
-                              Boot briefing for <project>: slotted Crew/ROM, active operator,
-                              current state head, open threads, gotchas, and recent sequential tape.
-  rec <project> <kind> "<summary>" [--detail <text>] [--verified <text>]
-      [--parent <seq>] [--resolves <seq,seq>] [--open] [--refs <a,b>] [--ts <iso>] [--json]
-                              Append a frame onto the sequential tape.
-                              Kinds: ${store.KINDS.join(', ')}.
-  head <project> [--state <text>] [--next <text>] [--repo <path>] [--ts <iso>] [--json]
-                              Update or inspect a project's current state head.
-  resolve <seq[,seq]> [--by <seq>] [--reason "<text>"] [--verified <text>] [--close-gh]
-                              Close open thread(s) (and optionally close linked GitHub issues).
-  reopen <seq>                Reopen a previously resolved frame.
-  tape [<project>] [-n <limit>] [--kind <kind>] [--open] [--from <seq>] [--to <seq>] [--since <iso>] [--json]
-                              Sequential playback of the tape (oldest -> newest within window).
-  zoom <seq> [-w <window>] [--json]
-                              Inspect frame #<seq> in full detail, its causal chain, and neighbors.
-  search "<query>" [--project <project>] [--kind <kind>] [--open] [-n <limit>] [--json]
-                              FTS5 BM25 search across the tape; prints #seq pointers for zoom.
-  why "<file_or_symbol>" [--project <project>] [--ask <user>] [--json]
-                              Unified provenance across CRDT tape authors, gotchas, and git log -S.
-  issues [sync <project> | publish <seq>] [--dir <repo_dir>]
-  pr [sync <project> | open <project> --title ".." | review <project> <pr_num> --approve | merge <project> <pr_num>] [--to <user>] [--via <messenger>]
-  hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
-  dashboard [--out <html_path>] [--project <proj>] [--session <session_id>]
-  hud-server [--port 47420]
-  edit <seq> [--summary ..] [--detail ..] [--verified ..] [--kind ..] [--parent ..] [--refs ..]
-                              Correct an existing frame out loud.
-  projects [--json]           List all projects in the construct with open counts and last seq.
+SEQUENTIAL TAPE, PROVENANCE & GITHUB
+  boot [<project>] [-n <limit>]            Full project briefing: Crew, head, tape, gotchas, claims & comms
+  projects (ls) [--json]                   List all tracked projects with frame counts, open threads & state
+  head [<project>] [--state ".."]          Inspect or update a project's live state head and next step
+  rec <proj> <kind> "<summary>" [opts]     Record a frame (${store.KINDS.join(', ')})
+  resolve <seq[,seq]> [--reason ".."]      Close open thread/intent frame(s) (add --close-gh for GitHub)
+  reopen <seq>                             Reopen a previously resolved frame
+  edit <seq> [--summary ".."]              Correct an existing frame out loud and refresh FTS5 index
+  tape [<project>] [-n 30] [--open]        Chronological playback of the sequential tape (oldest -> newest)
+  zoom <seq> [-w 3]                        Inspect frame #<seq> in full detail with causal chain & neighbors
+  search "<query>" [--project <proj>]      Full-text FTS5 BM25 search across the sequential tape
+  why "<file_or_symbol>" [--ask <user>]    Unified provenance across gotchas, CRDT tape authors & git log -S
+  issues [sync | publish <seq>]            Sync GitHub Issues into [OPEN] threads or publish a local thread
+  pr [sync | open | review | merge]        Drive GitHub Pull Requests with automatic #seq & Courier dispatches
 
-Swappable & Tunable Personality ROMs & 15 Crew Banks (179 ROMs):
-  rom [show [<name>]] [--json]
-  rom packs [--json]          List all 15 Crew Banks (sprawl, nightcity, anathem, cryptonomicon,
-                              shadowrun, dresden, amber, laundry, tolkien, discworld, reamde,
-                              irondruid, prydain, clockwork, generic, or custom) and bench backups.
-  rom list [--pack <bank>] [--json]
-                              List all ROM constructs and dial settings (* = default/active).
-  rom use <name|bank|roster> [--session <id>] [--project <proj>]
-                              Slot a Crew Bank, custom roster, or solo ROM for this session/project.
-  rom sub <backup_name> [--session <id>] [--project <proj>]
-                              Substitute a bench backup into its matched seat in the active crew.
-  rom default <name|bank|off> Set or clear your "until further notice" default ROM or Crew Bank.
-  rom tune <dial>=<0..1> [...] [--rom <name>]
-                              Tune dials (${store.DIAL_KEYS.join(', ')}) and recompile active-rom.md.
-  rom burn "<directive>" [--rom <name>]
-                              Burn a new permanent directive into the ROM.
-  rom unburn <number> [--rom <name>]
-                              Remove directive #<number> (1-based) from the ROM.
-  rom set <name> [--pack ..] [--seat ..] [--tier primary|backup] [--handle ..] [--tagline ..] [--voice ..] [--use]
-  rom clone <src> <dest> [--pack ..] [--seat ..] [--tier ..] [--handle ..] [--use]
-  rom sync                    Recompile ~/.config/opencode/active-rom.md (operator + protocol + gotchas).
+CREW BANKS, PERSONALITY ROMS, OPERATORS & GOTCHAS
+  <bank>  |  sub <specialist>              Quick-switch Crew Bank (/construct nightcity) or sub Bench second
+  rom [packs | list | show | use | sub]    List or slot the 15 Crew Banks (179 ROMs) & Bench seconds
+  rom [default | tune | burn | unburn]     Set default ROM, tune 0..1 behavioral dials, or burn directives
+  rom [set | clone | sync]                 Create/clone custom ROMs or recompile active-rom.md
+  user [show | list | use | set <id>]      Inspect or update operator working agreements & calibration
+  gotcha [list | add | search | rm]        Manage global & project gotchas (with --guard "<regex>" shell guards)
 
-Operator Agreements (Who the Construct is Talking To):
-  user [show [<id>]] [--json] Show current operator agreement (or onboarding state if unrecognized).
-  user list [--json]          List registered operators.
-  user use <id>               Set active operator and recompile active-rom.md.
-  user set <id> [--name ..] [--os-users a,b] [--experience ..] [--platform ..] [--calibration ..] [--use]
-                              Register or update an operator's personal agreement.
-
-Machine & Project Gotchas (with 0-Token Shell Guards):
-  gotcha list [--project <proj> | --all] [--json]
-  gotcha add "<title>" [--project <proj>] [--status observed|from_source|reported] [--evidence ".."] [--fix ".."] [--guard "<regex>"] [--guard-os all|win32|linux|darwin] [--tags a,b]
-  gotcha search "<query>" [--project <proj> | --all]
-  gotcha rm <id>
-
-Person-to-Person Construct Comms & Courier Cameos (--via <messenger>):
-  msg --to <user> [--via <messenger>] "<in-character message>"
-                              Send a person-to-person Courier dispatch across shared MLS groups.
-  drop <project> --to <user> [--via <messenger>] [--file <path> | --git-diff | --content ".."] [--note ".."]
-  apply-drop <msg_id> [--out <file> | --apply]
-  reply <msg_id> [--via <messenger>] "<in-character answer>"
-  ack <msg_id>                Mark a message as delivered.
-  hide-msg <msg_id[,id...]>   Hide message(s) from HUD/boot while keeping them searchable (--all).
-  purge-msg <msg_id[,id...]>  Obliterate message(s) locally and across relays via message_tombstone.
-  inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden] [--json]
-
-W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC-CRDT Sync:
-  did [--json]                Show this construct's cryptographic identity (did:key:z6Mk...).
-  invite [comms | <project>] [--relays wss://...]
-                              Generate a signed out-of-band invitation (creates a personal @comms
-                              link when 'comms' or omitted, or bundles both <project> + @comms).
-  join <invite_uri>           Verify and join a project + @comms (or @comms-only) Epoch-Keyed AEAD invite URI.
-  sync <project|comms> [--relays wss://...] [--json]
-                              Live pull + decrypt + CRDT merge + seal + push over WebSocket relays.
-  site [--out <dir>]          Generate the 17-page GitHub Pages Brochure & Docs Hub into docs/.
-  relay [--port 8787]         Run a lightweight zero-knowledge WebSocket ciphertext relay.
-  packet export <project> [--since <hlc>]
-                              Export CRDT ops sealed in an MLS ChaCha20-Poly1305 + Ed25519 packet.
-  packet import <packet>      Verify, decrypt, and merge an MLS CRDT packet into local SQLite.
+PERSON-TO-PERSON COURIER COMMS & ENCRYPTED CRDT SYNC
+  msg --to <user> [--via <rom>] "<text>"   Send an in-character Courier message across shared groups
+  reply <msg_id> [--via <rom>] "<text>"    Reply to an incoming Courier message
+  inbox [--all | --hidden]                 List pending, replied, delivered, or hidden Courier messages
+  ack <id> | hide-msg <id> | purge-msg     Acknowledge, hide from HUD, or obliterate message(s) via tombstone
+  drop [<proj>] --to <user> [--git-diff]   Send an encrypted file or git-diff patch drop over Comms
+  apply-drop <msg_id> [--apply]            Write or git-apply an incoming encrypted patch drop
+  invite [comms | <project>]               Generate a signed 256-bit AEAD out-of-band invitation URI
+  join "<construct://invite/...>"          Verify and join a project or @comms invite (auto-clones repo)
+  sync [<project> | comms]                 Live pull + decrypt + HLC-CRDT merge + push over WebSocket relays
+  did  |  hud  |  dashboard  |  site       Show did:key, status pill, HTML HUD, or generate 17-page Docs Hub
+  mcp  |  relay [--port 8787]              Run stdio JSON-RPC 2.0 MCP server or zero-knowledge WS relay
 
 Run "construct help <command>" or "construct <command> --help" (in-session: "/construct help <command>")
 for detailed options and examples on any subcommand.`;
