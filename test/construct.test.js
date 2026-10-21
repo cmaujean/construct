@@ -2276,6 +2276,17 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.match(dashWithCli.html, /id="hud-cli-status"/);
     assert.match(dashWithCli.html, /id="hud-crew-drawer"/);
     assert.match(dashWithCli.html, /onclick="toggleCrewDrawer\(\)"/);
+
+    // Verify `store.setHudUiPrefs` persists drawer collapse & bucket filter state across tab switches and HTML regenerations
+    const savedUiPrefs = store.setHudUiPrefs({ crewCollapsed: true, commsCollapsed: true, commsFilter: 'pending' });
+    assert.deepEqual(savedUiPrefs, { crewCollapsed: true, commsCollapsed: true, commsFilter: 'pending' });
+    const dashCollapsed = store.generateDashboardHtml({ dir: tmp.dir, sessionId: 'other_tab_ses', noServerSpawn: true });
+    assert.equal(dashCollapsed.hud.uiPrefs.crewCollapsed, true);
+    assert.equal(dashCollapsed.hud.uiPrefs.commsCollapsed, true);
+    assert.equal(dashCollapsed.hud.uiPrefs.commsFilter, 'pending');
+    assert.match(dashCollapsed.html, /id="hud-crew-body-wrap" style="display:none;"/);
+    assert.match(dashCollapsed.html, /id="hud-comms-body-wrap" style="margin-top:8px;max-height:360px;display:none;"/);
+    store.setHudUiPrefs({ crewCollapsed: false, commsCollapsed: false, commsFilter: 'all' });
     store.clearLastCliOutput();
     const hudCleared = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
     assert.equal(hudCleared.lastCliOutput, null);

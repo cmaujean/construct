@@ -896,6 +896,18 @@ export default {
                 return
               }
 
+              if (rawAction === "ui-prefs" && payload.prefs && typeof payload.prefs === "object") {
+                let uiPrefs = null
+                try {
+                  const storeMod = loadSharedSrcModule("store.js")
+                  if (storeMod?.setHudUiPrefs) uiPrefs = storeMod.setHudUiPrefs(payload.prefs)
+                } catch (_) {}
+                void syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, uiPrefs }))
+                return
+              }
+
               if (rawAction === "clear-cli") {
                 const engine = loadSharedMcpEngine() || mcpEngine
                 if (engine) mcpEngine = engine

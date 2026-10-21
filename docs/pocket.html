@@ -1282,6 +1282,9 @@ function seenMsgBtn(el) {
 function setMobCommsFilter(btnEl) {
   if (!btnEl) return;
   mobCommsFilter = btnEl.getAttribute('data-filter') || 'all';
+  try {
+    localStorage.setItem('construct_pocket_comms_filter', mobCommsFilter);
+  } catch (_) {}
   document.querySelectorAll('#mob-comms-filters .icon-btn').forEach((b) => {
     if (b.getAttribute('data-filter') === mobCommsFilter) b.classList.add('primary');
     else b.classList.remove('primary');
@@ -1292,6 +1295,9 @@ function setMobCommsFilter(btnEl) {
 
 function toggleMobCommsDrawer() {
   mobCommsCollapsed = !mobCommsCollapsed;
+  try {
+    localStorage.setItem('construct_pocket_comms_collapsed', mobCommsCollapsed ? '1' : '0');
+  } catch (_) {}
   const btn = document.getElementById('mob-comms-drawer-btn');
   if (btn) btn.textContent = mobCommsCollapsed ? '▸ Expand' : '▾ Collapse';
   if (latestSnapshot) renderSnapshot(latestSnapshot);
@@ -1378,6 +1384,21 @@ async function savePairingFromModal() {
 }
 
 async function bootPocketApp() {
+  try {
+    if (localStorage.getItem('construct_pocket_comms_collapsed') === '1') {
+      mobCommsCollapsed = true;
+      const btn = document.getElementById('mob-comms-drawer-btn');
+      if (btn) btn.textContent = '▸ Expand';
+    }
+    const savedFilter = localStorage.getItem('construct_pocket_comms_filter');
+    if (savedFilter) {
+      mobCommsFilter = savedFilter;
+      document.querySelectorAll('#mob-comms-filters .icon-btn').forEach((b) => {
+        if (b.getAttribute('data-filter') === mobCommsFilter) b.classList.add('primary');
+        else b.classList.remove('primary');
+      });
+    }
+  } catch (_) {}
   parseHashPairing();
   const savedSeed = localStorage.getItem('construct_pocket_seed');
   if (savedSeed) {

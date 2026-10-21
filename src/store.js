@@ -3468,6 +3468,7 @@ const hudMod = createHudModule({
 const {
   setLastCliOutput,
   clearLastCliOutput,
+  setHudUiPrefs,
   getHudSnapshot,
   generateDashboardHtml,
   startStandaloneHudServer,
@@ -3548,6 +3549,7 @@ module.exports = {
   dropPatch,
   applyDrop,
   whyTarget,
+  setHudUiPrefs,
   getHudSnapshot,
   generateDashboardHtml,
   syncGithubIssues,

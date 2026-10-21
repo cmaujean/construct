@@ -251,6 +251,42 @@ function clearLastCliOutput(file = dbPath()) {
   }, file);
 }
 
+function getHudUiPrefsInDb(db) {
+  const defaults = { crewCollapsed: false, commsCollapsed: false, commsFilter: 'all' };
+  try {
+    const row = db.prepare("SELECT value FROM meta WHERE key = 'hud_ui_prefs'").get();
+    if (row && row.value) {
+      const parsed = JSON.parse(row.value);
+      return {
+        crewCollapsed: Boolean(parsed?.crewCollapsed),
+        commsCollapsed: Boolean(parsed?.commsCollapsed),
+        commsFilter: String(parsed?.commsFilter || 'all'),
+      };
+    }
+  } catch (_) {}
+  return defaults;
+}
+
+function setHudUiPrefs(prefs = {}, file = dbPath()) {
+  const now = typeof nowIso === 'function' ? nowIso() : new Date().toISOString();
+  return withDb((db) => {
+    const cur = getHudUiPrefsInDb(db);
+    const next = {
+      crewCollapsed: prefs.crewCollapsed !== undefined ? Boolean(prefs.crewCollapsed) : cur.crewCollapsed,
+      commsCollapsed: prefs.commsCollapsed !== undefined ? Boolean(prefs.commsCollapsed) : cur.commsCollapsed,
+      commsFilter: prefs.commsFilter !== undefined ? String(prefs.commsFilter || 'all') : cur.commsFilter,
+    };
+    db.prepare(
+      `INSERT INTO meta (key, value, updated)
+       VALUES ('hud_ui_prefs', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated = excluded.updated`
+    ).run(JSON.stringify(next), now);
+    return next;
+  }, file);
+}
+
 function getHudSnapshot(options = {}, file = dbPath()) {
   return withDb((db) => {
     const tabs = listActiveTabsInDb(db, file);
@@ -453,9 +489,10 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       pillParts.push(`⬆️${upstreamUpdate.behindCount} update`);
     }
     const lastCliOutput = getLastCliOutputInDb(db);
+    const uiPrefs = getHudUiPrefsInDb(db);
 
     return {
-      hudSchemaVersion: 6,
+      hudSchemaVersion: 7,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -485,6 +522,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       hasMlsGroup: Boolean(mlsRow),
       upstreamUpdate,
       lastCliOutput,
+      uiPrefs,
       pill: pillParts.join(' · '),
       tabBadge,
       tabs,
@@ -809,10 +847,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         <span id="hud-toast"></span>
       </div>
       <div>
-        <button class="crew-btn" id="crew-drawer-toggle-btn" onclick="toggleCrewDrawer()">▾ Collapse</button>
+        <button class="crew-btn" id="crew-drawer-toggle-btn" onclick="toggleCrewDrawer()">${hud.uiPrefs?.crewCollapsed ? '▸ Expand' : '▾ Collapse'}</button>
       </div>
     </div>
-    <div id="hud-crew-body-wrap">
+    <div id="hud-crew-body-wrap" style="display:${hud.uiPrefs?.crewCollapsed ? 'none' : 'block'};">
     <div class="btn-row">
       <button class="crew-btn ${hud.pack === 'sprawl' ? 'active' : ''}" data-pack="sprawl" onclick="switchCrew('use','sprawl')">🌃 Sprawl</button>
       <button class="crew-btn ${hud.pack === 'nightcity' ? 'active' : ''}" data-pack="nightcity" onclick="switchCrew('use','nightcity')">🦾 Night City</button>
@@ -881,10 +919,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         <button class="crew-btn" id="comms-filter-seen" data-filter="seen" onclick="setCommsFilterBtn(this)">👁️ Seen (<span id="comms-cnt-seen">0</span>)</button>
         <button class="crew-btn" id="comms-filter-complete" data-filter="complete" onclick="setCommsFilterBtn(this)">✓ Ack'd &amp; Complete (<span id="comms-cnt-complete">0</span>)</button>
         <button class="crew-btn" id="comms-expand-all-btn" onclick="toggleExpandAllComms()">↕ Expand All</button>
-        <button class="crew-btn" id="comms-drawer-toggle-btn" onclick="toggleCommsDrawer()">▾ Collapse</button>
+        <button class="crew-btn" id="comms-drawer-toggle-btn" onclick="toggleCommsDrawer()">${hud.uiPrefs?.commsCollapsed ? '▸ Expand' : '▾ Collapse'}</button>
       </div>
     </div>
-    <div class="table-scroll" id="hud-comms-body-wrap" style="margin-top:8px;max-height:360px;">
+    <div class="table-scroll" id="hud-comms-body-wrap" style="margin-top:8px;max-height:360px;display:${hud.uiPrefs?.commsCollapsed ? 'none' : 'block'};">
       <table>
         <thead><tr><th style="width:105px;">ID / Bucket</th><th style="width:165px;">Courier &amp; Route</th><th>Message &amp; Reply (Click Expand for Full Text)</th></tr></thead>
         <tbody id="hud-comms-tbody">${commsRows || '<tr><td colspan="3">(no messages in construct comms log)</td></tr>'}</tbody>
@@ -915,14 +953,57 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    const HUD_SCHEMA_VERSION = 6;
+    const HUD_SCHEMA_VERSION = 7;
     const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
-    let selectedCommsFilter = 'all';
-    let commsDrawerCollapsed = false;
-    let crewDrawerCollapsed = false;
+    let selectedCommsFilter = ${JSON.stringify(hud.uiPrefs?.commsFilter || 'all')};
+    let commsDrawerCollapsed = ${Boolean(hud.uiPrefs?.commsCollapsed)};
+    let crewDrawerCollapsed = ${Boolean(hud.uiPrefs?.crewCollapsed)};
+    let lastLocalUiPrefsChangeAt = 0;
+
+    function loadLocalUiPrefs() {
+      try {
+        const raw = localStorage.getItem('construct_hud_ui_prefs');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.crewCollapsed === 'boolean') crewDrawerCollapsed = p.crewCollapsed;
+          if (typeof p.commsCollapsed === 'boolean') commsDrawerCollapsed = p.commsCollapsed;
+          if (typeof p.commsFilter === 'string' && p.commsFilter) selectedCommsFilter = p.commsFilter;
+        }
+      } catch (_) {}
+    }
+
+    function applyUiPrefsToDom() {
+      const crewBody = document.getElementById('hud-crew-body-wrap');
+      const crewBtn = document.getElementById('crew-drawer-toggle-btn');
+      if (crewBody) crewBody.style.display = crewDrawerCollapsed ? 'none' : 'block';
+      if (crewBtn) crewBtn.textContent = crewDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
+
+      const commsBody = document.getElementById('hud-comms-body-wrap');
+      const commsBtn = document.getElementById('comms-drawer-toggle-btn');
+      if (commsBody) commsBody.style.display = commsDrawerCollapsed ? 'none' : 'block';
+      if (commsBtn) commsBtn.textContent = commsDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
+    }
+
+    function saveHudUiPrefs() {
+      lastLocalUiPrefsChangeAt = Date.now();
+      const prefs = {
+        crewCollapsed: crewDrawerCollapsed,
+        commsCollapsed: commsDrawerCollapsed,
+        commsFilter: selectedCommsFilter,
+      };
+      try {
+        localStorage.setItem('construct_hud_ui_prefs', JSON.stringify(prefs));
+      } catch (_) {}
+      void postHudAction({
+        action: 'ui-prefs',
+        prefs,
+        sessionID: selectedSessionId,
+        project: selectedProject,
+      }).catch(() => {});
+    }
     const expandedCommsIds = new Set();
     let latestCommsArr = ${JSON.stringify(commsList)};
     let latestOpId = ${JSON.stringify(activeOpId)};
@@ -1154,6 +1235,12 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
         }
       }
 
+      if (h.uiPrefs && Date.now() - lastLocalUiPrefsChangeAt > 1500) {
+        if (typeof h.uiPrefs.crewCollapsed === 'boolean') crewDrawerCollapsed = h.uiPrefs.crewCollapsed;
+        if (typeof h.uiPrefs.commsCollapsed === 'boolean') commsDrawerCollapsed = h.uiPrefs.commsCollapsed;
+        if (typeof h.uiPrefs.commsFilter === 'string' && h.uiPrefs.commsFilter) selectedCommsFilter = h.uiPrefs.commsFilter;
+        applyUiPrefsToDom();
+      }
       if (commsHeading) commsHeading.textContent = '📬 CONSTRUCT COMMS — ' + (h.project || 'workspace');
       latestCommsArr = commsArr;
       latestOpId = opId;
@@ -1338,27 +1425,24 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       if (!btnEl) return;
       selectedCommsFilter = btnEl.getAttribute('data-filter') || 'all';
       if (commsDrawerCollapsed) {
-        toggleCommsDrawer();
-      } else {
-        renderCommsTable(latestCommsArr, latestOpId);
+        commsDrawerCollapsed = false;
+        applyUiPrefsToDom();
       }
+      saveHudUiPrefs();
+      renderCommsTable(latestCommsArr, latestOpId);
     }
 
     function toggleCommsDrawer() {
       commsDrawerCollapsed = !commsDrawerCollapsed;
-      const bodyWrap = document.getElementById('hud-comms-body-wrap');
-      const toggleBtn = document.getElementById('comms-drawer-toggle-btn');
-      if (bodyWrap) bodyWrap.style.display = commsDrawerCollapsed ? 'none' : 'block';
-      if (toggleBtn) toggleBtn.textContent = commsDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
+      applyUiPrefsToDom();
+      saveHudUiPrefs();
       if (!commsDrawerCollapsed) renderCommsTable(latestCommsArr, latestOpId);
     }
 
     function toggleCrewDrawer() {
       crewDrawerCollapsed = !crewDrawerCollapsed;
-      const bodyWrap = document.getElementById('hud-crew-body-wrap');
-      const toggleBtn = document.getElementById('crew-drawer-toggle-btn');
-      if (bodyWrap) bodyWrap.style.display = crewDrawerCollapsed ? 'none' : 'block';
-      if (toggleBtn) toggleBtn.textContent = crewDrawerCollapsed ? '▸ Expand' : '▾ Collapse';
+      applyUiPrefsToDom();
+      saveHudUiPrefs();
     }
 
     function toggleCommsMsgExpand(btnEl) {
@@ -1509,6 +1593,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       }
     }
 
+    loadLocalUiPrefs();
+    applyUiPrefsToDom();
     renderCommsTable(latestCommsArr, latestOpId);
     void pollHud();
     window.addEventListener('focus', () => void pollHud());
@@ -1777,6 +1863,16 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               return;
             }
 
+            if (rawAction === 'ui-prefs' && payload.prefs && typeof payload.prefs === 'object') {
+              const uiPrefs = setHudUiPrefs(payload.prefs, file);
+              try {
+                generateDashboardHtml({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir, noServerSpawn: true }, file);
+              } catch (_) {}
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, uiPrefs }));
+              return;
+            }
+
             if (rawAction === 'clear-cli') {
               clearLastCliOutput(file);
               const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
@@ -1902,6 +1998,7 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
     listActiveTabsInDb,
     setLastCliOutput,
     clearLastCliOutput,
+    setHudUiPrefs,
     getHudSnapshot,
     generateDashboardHtml,
     startStandaloneHudServer,
