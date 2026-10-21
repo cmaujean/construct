@@ -2490,6 +2490,19 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       /sender pubkey does not match/
     );
 
+    // Verify `startPocketBridge` detects OS sleep/wake wall-clock jumps (`checkSleepWakeAndBroadcast`) and recycles relay sockets
+    const testBridge = pocket.startPocketBridge(store, mcp, {
+      relays: 'ws://127.0.0.1:9',
+      pollIntervalMs: 6000,
+    });
+    try {
+      assert.equal(testBridge.bridgeState.wakeCount || 0, 0);
+      await testBridge.checkSleepWakeAndBroadcast(Date.now() + 30000);
+      assert.equal(testBridge.bridgeState.wakeCount, 1);
+    } finally {
+      testBridge.stop();
+    }
+
     // Verify `store.seenMessage` transitions `pending` -> `seen` (without downgrading `replied` or `delivered`)
     const msgForSeen = store.sendMessage({
       project: 'acme/guarded',

@@ -825,16 +825,25 @@ async function connectRelays() {
 }
 
 function openOneRelay(url) {
+  const prev = relaySockets.get(url);
+  if (prev) {
+    relaySockets.delete(url);
+    try {
+      prev.close();
+    } catch (_) {}
+  }
   let ws;
   try {
     ws = new WebSocket(url);
   } catch (_) {
     return;
   }
+  ws._lastActivityAt = Date.now();
   relaySockets.set(url, ws);
   const subId = 'm_' + Math.random().toString(16).slice(2, 10);
 
   ws.onopen = () => {
+    ws._lastActivityAt = Date.now();
     updateConnBadge();
     if (!pocketKeys) return;
     ws.send(
@@ -848,6 +857,7 @@ function openOneRelay(url) {
   };
 
   ws.onmessage = async (ev) => {
+    ws._lastActivityAt = Date.now();
     try {
       const msg = JSON.parse(String(ev.data));
       if (Array.isArray(msg) && msg[0] === 'EVENT' && msg[2] && pocketKeys) {
@@ -863,11 +873,50 @@ function openOneRelay(url) {
   };
 
   ws.onclose = () => {
+    if (relaySockets.get(url) !== ws) return;
+    relaySockets.delete(url);
     updateConnBadge();
     setTimeout(() => {
-      if (pocketKeys) openOneRelay(url);
+      if (pocketKeys && !relaySockets.has(url)) openOneRelay(url);
     }, 4000);
   };
+}
+
+let lastWakeReconnectAt = 0;
+function wakeReconnectRelays() {
+  if (!pocketKeys) return;
+  const now = Date.now();
+  if (now - lastWakeReconnectAt < 1500) return;
+  lastWakeReconnectAt = now;
+
+  const rawRelays = localStorage.getItem('construct_pocket_relays') || 'wss://nos.lol,wss://relay.damus.io';
+  const urls = rawRelays.split(',').map((s) => s.trim()).filter(Boolean);
+  let anyHealthy = false;
+  for (const url of urls) {
+    const ws = relaySockets.get(url);
+    const stale = !ws || ws.readyState !== 1 || now - (ws._lastActivityAt || 0) > 45000;
+    if (stale) {
+      openOneRelay(url);
+    } else {
+      anyHealthy = true;
+      try {
+        const subId = 'w_' + Math.random().toString(16).slice(2, 10);
+        ws.send(
+          JSON.stringify([
+            'REQ',
+            subId,
+            { kinds: [4420], authors: [pocketKeys.nostrPubKey], '#d': [pocketKeys.stateRouteTag], limit: 5 },
+          ])
+        );
+      } catch (_) {
+        openOneRelay(url);
+      }
+    }
+  }
+  updateConnBadge();
+  if (anyHealthy) {
+    void sendPocketCommand({ action: 'ping' });
+  }
 }
 
 async function sendPocketCommand(cmdObj) {
@@ -1352,6 +1401,13 @@ async function bootPocketApp() {
   } else if (!pocketKeys) {
     openPairModal();
   }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) wakeReconnectRelays();
+  });
+  window.addEventListener('focus', () => wakeReconnectRelays());
+  window.addEventListener('pageshow', () => wakeReconnectRelays());
+  window.addEventListener('online', () => wakeReconnectRelays());
 }
 
 void bootPocketApp();

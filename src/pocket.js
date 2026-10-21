@@ -998,26 +998,75 @@ function startPocketBridge(store, mcp, options = {}) {
 
     ws.onerror = () => {};
     ws.onclose = () => {
-      bridgeState.sockets.delete(url);
-      if (!bridgeState.stopped) {
-        setTimeout(() => connectRelay(url), 5000);
+      if (bridgeState.sockets.get(url) === ws) {
+        bridgeState.sockets.delete(url);
+        if (!bridgeState.stopped) {
+          setTimeout(() => {
+            if (!bridgeState.stopped && !bridgeState.sockets.has(url)) {
+              connectRelay(url);
+            }
+          }, 5000);
+        }
       }
     };
+  };
+
+  const reconnectAllRelays = () => {
+    if (bridgeState.stopped) return;
+    const currentCfg = loadOrCreatePocketConfig();
+    for (const [u, oldWs] of bridgeState.sockets.entries()) {
+      bridgeState.sockets.delete(u);
+      try {
+        oldWs.close();
+      } catch (_) {}
+    }
+    for (const rUrl of currentCfg.relays) {
+      connectRelay(rUrl);
+    }
   };
 
   for (const rUrl of cfg.relays) {
     connectRelay(rUrl);
   }
 
+  const pollMs = Number(options.pollIntervalMs || 6000);
+  const sleepJumpThresholdMs = Math.max(pollMs * 3, 20000);
+  let lastTickMs = Date.now();
+  let lastForcedBroadcastMs = Date.now();
+
+  const checkSleepWakeAndBroadcast = async (now = Date.now()) => {
+    if (bridgeState.stopped) return;
+    const elapsed = now - lastTickMs;
+    lastTickMs = now;
+    if (elapsed > sleepJumpThresholdMs) {
+      bridgeState.wakeCount = (bridgeState.wakeCount || 0) + 1;
+      reconnectAllRelays();
+      lastForcedBroadcastMs = now;
+      return;
+    }
+    const currentCfg = loadOrCreatePocketConfig();
+    for (const rUrl of currentCfg.relays) {
+      const existing = bridgeState.sockets.get(rUrl);
+      if (!existing || existing.readyState > 1) {
+        connectRelay(rUrl);
+      }
+    }
+    const forceKeepalive = now - lastForcedBroadcastMs >= 60000;
+    if (forceKeepalive) lastForcedBroadcastMs = now;
+    await broadcastSnapshot(forceKeepalive);
+  };
+
   const pollTimer = setInterval(() => {
-    void broadcastSnapshot(false);
-  }, Number(options.pollIntervalMs || 6000));
+    void checkSleepWakeAndBroadcast(Date.now());
+  }, pollMs);
   if (typeof pollTimer.unref === 'function') pollTimer.unref();
 
   return {
     cfg,
     bridgeState,
     broadcastSnapshot,
+    reconnectAllRelays,
+    checkSleepWakeAndBroadcast,
     stop() {
       bridgeState.stopped = true;
       clearInterval(pollTimer);
