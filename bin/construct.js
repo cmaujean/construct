@@ -1986,6 +1986,14 @@ async function main(argv) {
       return handleRomCommand(rest, o);
     }
 
+    case 'use': {
+      return handleRomCommand(['use', ...rest], o);
+    }
+
+    case 'sub': {
+      return handleRomCommand(['sub', ...rest], o);
+    }
+
     case 'user':
     case 'operator': {
       return handleUserCommand(rest, o);
@@ -2221,8 +2229,13 @@ async function main(argv) {
       throw new Error('usage: construct packet export <project> | import <packet>');
     }
 
-    default:
+    default: {
+      const candidateTarget = [cmd, ...rest].join(',').toLowerCase();
+      if (mcp.isValidRomTarget(candidateTarget)) {
+        return handleRomCommand(['use', candidateTarget], o);
+      }
       throw new Error(`unknown command "${cmd}". Try: construct help`);
+    }
   }
 }
 

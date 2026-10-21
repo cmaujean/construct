@@ -2234,7 +2234,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(promptCalls.length, 1);
     assert.match(promptCalls[0].text, /tools\.browser\.preview/);
 
-    // Verify `construct reload` works directly on the CLI (`bin/construct.js`)
+    // Verify `construct reload`, `construct <bank>`, `construct use <bank>`, and `construct sub <specialist>`
+    // work identically on the CLI (`bin/construct.js`) and via `/construct` (`executeConstructSlashCommand`)
     const reloadCliDir = path.join(tmp.dir, 'reload-cfg');
     const reloadOut = spawnSync(process.execPath, [CLI, 'reload', '--dir', reloadCliDir], {
       env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
@@ -2244,6 +2245,27 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.match(reloadOut.stdout, /construct reloaded \(DID: did:key:/);
     assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'pocket.js')));
     assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'store.js')));
+
+    const cliBankOut = spawnSync(process.execPath, [CLI, 'nightcity', '--session', 'cli_parity_ses'], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
+      encoding: 'utf8',
+    });
+    assert.equal(cliBankOut.status, 0);
+    assert.match(cliBankOut.stdout, /slotted ROM "nightcity".*-> session cli_parity_ses/);
+
+    const cliSubOut = spawnSync(process.execPath, [CLI, 'sub', 'panam', '--session', 'cli_parity_ses'], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
+      encoding: 'utf8',
+    });
+    assert.equal(cliSubOut.status, 0);
+    assert.match(cliSubOut.stdout, /substituted "panam" into crew roster -> judy,vik,tbug,panam/);
+
+    const cliUseOut = spawnSync(process.execPath, [CLI, 'use', 'sprawl', '--session', 'cli_parity_ses'], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
+      encoding: 'utf8',
+    });
+    assert.equal(cliUseOut.status, 0);
+    assert.match(cliUseOut.stdout, /slotted ROM "sprawl".*-> session cli_parity_ses/);
 
     // Verify `executeConstructSlashCommand` persists `lastCliOutput` into `getHudSnapshot` and `#hud-cli-output` in `generateDashboardHtml`
     const hudWithCli = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });

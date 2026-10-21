@@ -71,76 +71,6 @@ function parseSlashArgs(raw = '') {
   return tokens;
 }
 
-const CONSTRUCT_CLI_COMMANDS = new Set([
-  'init',
-  'upgrade',
-  'self-update',
-  'mcp',
-  'claude-hook',
-  'cursor-hook',
-  'gemini-hook',
-  'omp-hook',
-  'assimilate',
-  'boot',
-  'rec',
-  'record',
-  'head',
-  'resolve',
-  'reopen',
-  'tape',
-  'zoom',
-  'search',
-  'find',
-  'why',
-  'issues',
-  'issue',
-  'pr',
-  'prs',
-  'hud',
-  'status',
-  'dashboard',
-  'view',
-  'hud-server',
-  'pocket',
-  'edit',
-  'projects',
-  'ls',
-  'rom',
-  'pack',
-  'packs',
-  'user',
-  'operator',
-  'gotcha',
-  'gotchas',
-  'msg',
-  'ask',
-  'drop',
-  'apply-drop',
-  'reply',
-  'ack',
-  'hide-msg',
-  'msg-hide',
-  'rm-msg',
-  'msg-rm',
-  'delete-msg',
-  'purge-msg',
-  'msg-purge',
-  'inbox',
-  'messages',
-  'did',
-  'identity',
-  'invite',
-  'join',
-  'sync',
-  'site',
-  'docs-site',
-  'relay',
-  'packet',
-  'help',
-  '--help',
-  '-h',
-]);
-
 function resolveHudFileForSnap(snap) {
   const proj = String(snap?.project || '').trim();
   if (proj && proj !== 'workspace') {
@@ -151,6 +81,30 @@ function resolveHudFileForSnap(snap) {
     if (slug) return `~/.config/opencode/construct-hud-${slug}.html`;
   }
   return '~/.config/opencode/construct-hud.html';
+}
+
+function classifyConstructCliTokens(tokens) {
+  if (!Array.isArray(tokens) || tokens.length === 0) {
+    return { kind: 'selector', cliArgs: [] };
+  }
+  const first = String(tokens[0] || '').toLowerCase();
+  const second = String(tokens[1] || '').toLowerCase();
+  const nonFlagTokens = tokens.filter((t) => !String(t).startsWith('-'));
+
+  if (first === 'reload' || first === 'hot-reload') {
+    return { kind: 'reload', cliArgs: [...tokens] };
+  }
+  if ((first === 'sub' && second && isValidRomTarget(second)) || (first === 'rom' && second === 'sub' && tokens[2])) {
+    return { kind: 'rom-sub', cliArgs: [...tokens], target: first === 'sub' ? second : String(tokens[2]).toLowerCase() };
+  }
+  if ((first === 'use' && second && isValidRomTarget(second)) || (first === 'rom' && second === 'use' && tokens[2])) {
+    return { kind: 'rom-use', cliArgs: [...tokens], target: first === 'use' ? second : String(tokens[2]).toLowerCase() };
+  }
+  if (nonFlagTokens.length > 0 && isValidRomTarget(nonFlagTokens.join(','))) {
+    const target = nonFlagTokens.join(',').toLowerCase();
+    return { kind: 'rom-use', cliArgs: [...tokens], target };
+  }
+  return { kind: 'cli', cliArgs: [...tokens] };
 }
 
 function executeConstructSlashCommand(rawArgs = '', options = {}) {
@@ -180,26 +134,9 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     };
   }
 
-  const first = tokens[0].toLowerCase();
-  let cliArgs = [];
-  let kind = 'cli';
-
-  if (first === 'reload' || first === 'hot-reload') {
-    cliArgs = ['init', '--all', ...tokens.slice(1)];
-    kind = 'reload';
-  } else if (first === 'sub' && tokens[1] && isValidRomTarget(tokens[1])) {
-    cliArgs = ['rom', 'sub', tokens[1].toLowerCase(), ...tokens.slice(2)];
-    kind = 'rom-sub';
-  } else if (first === 'use' && tokens[1] && isValidRomTarget(tokens[1])) {
-    cliArgs = ['rom', 'use', tokens[1].toLowerCase(), ...tokens.slice(2)];
-    kind = 'rom-use';
-  } else if (!CONSTRUCT_CLI_COMMANDS.has(first) && isValidRomTarget(tokens.join(','))) {
-    cliArgs = ['rom', 'use', tokens.join(',').toLowerCase()];
-    kind = 'rom-use';
-  } else {
-    cliArgs = [...tokens];
-    kind = 'cli';
-  }
+  const classified = classifyConstructCliTokens(tokens);
+  const { kind, target } = classified;
+  const cliArgs = [...classified.cliArgs];
 
   const cmd = String(cliArgs[0] || '').toLowerCase();
   const isHelp =
@@ -208,7 +145,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     cmd === '-h' ||
     cliArgs.includes('--help') ||
     cliArgs.includes('-h');
-  const noAutoDirCmds = new Set(['init', 'upgrade', 'self-update', 'site', 'docs-site', 'help', '--help', '-h']);
+  const noAutoDirCmds = new Set(['init', 'reload', 'hot-reload', 'upgrade', 'self-update', 'site', 'docs-site', 'help', '--help', '-h']);
 
   if (!isHelp && sessionId && !cliArgs.includes('--session')) {
     cliArgs.push('--session', sessionId);
@@ -240,7 +177,9 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
   const romSubCmd = String(cliArgs[1] || '').toLowerCase();
   const reloadPlugin =
     kind === 'reload' ||
-    ['init', 'upgrade', 'self-update'].includes(cmd) ||
+    kind === 'rom-use' ||
+    kind === 'rom-sub' ||
+    ['init', 'reload', 'hot-reload', 'upgrade', 'self-update'].includes(cmd) ||
     (cmd === 'rom' && ['use', 'sub', 'default', 'tune', 'burn', 'unburn', 'set', 'clone', 'sync'].includes(romSubCmd));
   const openHud = kind === 'rom-use' || cmd === 'hud' || cmd === 'dashboard' || cmd === 'view';
 
@@ -253,12 +192,12 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
 
   let message = '';
   let promptText = '';
-  if (!isError && (kind === 'rom-sub' || (cmd === 'rom' && romSubCmd === 'sub' && cliArgs[2]))) {
-    const subTarget = cliArgs[2];
+  if (!isError && kind === 'rom-sub') {
+    const subTarget = target || cliArgs[2] || cliArgs[1];
     message = `Subbed ${subTarget} into active crew${snap?.pill ? ` (${snap.pill})` : ''}`;
     promptText = `Subbed \`${subTarget}\` into the active crew (${snap?.pill || ''}). Confirm in voice.`;
-  } else if (!isError && (kind === 'rom-use' || (cmd === 'rom' && romSubCmd === 'use' && cliArgs[2]))) {
-    const useTarget = cliArgs[2];
+  } else if (!isError && kind === 'rom-use') {
+    const useTarget = target || cliArgs[2] || cliArgs[0];
     message = `Switched session to ${useTarget}${snap?.pill ? ` (${snap.pill})` : ''}`;
     promptText = `Switched this session to \`${useTarget}\` (${snap?.pill || ''}). Confirm in the new Crew's voice and open \`${hudFile}\` with \`tools.browser.preview\`.`;
   } else if (!isError && isHelp) {
@@ -1964,6 +1903,7 @@ module.exports = {
   enqueueSubagentRomsFromToolInput,
   resolveSubagentRomFromHookPayload,
   parseSlashArgs,
+  classifyConstructCliTokens,
   executeConstructSlashCommand,
   handleOpenCodeSlashCommand,
   resolveNodeExecutable,

@@ -579,36 +579,15 @@ export default {
                 return
               }
 
-              // Fallback if shared engine is unavailable
-              const subMatch = rawArg.match(/^sub\s+([a-z0-9_]+)$/i)
-              const directBank = isValidRomTarget(rawArg) ? rawArg.toLowerCase() : ""
-              if (subMatch && isValidRomTarget(subMatch[1])) {
-                runConstruct(["rom", "sub", subMatch[1].toLowerCase(), "--session", String(sessionID)])
-                const snap = await syncSessionHud(sessionID, sessDir)
-                await ctx.session.prompt({
-                  ...prompt,
-                  sessionID,
-                  text: `Subbed \`${subMatch[1].toLowerCase()}\` into the active crew (${snap?.pill || ""}). Confirm in voice.`,
-                  delivery,
-                })
-                return
-              }
-              if (directBank) {
-                runConstruct(["rom", "use", directBank, "--session", String(sessionID)])
-                const snap = await syncSessionHud(sessionID, sessDir)
-                await ctx.session.prompt({
-                  ...prompt,
-                  sessionID,
-                  text: `Switched this session to \`${directBank}\` (${snap?.pill || ""}). Confirm in the new Crew's voice and open \`~/.config/opencode/construct-hud.html\` with \`tools.browser.preview\`.`,
-                  delivery,
-                })
-                return
+              // Fallback if shared engine is unavailable: delegate directly to `bin/construct.js`
+              if (rawArg) {
+                runConstruct([rawArg, "--session", String(sessionID)])
               }
               await syncSessionHud(sessionID, sessDir)
               await ctx.session.prompt({
                 ...prompt,
                 sessionID,
-                text: "Open `~/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.",
+                text: "Open `~/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and confirm in the active Crew's voice.",
                 delivery,
               })
             },
