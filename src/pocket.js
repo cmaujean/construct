@@ -563,10 +563,12 @@ function summarizeOpenCodeMessage(msg) {
   if (!msg || typeof msg !== 'object') return null;
   const created = msg.time?.created || 0;
   if (msg.type === 'user') {
+    const rawText = String(msg.text || '');
+    // Strip Construct slash-command wrapper boilerplate if present
     return {
       id: msg.id,
       role: 'user',
-      text: String(msg.text || ''),
+      text: rawText.length > 600 ? rawText.slice(0, 600) + '...' : rawText,
       created,
     };
   }
@@ -574,25 +576,23 @@ function summarizeOpenCodeMessage(msg) {
     return {
       id: msg.id,
       role: 'shell',
-      command: String(msg.command || ''),
+      command: String(msg.command || '').slice(0, 160),
       status: String(msg.status || 'exited'),
-      output: String(msg.output?.output || '').slice(0, 4000),
+      output: String(msg.output?.output || '').slice(0, 800),
       created,
     };
   }
   if (msg.type === 'assistant') {
     const textParts = [];
-    const thinkingParts = [];
     const tools = [];
     for (const part of Array.isArray(msg.content) ? msg.content : []) {
       if (part.type === 'text' && part.text) textParts.push(part.text);
-      else if (part.type === 'reasoning' && part.text) thinkingParts.push(part.text);
       else if (part.type === 'tool') {
         const st = part.state?.status || 'completed';
         let preview = '';
         if (Array.isArray(part.state?.content)) {
           const firstText = part.state.content.find((c) => c && typeof c.text === 'string');
-          if (firstText) preview = firstText.text.slice(0, 600);
+          if (firstText) preview = firstText.text.slice(0, 160);
         }
         tools.push({
           id: part.id,
@@ -602,17 +602,74 @@ function summarizeOpenCodeMessage(msg) {
         });
       }
     }
+    const joinedText = textParts.join('\n\n');
     return {
       id: msg.id,
       role: 'assistant',
-      text: textParts.join('\n\n'),
-      thinking: thinkingParts.join('\n').slice(0, 1200),
-      tools,
+      text: joinedText.length > 1400 ? joinedText.slice(0, 1400) + '\n...(truncated for mobile relay)...' : joinedText,
+      tools: tools.slice(-6),
       streaming: !msg.time?.completed && !msg.finish,
       created,
     };
   }
   return null;
+}
+
+function compactHudForPocket(rawHud) {
+  if (!rawHud || typeof rawHud !== 'object') return null;
+  return {
+    project: rawHud.project || 'workspace',
+    pack: rawHud.pack || 'sprawl',
+    emblem: rawHud.emblem || '🦾',
+    romName: rawHud.romName || 'crew',
+    handle: rawHud.handle || '',
+    roster: Array.isArray(rawHud.roster) ? rawHud.roster : [],
+    pill: rawHud.pill || '',
+    tabBadge: rawHud.tabBadge || '',
+    state: String(rawHud.state || '').slice(0, 500),
+    next: String(rawHud.next || '').slice(0, 300),
+    headSeq: rawHud.headSeq || 0,
+    totalFrames: rawHud.totalFrames || 0,
+    openCount: rawHud.openCount || 0,
+    gotchaCount: rawHud.gotchaCount || 0,
+    inboxPendingCount: rawHud.inboxPendingCount || 0,
+    openThreads: (Array.isArray(rawHud.openThreads) ? rawHud.openThreads : []).slice(0, 10).map((f) => ({
+      seq: f.seq,
+      ts: f.ts,
+      summary: String(f.summary || '').slice(0, 160),
+    })),
+    recentTape: (Array.isArray(rawHud.recentTape) ? rawHud.recentTape : []).slice(-10).map((f) => ({
+      seq: f.seq,
+      ts: f.ts,
+      kind: f.kind,
+      summary: String(f.summary || '').slice(0, 160),
+    })),
+    gotchas: (Array.isArray(rawHud.gotchas) ? rawHud.gotchas : []).slice(0, 10).map((g) => ({
+      id: g.id,
+      title: String(g.title || '').slice(0, 140),
+      status: g.status,
+      fix: String(g.fix || '').slice(0, 160),
+    })),
+    comms: (Array.isArray(rawHud.comms) ? rawHud.comms : []).slice(0, 8).map((m) => ({
+      id: m.id,
+      status: m.status,
+      fromUser: m.fromUser,
+      fromRom: m.fromRom,
+      fromGlyph: m.fromGlyph || '📬',
+      toUser: m.toUser,
+      replyRom: m.replyRom,
+      body: String(m.body || '').slice(0, 280),
+      replyBody: m.replyBody ? String(m.replyBody).slice(0, 220) : '',
+    })),
+    lastCliOutput: rawHud.lastCliOutput
+      ? {
+          cmd: rawHud.lastCliOutput.cmd || '',
+          output: String(rawHud.lastCliOutput.output || '').slice(0, 2600),
+          isError: Boolean(rawHud.lastCliOutput.isError),
+          ts: rawHud.lastCliOutput.ts || '',
+        }
+      : null,
+  };
 }
 
 async function collectPocketSnapshot(store, options = {}) {
@@ -659,9 +716,9 @@ async function collectPocketSnapshot(store, options = {}) {
         fetchOpenCodeApi(`/api/session/${encodeURIComponent(activeSessionId)}/permission`),
       ]);
       if (Array.isArray(msgJson?.data)) {
-        // `/api/session/{id}/message` returns newest-first; take top 18 and reverse to chronological
+        // `/api/session/{id}/message` returns newest-first; take top 10 and reverse to chronological
         messages = msgJson.data
-          .slice(0, 18)
+          .slice(0, 10)
           .reverse()
           .map(summarizeOpenCodeMessage)
           .filter(Boolean);
@@ -678,11 +735,12 @@ async function collectPocketSnapshot(store, options = {}) {
 
   let hud = null;
   try {
-    hud = store.getHudSnapshot({
+    const fullHud = store.getHudSnapshot({
       sessionId: activeSessionId,
       dir: activeDir,
       project: options.project || '',
     });
+    hud = compactHudForPocket(fullHud);
   } catch (_) {}
 
   return {
@@ -921,7 +979,7 @@ function startPocketBridge(store, mcp, options = {}) {
 
   const pollTimer = setInterval(() => {
     void broadcastSnapshot(false);
-  }, Number(options.pollIntervalMs || 2000));
+  }, Number(options.pollIntervalMs || 6000));
   if (typeof pollTimer.unref === 'function') pollTimer.unref();
 
   return {
