@@ -615,17 +615,17 @@ SYNOPSIS
   /construct did`,
 
   hud: `NAME
-  construct hud (alias: status) - Print compact status pill or JSON snapshot for a session/project
+  construct hud (alias: status) - Print compact status pill, refresh HTML HUD, or output JSON snapshot
 
 SYNOPSIS
-  construct hud [<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
-  /construct hud`,
+  construct hud [reload|refresh|<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
+  /construct hud [reload]`,
 
   dashboard: `NAME
   construct dashboard (alias: view) - Generate dark-mode interactive HTML HUD files
 
 SYNOPSIS
-  construct dashboard [--out <html_path>] [--project <proj>] [--dir <repo_dir>] [--session <session_id>] [--json]
+  construct dashboard [reload|refresh] [--out <html_path>] [--project <proj>] [--dir <repo_dir>] [--session <session_id>] [--json]
   /construct dashboard`,
 
   'hud-server': `NAME
@@ -1837,7 +1837,9 @@ async function main(argv) {
 
     case 'dashboard':
     case 'view': {
-      const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session, dir: o.dir, project: o.project || rest[0] });
+      const subVerb = String(rest[0] || '').toLowerCase();
+      const projArg = ['reload', 'refresh', 'restart', 'open', 'show'].includes(subVerb) ? o.project : (o.project || rest[0]);
+      const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session, dir: o.dir, project: projArg });
       if (o.json) console.log(JSON.stringify({ outFile: res.outFile, projectOutFile: res.projectOutFile, hud: res.hud, projectCount: res.projectCount, openCount: res.openCount }, null, 2));
       else console.log(`dashboard written to ${res.outFile} (${res.projectCount} project(s), ${res.openCount} open thread(s))`);
       return 0;
@@ -1884,8 +1886,20 @@ async function main(argv) {
 
     case 'hud':
     case 'status': {
+      const subVerb = String(rest[0] || '').toLowerCase();
+      const isReloadVerb = ['reload', 'refresh', 'restart', 'open', 'show'].includes(subVerb);
+      const projArg = isReloadVerb ? o.project : (rest[0] || o.project);
+      if (isReloadVerb) {
+        const res = store.generateDashboardHtml({ outFile: o.out, sessionId: o.session, dir: o.dir, project: projArg });
+        if (o.json) {
+          console.log(JSON.stringify(res.hud));
+        } else {
+          console.log(res.hud.pill);
+        }
+        return 0;
+      }
       const snap = store.getHudSnapshot({
-        project: rest[0] || o.project,
+        project: projArg,
         dir: o.dir,
         sessionId: o.session,
       });

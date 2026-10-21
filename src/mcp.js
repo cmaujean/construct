@@ -180,6 +180,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     kind === 'rom-use' ||
     kind === 'rom-sub' ||
     ['init', 'reload', 'hot-reload', 'upgrade', 'self-update'].includes(cmd) ||
+    (['hud', 'dashboard', 'view'].includes(cmd) && ['reload', 'refresh', 'restart'].includes(romSubCmd)) ||
     (cmd === 'rom' && ['use', 'sub', 'default', 'tune', 'burn', 'unburn', 'set', 'clone', 'sync'].includes(romSubCmd));
   const openHud = kind === 'rom-use' || cmd === 'hud' || cmd === 'dashboard' || cmd === 'view';
 
