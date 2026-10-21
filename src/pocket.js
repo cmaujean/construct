@@ -30,11 +30,17 @@ const DEFAULT_PWA_BASE_URL = 'https://cmaujean.github.io/construct/pocket.html';
 const MAX_POCKET_CLOCK_SKEW_MS = 60 * 1000;
 
 function pocketFilePath() {
-  return process.env.CONSTRUCT_POCKET_FILE || DEFAULT_POCKET_FILE;
+  if (process.env.CONSTRUCT_POCKET_FILE) return process.env.CONSTRUCT_POCKET_FILE;
+  const scopedBase = process.env.CONSTRUCT_IDENTITY_FILE || process.env.CONSTRUCT_DB;
+  if (scopedBase) return path.join(path.dirname(scopedBase), 'pocket.json');
+  return DEFAULT_POCKET_FILE;
 }
 
 function hudTokenFilePath() {
-  return process.env.CONSTRUCT_HUD_TOKEN_FILE || DEFAULT_HUD_TOKEN_FILE;
+  if (process.env.CONSTRUCT_HUD_TOKEN_FILE) return process.env.CONSTRUCT_HUD_TOKEN_FILE;
+  const scopedBase = process.env.CONSTRUCT_IDENTITY_FILE || process.env.CONSTRUCT_DB;
+  if (scopedBase) return path.join(path.dirname(scopedBase), 'hud-token.txt');
+  return DEFAULT_HUD_TOKEN_FILE;
 }
 
 function loadOrCreateHudToken(file = hudTokenFilePath()) {
