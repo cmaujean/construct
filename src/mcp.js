@@ -1829,14 +1829,57 @@ export default function constructOmpExtension(pi) {
 `;
 }
 
+function resolveOpenCodeServiceConfig() {
+  const candidates = [];
+  if (process.env.XDG_STATE_HOME) {
+    candidates.push(path.join(process.env.XDG_STATE_HOME, 'opencode', 'service.json'));
+  }
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  if (home) {
+    candidates.push(path.join(home, '.local', 'state', 'opencode', 'service.json'));
+  }
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf8'));
+        if (parsed?.url && parsed?.password) return parsed;
+      } catch (_) {}
+    }
+  }
+  return null;
+}
+
+async function invokeOpenCodeSessionShell(ctx, sessionID, command) {
+  if (typeof ctx?.session?.shell === 'function') {
+    await ctx.session.shell({ sessionID, command });
+    return true;
+  }
+  const svc = resolveOpenCodeServiceConfig();
+  if (svc?.url && svc?.password && sessionID && typeof fetch === 'function') {
+    try {
+      const auth = 'Basic ' + Buffer.from(`opencode:${svc.password}`).toString('base64');
+      const resp = await fetch(`${String(svc.url).replace(/\/+$/, '')}/api/session/${encodeURIComponent(sessionID)}/shell`, {
+        method: 'POST',
+        headers: {
+          Authorization: auth,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command }),
+      });
+      if (resp.ok || resp.status === 204) return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
 async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, sessDir = '', reloadConstructEngine, syncSessionHud }) {
   const rawArg = String(prompt?.text || '').trim();
   const tokens = parseSlashArgs(rawArg);
 
-  // Zero-roundtrip path: when `/construct <subcommand>` is given and `ctx.session.shell` is available,
-  // execute directly via `ctx.session.shell` so the output renders natively in the transcript in <100ms
-  // with 0 model roundtrips and 0 LLM tokens.
-  if (tokens.length > 0 && typeof ctx?.session?.shell === 'function') {
+  // Zero-roundtrip path: when `/construct <subcommand>` is given, execute directly via
+  // `POST /api/session/{sessionID}/shell` (`ctx.session.shell` or `service.json` loopback)
+  // so the output renders natively in the transcript in <100ms with 0 model roundtrips and 0 LLM tokens.
+  if (tokens.length > 0) {
     const first = String(tokens[0] || '').toLowerCase();
     let cliArgs = [...tokens];
     if (first === 'reload' || first === 'hot-reload') {
@@ -1866,21 +1909,22 @@ async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, se
     const quotedArgs = cliArgs
       .map((a) => (/[\s"'\\]/.test(a) ? `"${String(a).replace(/(["\\])/g, '\\$1')}"` : a))
       .join(' ');
-    await ctx.session.shell({
-      sessionID,
-      command: `construct ${quotedArgs}`,
-    });
-    const cmd0 = String(cliArgs[0] || '').toLowerCase();
-    if (
-      (first === 'reload' || first === 'hot-reload' || ['init', 'upgrade', 'self-update', 'rom'].includes(cmd0)) &&
-      typeof reloadConstructEngine === 'function'
-    ) {
-      await reloadConstructEngine();
+    const binSlash = CONSTRUCT_BIN.replace(/\\/g, '/');
+    const shellCmd = typeof ctx?.session?.shell === 'function' ? `construct ${quotedArgs}` : `node "${binSlash}" ${quotedArgs}`;
+    const shellDispatched = await invokeOpenCodeSessionShell(ctx, sessionID, shellCmd);
+    if (shellDispatched) {
+      const cmd0 = String(cliArgs[0] || '').toLowerCase();
+      if (
+        (first === 'reload' || first === 'hot-reload' || ['init', 'upgrade', 'self-update', 'rom'].includes(cmd0)) &&
+        typeof reloadConstructEngine === 'function'
+      ) {
+        await reloadConstructEngine();
+      }
+      if (typeof syncSessionHud === 'function') {
+        await syncSessionHud(sessionID, sessDir);
+      }
+      return;
     }
-    if (typeof syncSessionHud === 'function') {
-      await syncSessionHud(sessionID, sessDir);
-    }
-    return;
   }
 
   const res = executeConstructSlashCommand(rawArg, {

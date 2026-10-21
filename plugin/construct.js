@@ -536,7 +536,7 @@ export default {
                 } catch (_) {}
               }
 
-              const engine = loadSharedMcpEngine() || mcpEngine
+              const engine = loadSharedMcpEngine({ bustCache: true }) || mcpEngine
               if (engine) mcpEngine = engine
 
               if (mcpEngine && typeof mcpEngine.handleOpenCodeSlashCommand === "function") {
