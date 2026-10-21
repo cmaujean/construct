@@ -1892,10 +1892,12 @@ async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, se
   const rawArg = String(prompt?.text || '').trim();
   const tokens = parseSlashArgs(rawArg);
 
-  // Zero-roundtrip path: when `/construct <subcommand>` is given, execute synchronously via
-  // `executeConstructSlashCommand` (which also populates `#hud-cli-drawer` in the Review-Pane HUD),
-  // hot-reload if needed, and also dispatch `POST /api/session/{sessionID}/shell` when explicitly
-  // passed via `ctx.session.shell`.
+  // Zero-roundtrip path: when `/construct <subcommand>` is given and does not need to open the
+  // Review-Pane HUD (`!res.openHud`), execute synchronously via `executeConstructSlashCommand`
+  // (which populates `#hud-cli-drawer` in the Review-Pane HUD), hot-reload if needed, and also
+  // dispatch `POST /api/session/{sessionID}/shell` when explicitly passed via `ctx.session.shell`.
+  // When `res.openHud` is true (`/construct`, `/construct hud`, `/construct dashboard`, `/construct <bank>`),
+  // also dispatch `ctx.session.prompt` so the agent calls `tools.browser.preview` to open the Review pane.
   if (tokens.length > 0) {
     const res = executeConstructSlashCommand(rawArg, {
       sessionId: sessionID,
@@ -1915,6 +1917,14 @@ async function handleOpenCodeSlashCommand(ctx, { sessionID, prompt, delivery, se
     }
     if (typeof syncSessionHud === 'function') {
       await syncSessionHud(sessionID, sessDir);
+    }
+    if (res.openHud && typeof ctx?.session?.prompt === 'function') {
+      await ctx.session.prompt({
+        ...prompt,
+        sessionID,
+        text: res.promptText,
+        delivery,
+      });
     }
     return res;
   }

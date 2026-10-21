@@ -76,6 +76,18 @@ function installPluginFile(configDir = path.join(os.homedir(), '.config', 'openc
   if (fs.existsSync(tuiSrc)) {
     fs.copyFileSync(tuiSrc, path.join(pluginDestDir, 'tui.tsx'));
   }
+
+  // Write forwarding shims in `<configDir>/src/` so any in-memory plugin instance resolving
+  // `path.resolve(PLUGIN_DIR, "..", "src", ...)` bridges seamlessly to the repository `src/`.
+  const shimDir = path.join(configDir, 'src');
+  try {
+    fs.mkdirSync(shimDir, { recursive: true });
+    for (const modName of ['pocket.js', 'store.js', 'mcp.js']) {
+      const targetMod = path.resolve(__dirname, modName).replace(/\\/g, '/');
+      fs.writeFileSync(path.join(shimDir, modName), `module.exports = require(${JSON.stringify(targetMod)});\n`, 'utf8');
+    }
+  } catch (_) {}
+
   return pluginDest;
 }
 

@@ -23,17 +23,20 @@ const RELATIVE_BIN = path.resolve(PLUGIN_DIR, "..", "bin", "construct.js")
 
 let cachedMcpEngine = null
 
-function loadSharedMcpEngine({ bustCache = false } = {}) {
-  if (cachedMcpEngine && !bustCache) return cachedMcpEngine
+function resolveSrcCandidates(fileName) {
   const candidates = []
   if (process.env.CONSTRUCT_BIN) {
-    candidates.push(path.resolve(path.dirname(process.env.CONSTRUCT_BIN), "..", "src", "mcp.js"))
+    candidates.push(path.resolve(path.dirname(process.env.CONSTRUCT_BIN), "..", "src", fileName))
   }
   if (!STAMPED_BIN.startsWith("__")) {
-    candidates.push(path.resolve(path.dirname(STAMPED_BIN), "..", "src", "mcp.js"))
+    candidates.push(path.resolve(path.dirname(STAMPED_BIN), "..", "src", fileName))
   }
-  candidates.push(path.resolve(PLUGIN_DIR, "..", "src", "mcp.js"))
-  for (const p of candidates) {
+  candidates.push(path.resolve(PLUGIN_DIR, "..", "src", fileName))
+  return candidates
+}
+
+function loadSharedSrcModule(fileName, { bustCache = false } = {}) {
+  for (const p of resolveSrcCandidates(fileName)) {
     if (fs.existsSync(p)) {
       try {
         if (bustCache) {
@@ -42,10 +45,19 @@ function loadSharedMcpEngine({ bustCache = false } = {}) {
             if (k.startsWith(srcDir)) delete requireCjs.cache[k]
           }
         }
-        cachedMcpEngine = requireCjs(p)
-        return cachedMcpEngine
+        return requireCjs(p)
       } catch (_) {}
     }
+  }
+  return null
+}
+
+function loadSharedMcpEngine({ bustCache = false } = {}) {
+  if (cachedMcpEngine && !bustCache) return cachedMcpEngine
+  const mod = loadSharedSrcModule("mcp.js", { bustCache })
+  if (mod) {
+    cachedMcpEngine = mod
+    return cachedMcpEngine
   }
   return null
 }
@@ -681,9 +693,9 @@ export default {
 
     try {
       hudServer = http.createServer((req, res) => {
-        const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+        const pocketMod = loadSharedSrcModule("pocket.js")
         const origin = req.headers.origin
-        if (!pocketMod.isAllowedLocalOrigin(origin)) {
+        if (!pocketMod?.isAllowedLocalOrigin(origin)) {
           res.writeHead(403, { "Content-Type": "application/json" })
           res.end(JSON.stringify({ ok: false, error: "Forbidden cross-origin request to Construct loopback server" }))
           return
@@ -732,8 +744,8 @@ export default {
             try {
               const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
               const qSid = parsedUrl.searchParams.get("sessionId") || lastActiveSessionId || ""
-              const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
-              const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+              const pocketMod = loadSharedSrcModule("pocket.js")
+              const storeMod = loadSharedSrcModule("store.js")
               const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: qSid, dir: lastActiveDir })
               res.writeHead(200, { "Content-Type": "application/json" })
               res.end(JSON.stringify({ ok: true, snapshot: snap }))
@@ -752,8 +764,8 @@ export default {
           req.on("end", async () => {
             try {
               const cmdPayload = JSON.parse(body || "{}")
-              const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
-              const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+              const pocketMod = loadSharedSrcModule("pocket.js")
+              const storeMod = loadSharedSrcModule("store.js")
               const mcpMod = loadSharedMcpEngine() || mcpEngine
               const bState = {
                 activeSessionId: cmdPayload.sessionId || lastActiveSessionId || "",
@@ -780,7 +792,7 @@ export default {
             const qSid = parsedUrl.searchParams.get("sessionID") || lastActiveSessionId || ""
             const qProj = parsedUrl.searchParams.get("project") || ""
             const qDir = parsedUrl.searchParams.get("dir") || lastActiveDir || ""
-            const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+            const storeMod = loadSharedSrcModule("store.js")
             const dash = storeMod.generateDashboardHtml({ sessionId: qSid, project: qProj, dir: qDir, noServerSpawn: true })
             const htmlOut = qProj ? dash.html.replace("let autoFollow = true;", "let autoFollow = false;") : dash.html
             res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" })
@@ -818,7 +830,7 @@ export default {
           return
         }
         if (req.method === "POST" && req.url?.startsWith("/action")) {
-          if (origin && req.headers["x-construct-token"] !== pocketMod.loadOrCreateHudToken()) {
+          if (origin && req.headers["x-construct-token"] !== pocketMod?.loadOrCreateHudToken()) {
             res.writeHead(403, { "Content-Type": "application/json" })
             res.end(JSON.stringify({ ok: false, error: "Missing or invalid X-Construct-Token" }))
             return
@@ -887,8 +899,8 @@ export default {
               }
 
               if (rawAction === "pocket-qr") {
-                const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
-                const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+                const pocketMod = loadSharedSrcModule("pocket.js")
+                const storeMod = loadSharedSrcModule("store.js")
                 const mcpMod = loadSharedMcpEngine() || mcpEngine
                 const cfg = pocketMod.loadOrCreatePocketConfig({ rotate: Boolean(payload.rotate) })
                 const url = pocketMod.buildPocketPairingUrl(cfg)
@@ -909,7 +921,7 @@ export default {
                 const engine = loadSharedMcpEngine() || mcpEngine
                 if (engine) mcpEngine = engine
                 try {
-                  const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+                  const storeMod = loadSharedSrcModule("store.js")
                   storeMod.clearLastCliOutput()
                 } catch (_) {}
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
@@ -933,6 +945,14 @@ export default {
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, cli: cliRes, hud: snap }))
+                return
+              }
+
+              if (rawAction === "reload" || rawAction === "hot-reload") {
+                await reloadConstructEngine()
+                const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
+                res.writeHead(200, { "Content-Type": "application/json" })
+                res.end(JSON.stringify({ ok: true, reloaded: true, hud: snap }))
                 return
               }
 
@@ -973,9 +993,9 @@ export default {
       hudServer.on("error", () => {})
       hudServer.listen(47420, "127.0.0.1", () => {
         try {
-          const pocketMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "pocket.js"))
+          const pocketMod = loadSharedSrcModule("pocket.js")
           if (fs.existsSync(pocketMod.pocketFilePath()) && !hudServer._pocketBridge) {
-            const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+            const storeMod = loadSharedSrcModule("store.js")
             hudServer._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpEngine, {
               sessionId: lastActiveSessionId,
               dir: lastActiveDir,

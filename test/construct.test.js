@@ -2216,14 +2216,42 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(promptCalls.length, 0);
     assert.equal(shellCalls[0].command, 'construct help tape');
 
+    // Verify `/construct hud` (or `/construct dashboard`) ALSO dispatches `ctx.session.prompt` so `tools.browser.preview` reopens a closed Review pane
+    await mcp.handleOpenCodeSlashCommand(
+      {
+        session: {
+          shell: async (req) => shellCalls.push(req),
+          prompt: async (req) => promptCalls.push(req),
+        },
+      },
+      {
+        sessionID: 'slash_ses_1',
+        prompt: { text: 'hud' },
+        delivery: 'steer',
+        sessDir: tmp.dir,
+      }
+    );
+    assert.equal(promptCalls.length, 1);
+    assert.match(promptCalls[0].text, /tools\.browser\.preview/);
+
+    // Verify `construct reload` works directly on the CLI (`bin/construct.js`)
+    const reloadCliDir = path.join(tmp.dir, 'reload-cfg');
+    const reloadOut = spawnSync(process.execPath, [CLI, 'reload', '--dir', reloadCliDir], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
+      encoding: 'utf8',
+    });
+    assert.equal(reloadOut.status, 0);
+    assert.match(reloadOut.stdout, /construct reloaded \(DID: did:key:/);
+    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'pocket.js')));
+    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'store.js')));
+
     // Verify `executeConstructSlashCommand` persists `lastCliOutput` into `getHudSnapshot` and `#hud-cli-output` in `generateDashboardHtml`
     const hudWithCli = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
     assert.ok(hudWithCli.lastCliOutput);
-    assert.equal(hudWithCli.lastCliOutput.cmd, '/construct help tape');
-    assert.match(hudWithCli.lastCliOutput.output, /construct tape - Sequential playback/);
+    assert.equal(hudWithCli.lastCliOutput.cmd, '/construct hud');
     const dashWithCli = store.generateDashboardHtml({ dir: tmp.dir, sessionId: 'slash_ses_1', noServerSpawn: true });
     assert.match(dashWithCli.html, /id="hud-cli-output"/);
-    assert.match(dashWithCli.html, /construct tape - Sequential playback/);
+    assert.match(dashWithCli.html, /id="hud-cli-status"/);
     store.clearLastCliOutput();
     const hudCleared = store.getHudSnapshot({ dir: tmp.dir, sessionId: 'slash_ses_1' });
     assert.equal(hudCleared.lastCliOutput, null);

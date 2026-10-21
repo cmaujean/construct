@@ -455,7 +455,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
-      hudSchemaVersion: 4,
+      hudSchemaVersion: 5,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -778,6 +778,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
         <strong>CONSTRUCT CLI CONSOLE</strong>
         <code id="hud-cli-cmd-label" style="font-size:11.5px;">${escapeHtml(hud.lastCliOutput?.cmd || '')}</code>
+        <span id="hud-cli-status" class="sub" style="margin-left:4px;color:var(--accent);"></span>
       </div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <input type="text" class="reply-input" id="hud-cli-input" style="width:260px;" placeholder="Command (e.g. help, help tape, tape -n 10)..." onkeydown="handleCliKey(event,this)" />
@@ -905,7 +906,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
-    const HUD_SCHEMA_VERSION = 4;
+    const HUD_SCHEMA_VERSION = 5;
     const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
@@ -1400,15 +1401,28 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     async function runHudCli(argsStr) {
       const clean = String(argsStr || '').trim().replace(/^\\/construct\\s+/i, '');
       if (!clean) return;
-      const toast = document.getElementById('hud-toast');
-      if (toast) toast.textContent = 'Running construct ' + clean + '...';
+      const cliStatus = document.getElementById('hud-cli-status');
+      const cliOut = document.getElementById('hud-cli-output');
+      const cliLabel = document.getElementById('hud-cli-cmd-label');
+      const cliClear = document.getElementById('hud-cli-clear-btn');
+      if (cliStatus) cliStatus.textContent = '⏳ Running construct ' + clean + '...';
       try {
         const data = await postHudAction({ action: 'cli', args: clean, sessionID: selectedSessionId, project: selectedProject });
-        if (data && data.ok && data.hud) {
-          applyHudToDom(data.hud);
-          if (toast) toast.textContent = '✓ Executed: /construct ' + clean;
+        if (data && data.ok) {
+          if (data.hud) applyHudToDom(data.hud);
+          if (data.cli && data.cli.output && cliOut) {
+            if (cliLabel) cliLabel.textContent = '/construct ' + clean;
+            cliOut.textContent = data.cli.output;
+            cliOut.style.display = 'block';
+            if (cliClear) cliClear.style.display = 'inline-block';
+          }
+          if (cliStatus) cliStatus.textContent = '✓ /construct ' + clean;
+        } else if (cliStatus) {
+          cliStatus.textContent = '⚠️ ' + (data?.error || 'Command failed');
         }
-      } catch (_) {}
+      } catch (err) {
+        if (cliStatus) cliStatus.textContent = '⚠️ HUD server unreachable — run "construct reload" in terminal';
+      }
     }
 
     function runHudCliFromInput() {
@@ -1433,6 +1447,8 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
     }
 
     async function clearHudCli() {
+      const cliStatus = document.getElementById('hud-cli-status');
+      if (cliStatus) cliStatus.textContent = '';
       try {
         const data = await postHudAction({ action: 'clear-cli', sessionID: selectedSessionId, project: selectedProject });
         if (data && data.ok && data.hud) applyHudToDom(data.hud);
@@ -1758,6 +1774,14 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               generateDashboardHtml({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir, noServerSpawn: true }, file);
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, cli: cliRes, hud: snap }));
+              return;
+            }
+
+            if (rawAction === 'reload' || rawAction === 'hot-reload') {
+              const snap = getHudSnapshot({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir }, file);
+              generateDashboardHtml({ sessionId: sid, project: proj !== 'workspace' ? proj : '', dir, noServerSpawn: true }, file);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, reloaded: true, hud: snap }));
               return;
             }
 

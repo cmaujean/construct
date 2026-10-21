@@ -1308,7 +1308,10 @@ async function main(argv) {
   }
 
   switch (cmd) {
+    case 'reload':
+    case 'hot-reload':
     case 'init': {
+      const isReloadCmd = cmd === 'reload' || cmd === 'hot-reload';
       const res = store.initConstruct({
         rom: o.rom || rest[0],
         configDir: o.dir,
@@ -1318,11 +1321,30 @@ async function main(argv) {
         windsurf: Boolean(o.windsurf),
         codex: Boolean(o.codex),
         omp: Boolean(o.omp || o['oh-my-pi']),
-        allAgents: Boolean(o.all),
+        allAgents: isReloadCmd ? true : Boolean(o.all),
       });
+      if (isReloadCmd) {
+        try {
+          store.generateDashboardHtml({ sessionId: o.session, project: o.project, dir: o.dir });
+        } catch (_) {}
+        try {
+          const pocketMod = require('../src/pocket');
+          const tok = pocketMod.loadOrCreateHudToken();
+          await fetch('http://127.0.0.1:47420/action', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Construct-Token': tok },
+            body: JSON.stringify({ action: 'reload', sessionID: o.session || '', project: o.project || '' }),
+            signal: AbortSignal.timeout(1500),
+          });
+        } catch (_) {}
+      }
       if (o.json) console.log(JSON.stringify(res, null, 2));
       else {
-        console.log(`construct initialized (DID: ${res.did}, ROM: ${res.rom})`);
+        console.log(
+          `construct ${isReloadCmd ? 'reloaded' : 'initialized'} (DID: ${res.did}, ROM: ${res.rom}${
+            isReloadCmd ? ', plugin & HUD refreshed' : ''
+          })`
+        );
         console.log(`  plugin:   ${res.pluginPath}`);
         console.log(`  rom file: ${res.romFilePath}`);
         if (res.claudeConfigured) {
