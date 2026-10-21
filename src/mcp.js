@@ -140,6 +140,18 @@ const CONSTRUCT_CLI_COMMANDS = new Set([
   '-h',
 ]);
 
+function resolveHudFileForSnap(snap) {
+  const proj = String(snap?.project || '').trim();
+  if (proj && proj !== 'workspace') {
+    const slug = proj
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+    if (slug) return `~/.config/opencode/construct-hud-${slug}.html`;
+  }
+  return '~/.config/opencode/construct-hud.html';
+}
+
 function executeConstructSlashCommand(rawArgs = '', options = {}) {
   const raw = String(rawArgs || '').trim();
   const sessionId = String(options.sessionId || '');
@@ -151,6 +163,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     try {
       snap = store.getHudSnapshot({ dir: cwd, sessionId });
     } catch (_) {}
+    const hudFile = resolveHudFileForSnap(snap);
     return {
       kind: 'selector',
       cliArgs: [],
@@ -158,10 +171,11 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
       isError: false,
       reloadPlugin: false,
       openHud: true,
+      hudFile,
       statusText: snap?.tabBadge || snap?.pill || '',
       message: `Construct active: ${snap?.pill || snap?.rom || 'crew'}`,
       promptText:
-        'Open `~/.config/opencode/construct-hud.html` in the Review pane with `tools.browser.preview` and call the `question` tool to present the Construct Crew Bank & Bench Switcher selector.',
+        `Open \`${hudFile}\` in the Review pane with \`tools.browser.preview\` and call the \`question\` tool to present the Construct Crew Bank & Bench Switcher selector.`,
     };
   }
 
@@ -223,6 +237,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     snap = store.getHudSnapshot({ dir: cwd, sessionId });
   } catch (_) {}
   const statusText = snap?.tabBadge || snap?.pill || '';
+  const hudFile = resolveHudFileForSnap(snap);
 
   let message = '';
   let promptText = '';
@@ -233,10 +248,10 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
   } else if (!isError && (kind === 'rom-use' || (cmd === 'rom' && romSubCmd === 'use' && cliArgs[2]))) {
     const useTarget = cliArgs[2];
     message = `Switched session to ${useTarget}${snap?.pill ? ` (${snap.pill})` : ''}`;
-    promptText = `Switched this session to \`${useTarget}\` (${snap?.pill || ''}). Confirm in the new Crew's voice and open \`~/.config/opencode/construct-hud.html\` with \`tools.browser.preview\`.`;
+    promptText = `Switched this session to \`${useTarget}\` (${snap?.pill || ''}). Confirm in the new Crew's voice and open \`${hudFile}\` with \`tools.browser.preview\`.`;
   } else if (!isError && openHud) {
     message = output ? output.split(/\r?\n/)[0] : `Construct HUD refreshed (${snap?.pill || ''})`;
-    promptText = `Executed \`/construct ${raw}\`:\n\`\`\`\n${output}\n\`\`\`\nOpen \`~/.config/opencode/construct-hud.html\` in the Review pane with \`tools.browser.preview\` and confirm in the active Crew's voice.`;
+    promptText = `Executed \`/construct ${raw}\`:\n\`\`\`\n${output}\n\`\`\`\nOpen \`${hudFile}\` in the Review pane with \`tools.browser.preview\` and confirm in the active Crew's voice.`;
   } else {
     message = output ? output.split(/\r?\n/)[0] : `Executed /construct ${raw}`;
     promptText = `Executed \`/construct ${raw}\`${reloadPlugin ? ' (and hot-reloaded Construct MCP/plugin engine in memory)' : ''}:\n\`\`\`\n${output || '(done)'}\n\`\`\`\nReport the result concisely in the active Crew's voice.`;
@@ -249,6 +264,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
     isError,
     reloadPlugin,
     openHud,
+    hudFile,
     statusText,
     message,
     promptText,

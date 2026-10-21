@@ -287,7 +287,7 @@ Whenever you open OpenCode (or Claude Code) inside a project, Construct automati
 ### Working with the Tape in Plain English
 As you and the crew work, Construct records inflection points onto the tape in real time (so even if you close the window without saving, the sequence of what was tried and what failed is already on the tape). You can ask at any time:
 - *"Where do we stand on this project, and what threads are still open?"*
-- *"Why is `src/crdt.js` shaped like that?"* (`construct why <file_or_symbol>` searches synced CRDT frames with operator attribution, project/global gotchas, and local `git log -S`, and can automatically query a teammate's Construct over MLS comms if a symbol has no local provenance.)
+- *"Why is `src/crdt.js` shaped like that?"* (`construct why <file_or_symbol>` searches synced CRDT frames with operator attribution, project/global gotchas, and local `git log -S`, and can automatically query a teammate's Construct over encrypted comms if a symbol has no local provenance.)
 - *"Sync our GitHub issues and pull requests into Construct threads."* (`construct issues sync <project>` and `construct pr sync <project>` import open GitHub issues (`[GH #N]`) and pull requests (`[PR #N]`) as open threads and automatically resolve any thread whose issue or PR was merged/closed. `construct pr open`, `construct pr review`, and `construct pr merge` drive the full PR lifecycle while automatically recording `#seq` frames and dispatching Courier notifications to your teammates.)
 - *"Check if Construct has an update and upgrade it."* (`construct upgrade --check` and `construct upgrade` pull `origin/main`, reseed all 15 Crew Banks, refresh `active-rom.md`, reinstall the OpenCode plugin, and update all 178 Claude Code subagents in one command -- or via the one-click `⬆️ CONSTRUCT UPDATE AVAILABLE` banner at the top of the HUD.)
 - *"Switch to `acme/billing_service`."* (Updates the current project head, moves the OpenCode session directory to `acme/billing_service`'s local checkout, and loads that project's tape and gotchas automatically.)
@@ -307,7 +307,7 @@ In OpenCode (or terminal), say:
 > **"Create a Construct invite for `acme/alpha_app`."**  
 > *(CLI: `construct invite acme/alpha_app`)*
 
-Construct outputs a single signed and AEAD-wrapped **DIDComm v2 Out-of-Band (OOB) invitation URI**:
+Construct outputs a single signed and AEAD-wrapped **out-of-band invitation URI**:
 
 ```text
 construct://invite/eyJwIjoi...#a8F3...
@@ -328,32 +328,32 @@ Your collaborator installs OpenCode + Construct and tells OpenCode:
 > *(CLI: `construct join "construct://invite/eyJwIjoi...#a8F3..." [--dir ~/dev/alpha_app] && construct sync acme/alpha_app`)*
 
 What happens automatically when they join:
-1. **Cryptographic & Git Safety Verification:** Construct verifies your `did:key` Ed25519 signature, unwraps the AEAD-protected `epochSecret`, validates `gitUrl` and `branch` against flag/remote-helper injection (`validateGitCloneParams`), and registers the MLS group in their local `construct.db`.
+1. **Cryptographic & Git Safety Verification:** Construct verifies your `did:key` Ed25519 signature, unwraps the AEAD-protected `epochSecret`, validates `gitUrl` and `branch` against flag/remote-helper injection (`validateGitCloneParams`), and registers the encrypted sync group in their local `construct.db`.
 2. **Automatic `git clone` into Their Preferred Layout:** If the repository is not on their disk yet, Construct clones it into `--dir <path>` (or under their configured `workspace_root`) and binds their local checkout path into their `heads.repo`. Your machine and their machine can keep the repository at completely different filesystem paths; CRDT sync never overwrites local paths.
 3. **Automatic Instruction Assimilation:** If the cloned repository contains existing instruction files or dev docs, Construct automatically assimilates its gotchas and scripts into their local `construct.db`.
-4. **Live Encrypted CRDT Delta Sync:** `construct sync acme/alpha_app` pulls encrypted MLS packets for that project from the WebSocket relay, verifies sender key pinning, epoch match, and inner `AAD` integrity, enforces a 5-minute HLC clock-drift ceiling (`MAX_HLC_DRIFT_MS`), merges all records via a **Hybrid Logical Clock (HLC) CRDT**, and pushes only new local delta operations (`last_sync_hlc`).
+4. **Live Encrypted CRDT Delta Sync:** `construct sync acme/alpha_app` pulls encrypted Epoch-Keyed AEAD packets for that project from the WebSocket relay, verifies sender key pinning, epoch match, and inner `AAD` integrity, enforces a 5-minute HLC clock-drift ceiling (`MAX_HLC_DRIFT_MS`), merges all records via a **Hybrid Logical Clock (HLC) CRDT**, and pushes only new local delta operations (`last_sync_hlc`).
 
 ### Strict Per-Project Isolation (Zero Bleed Guarantee)
 Not all of your projects are shared with the same people. Construct enforces hard cryptographic and database isolation per project:
-- Each shared project has its own independent MLS group ID and 256-bit epoch key.
+- Each shared project has its own independent group ID and 256-bit epoch key.
 - **Outbound filter (`src/store.js`):** Exporting or syncing a project queries *only* records where `project = '<project>'` and `gotcha.scope = '<project>'`. Your `global` machine gotchas and your other private projects can never be exported into a project packet.
-- **Inbound boundary guard (`src/crdt.js`):** When importing an encrypted MLS packet for a group, `applyCrdtOpsInDb` enforces `op.project === group.project`, `gotcha.scope === group.project`, and `isHlcWithinDrift(op.hlc)`. Even a modified peer cannot inject records for another project, global scope, or a poisoned future timestamp.
+- **Inbound boundary guard (`src/crdt.js`):** When importing an encrypted packet for a group, `applyCrdtOpsInDb` enforces `op.project === group.project`, `gotcha.scope === group.project`, and `isHlcWithinDrift(op.hlc)`. Even a modified peer cannot inject records for another project, global scope, or a poisoned future timestamp.
 
 ---
 
 ## 9. Construct-to-Construct Comms & Courier Cameo Protocol (`--via <messenger>`)
 
-Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted MLS sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
+Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
 
 Once you connect with a collaborator on *any* shared project (which automatically establishes a divorced `@comms` personal comms link alongside the project link) -- or connect with a friend who does **not** share any project repository with you via **`construct invite comms`** -- Construct Comms are **100% person-to-person (`--to <user>`)**:
-- **Project MLS links (`<owner>/<repo>`):** Carry *only* project archival state (`frames`, project `gotchas`, `heads`).
-- **Personal Comms MLS links (`@comms`):** Carry *only* person-to-person Courier messages (`message`, `message_tombstone`). If you want to exchange Courier Cameos with someone without sharing a git repository, run `construct invite comms` and have them run `construct join "<construct://invite/...>"` (no `--dir` or `workspace_root` required).
+- **Project sync links (`<owner>/<repo>`):** Carry *only* project archival state (`frames`, project `gotchas`, `heads`).
+- **Personal Comms links (`@comms`):** Carry *only* person-to-person Courier messages (`message`, `message_tombstone`). If you want to exchange Courier Cameos with someone without sharing a git repository, run `construct invite comms` and have them run `construct join "<construct://invite/...>"` (no `--dir` or `workspace_root` required).
 
 ### How Courier Cameos Work in Practice
 
 1. **Alice tells her Crew in OpenCode:**
    > *"Send Toot-Toot to tell Bob that #111 is merged and ready for review."*
-   - Alice's Crew spawns a non-blocking `[ROM: toot]` subagent that composes the message in Toot-Toot's authentic first-person voice, records `[M#1]` (`from: alice/toot -> to: bob` via `--via toot`), and syncs it over the encrypted MLS relay.
+   - Alice's Crew spawns a non-blocking `[ROM: toot]` subagent that composes the message in Toot-Toot's authentic first-person voice, records `[M#1]` (`from: alice/toot -> to: bob` via `--via toot`), and syncs it over the encrypted relay.
 
 2. **Bob's session receives the Courier automatically (even if idle):**
    - If Bob's OpenCode session is idle when the relay poll arrives, Construct triggers an automatic `ctx.session.synthetic` wake-up turn and renders an interactive **`📬 UNREAD COURIER`** reply/dismiss banner at the top of his Review Pane HUD (`construct-hud-<project>.html`).
