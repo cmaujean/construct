@@ -751,6 +751,23 @@ export default {
           })
           return
         }
+        if (req.method === "GET" && (req.url === "/" || req.url?.startsWith("/hud-view"))) {
+          try {
+            const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
+            const qSid = parsedUrl.searchParams.get("sessionID") || lastActiveSessionId || ""
+            const qProj = parsedUrl.searchParams.get("project") || ""
+            const qDir = parsedUrl.searchParams.get("dir") || lastActiveDir || ""
+            const storeMod = requireCjs(path.resolve(PLUGIN_DIR, "..", "src", "store.js"))
+            const dash = storeMod.generateDashboardHtml({ sessionId: qSid, project: qProj, dir: qDir, noServerSpawn: true })
+            const htmlOut = qProj ? dash.html.replace("let autoFollow = true;", "let autoFollow = false;") : dash.html
+            res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" })
+            res.end(htmlOut)
+          } catch (err) {
+            res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" })
+            res.end(err.message)
+          }
+          return
+        }
         if (req.method === "GET" && req.url?.startsWith("/hud")) {
           const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
           const qSid = parsedUrl.searchParams.get("sessionID") || ""

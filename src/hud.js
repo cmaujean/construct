@@ -454,6 +454,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     const lastCliOutput = getLastCliOutputInDb(db);
 
     return {
+      hudSchemaVersion: 2,
       sessionId,
       dir: dir || headRow?.repo || '',
       project: project || 'workspace',
@@ -880,6 +881,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   </table>
 
   <script>
+    const HUD_SCHEMA_VERSION = 2;
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
@@ -894,6 +896,10 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
     function applyHudToDom(h) {
       if (!h) return;
+      if (h.hudSchemaVersion && h.hudSchemaVersion !== HUD_SCHEMA_VERSION) {
+        location.reload();
+        return;
+      }
       const shortSid = (h.sessionId || selectedSessionId || '').replace(/^ses_/, '').slice(0, 6);
       const scopeEl = document.getElementById('target-scope-label');
       if (scopeEl) {
@@ -1451,6 +1457,22 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
             res.end(JSON.stringify({ ok: false, error: err.message }));
           }
         });
+        return;
+      }
+      if (req.method === 'GET' && (req.url === '/' || req.url?.startsWith('/hud-view'))) {
+        try {
+          const parsedUrl = new URL(req.url, `http://127.0.0.1:${port}`);
+          const qSid = parsedUrl.searchParams.get('sessionID') || '';
+          const qProj = parsedUrl.searchParams.get('project') || '';
+          const qDir = parsedUrl.searchParams.get('dir') || '';
+          const dash = generateDashboardHtml({ sessionId: qSid, project: qProj, dir: qDir, noServerSpawn: true }, file);
+          const htmlOut = qProj ? dash.html.replace('let autoFollow = true;', 'let autoFollow = false;') : dash.html;
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(htmlOut);
+        } catch (err) {
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end(err.message);
+        }
         return;
       }
       if (req.method === 'GET' && req.url?.startsWith('/hud')) {
