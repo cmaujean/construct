@@ -1994,6 +1994,54 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const compactRes = store.compactProjectCrdtLog('acme/compact_test');
     assert.equal(compactRes.merkleFrontier64, frontierBeforeCompact);
 
+    // Verify bi-directional interoperability between v0.3.0 Evolved and v0.1.0 Bare Construct peers:
+    // 1. When a group contains an un-upgraded bare Construct peer (`latticeV2` not set), `exportEncryptedPacket`
+    //    seals UTF-8 JSON plaintext so bare Construct's `JSON.parse(plaintext)` succeeds without throwing.
+    // 2. Once all peers in the group have sent a `v: 2` envelope (`latticeV2: true`), `exportEncryptedPacket`
+    //    automatically upgrades to binary `0x4c 0x02` rANS+Slab payloads.
+    const crdtMod = require('../src/crdt.ts');
+    const interopInvite = store.createInvite('acme/interop_test');
+    assert.ok(interopInvite.inviteUri.startsWith('construct://invite/'));
+    store.recordFrame({
+      project: 'acme/interop_test',
+      kind: 'finding',
+      summary: 'Bi-directional bare vs evolved interop check',
+    });
+
+    // Simulate a legacy v0.1.0 peer added to `acme/interop_test` without `latticeV2`
+    const rawDb = new (require('node:sqlite').DatabaseSync)(tmp.db);
+    const grpRow = rawDb.prepare("SELECT * FROM mls_groups WHERE project = 'acme/interop_test'").get();
+    const grp = crdtMod.hydrateMlsGroup(grpRow);
+    const fakeBarePeer = {
+      did: 'did:key:z6MkBarePeerV1',
+      userId: 'barepeer',
+      signPub: store.getIdentity().signPub,
+      dhPub: store.getIdentity().dhPub,
+    };
+    rawDb
+      .prepare("UPDATE mls_groups SET members = ? WHERE project = 'acme/interop_test'")
+      .run(JSON.stringify([...grp.members, fakeBarePeer]));
+    rawDb.close();
+
+    const exportedForBare = store.exportEncryptedPacket('acme/interop_test');
+    // Decrypt the raw ciphertext exactly as bare Construct v0.1.0 (`src/crdt.js:280`) does (`JSON.parse(plaintext)`)
+    const { aeadKey } = crdtMod.deriveEpochKeys(grp.epochSecret, grp.groupId, grp.epoch);
+    const bareDecipher = require('node:crypto').createDecipheriv(
+      'chacha20-poly1305',
+      aeadKey,
+      Buffer.from(exportedForBare.envelope.nonce, 'base64'),
+      { authTagLength: 16 }
+    );
+    const bareAad = Buffer.from(exportedForBare.envelope.aad, 'base64');
+    const bareCt = Buffer.from(exportedForBare.envelope.ciphertext, 'base64');
+    bareDecipher.setAAD(bareAad, { plaintextLength: bareCt.length });
+    bareDecipher.setAuthTag(Buffer.from(exportedForBare.envelope.tag, 'base64'));
+    const barePlain = Buffer.concat([bareDecipher.update(bareCt), bareDecipher.final()]);
+    assert.equal(barePlain[0], 0x7b, 'Expected JSON plaintext (0x7b "{") when group has a bare Construct peer');
+    const bareParsed = JSON.parse(barePlain.toString('utf8'));
+    assert.equal(bareParsed.project, 'acme/interop_test');
+    assert.ok(bareParsed.ops.length > 0);
+
     // Verify `benchLattice` head-to-head metrics (World-Track II + World-Track III Evolved from `causal-lattice` library)
     const benchReport = store.benchLattice({ ops: 25 });
     assert.ok(benchReport.wire.batchCompressionRatio > 1.8);

@@ -412,9 +412,9 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 
 ---
 
-## 11. How It Works Under the Hood (TypeScript + `causal-lattice` World-Track III Library)
+## 11. How It Works Under the Hood (TypeScript + Bundled `src/causal-lattice` World-Track III Engine)
 
-`construct-evolved` is written in TypeScript (`src/*.ts`, `bin/construct.ts`, `test/construct.test.ts`) with typed request/options contracts (`src/types.ts`) and consumes [`causal-lattice`](../causal-lattice) (World-Track II & III Evolved) directly as an external library via `src/lattice.ts`:
+`construct` is written in TypeScript (`src/*.ts`, `bin/construct.ts`, `test/construct.test.ts`) with typed request/options contracts (`src/types.ts`) and bundles the zero-dependency `causal-lattice` (World-Track II & III Evolved) library in-tree at `src/causal-lattice/`:
 
 | Component | Implementation (`causal-lattice` Library) | Latency / Footprint |
 |---|---|---|

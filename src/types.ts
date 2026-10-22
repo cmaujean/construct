@@ -4,7 +4,7 @@ import type {
   ProjectCapabilityCaveat,
   ProjectCapabilityToken,
   SynthesizedLookupCircuit,
-} from "causal-lattice";
+} from "./causal-lattice/index.ts";
 
 export type FrameKind =
   | "intent"
@@ -227,6 +227,7 @@ export interface MlsMember {
   readonly userId: string;
   readonly signPub: string;
   readonly dhPub: string;
+  readonly latticeV2?: boolean;
 }
 
 export interface MlsGroupRecord {

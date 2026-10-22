@@ -434,6 +434,7 @@ function createDidCommInvite(group, identity, inviterUser, repoMeta = {}) {
         userId: inviterUser?.id || 'unknown',
         signPub: identity.signPub,
         dhPub: identity.dhPub,
+        latticeV2: true,
       },
     },
     created: new Date().toISOString(),
@@ -1093,12 +1094,14 @@ function reconcileCommsGroupInDb(db, group, envelope, commsGroup) {
   const localCommsRow = db.prepare("SELECT * FROM mls_groups WHERE project = '@comms'").get();
   const localComms = localCommsRow ? hydrateMlsGroup(localCommsRow) : null;
   const mergedMembers = [...(localComms?.members || []), ...(group.members || [])];
+  const senderIsV2 = Number(envelope?.v) >= 2;
   if (!mergedMembers.some((m) => m.did === envelope.senderDid)) {
     mergedMembers.push({
       did: envelope.senderDid,
       userId: 'peer',
       signPub: envelope.senderSignPub,
       dhPub: '',
+      latticeV2: senderIsV2,
     });
   }
   const dedupMembers = [];
@@ -1106,7 +1109,11 @@ function reconcileCommsGroupInDb(db, group, envelope, commsGroup) {
   for (const m of mergedMembers) {
     if (m && m.did && !seenDids.has(m.did)) {
       seenDids.add(m.did);
-      dedupMembers.push(m);
+      if (m.did === envelope.senderDid && senderIsV2) {
+        dedupMembers.push({ ...m, latticeV2: true });
+      } else {
+        dedupMembers.push(m);
+      }
     }
   }
   const mergedRelays = Array.from(

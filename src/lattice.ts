@@ -33,7 +33,7 @@ import {
   splitMix64,
   TELEMETRY_INVENTORY_SCHEMA,
   verifyProjectCapability,
-} from "causal-lattice";
+} from "./causal-lattice/index.ts";
 import type { CryptographicIdentity, MlsGroupRecord } from "./types.ts";
 
 export const ENTITY_MASK = LatticeEntityMask;

@@ -2706,6 +2706,7 @@ function ensureMlsGroupInDb(db, projectInput, options = {}) {
       userId: user?.id || protocol.detectOsUsername(),
       signPub: identity.signPub,
       dhPub: identity.dhPub,
+      latticeV2: true,
     },
   ];
   const now = nowIso();
@@ -2864,6 +2865,7 @@ function joinInvite(inviteUri, options = {}, file = dbPath()) {
           userId: user?.id || protocol.detectOsUsername(),
           signPub: identity.signPub,
           dhPub: identity.dhPub,
+          latticeV2: true,
         };
         const members = [b.inviterMember];
         if (!members.some((m) => m.did === selfMember.did)) {
@@ -3013,12 +3015,25 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           dedupedByRecord.set(`${op.entity}:${op.recordUid}`, op);
         }
         const ops = [...dedupedByRecord.values()].sort((a, b) => (a.hlc < b.hlc ? -1 : a.hlc > b.hlc ? 1 : 0));
-        const envelope = crdt.sealMlsApplicationMessage(group, identity, {
-          project,
-          opCount: ops.length,
-          ops,
-          ...(commsMeta ? { commsGroup: commsMeta } : {}),
-        });
+        const peerMembers = (group.members || []).filter((m) => m && m.did && m.did !== identity.did);
+        const useLegacyJson =
+          options.legacyJson !== undefined
+            ? Boolean(options.legacyJson)
+            : peerMembers.length > 0
+              ? peerMembers.some((m) => !m.latticeV2)
+              : isComms;
+
+        const envelope = crdt.sealMlsApplicationMessage(
+          group,
+          identity,
+          {
+            project,
+            opCount: ops.length,
+            ops,
+            ...(commsMeta ? { commsGroup: commsMeta } : {}),
+          },
+          { legacyJson: useLegacyJson }
+        );
 
         // Also build relay-safe chunk envelopes (<= 16 KB raw ops JSON per chunk -> < 28 KB Nostr event)
         // so public NIP-01 relays with 64 KB frame ceilings accept large initial project syncs.
@@ -3041,12 +3056,17 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
           if (currentChunk.length > 0 && currentBytes + opBytes > MAX_CHUNK_JSON_BYTES) {
             envelopes.push({
               maxHlc: currentChunk.reduce((m, x) => (x.hlc > m ? x.hlc : m), ''),
-              envelope: crdt.sealMlsApplicationMessage(group, identity, {
-                project,
-                opCount: currentChunk.length,
-                ops: currentChunk,
-                ...(commsMeta ? { commsGroup: commsMeta } : {}),
-              }),
+              envelope: crdt.sealMlsApplicationMessage(
+                group,
+                identity,
+                {
+                  project,
+                  opCount: currentChunk.length,
+                  ops: currentChunk,
+                  ...(commsMeta ? { commsGroup: commsMeta } : {}),
+                },
+                { legacyJson: useLegacyJson }
+              ),
             });
             currentChunk = [];
             currentBytes = 0;
@@ -3057,12 +3077,17 @@ function exportEncryptedPacket(projectInput, options = {}, file = dbPath()) {
         if (currentChunk.length > 0) {
           envelopes.push({
             maxHlc: currentChunk.reduce((m, x) => (x.hlc > m ? x.hlc : m), ''),
-            envelope: crdt.sealMlsApplicationMessage(group, identity, {
-              project,
-              opCount: currentChunk.length,
-              ops: currentChunk,
-              ...(commsMeta ? { commsGroup: commsMeta } : {}),
-            }),
+            envelope: crdt.sealMlsApplicationMessage(
+              group,
+              identity,
+              {
+                project,
+                opCount: currentChunk.length,
+                ops: currentChunk,
+                ...(commsMeta ? { commsGroup: commsMeta } : {}),
+              },
+              { legacyJson: useLegacyJson }
+            ),
           });
         }
 
@@ -3098,8 +3123,11 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
         const group = crdt.hydrateMlsGroup(groupRow);
         const decrypted = crdt.openMlsApplicationMessage(group, envelope);
 
-        // Pin newly joined peer's Ed25519 public key into `mls_groups.members` on first verified epoch proof
-        if (!group.members.some((m) => m.did === envelope.senderDid)) {
+        // Pin newly joined peer's Ed25519 public key into `mls_groups.members` on first verified epoch proof,
+        // and record whether the peer speaks Lattice v2 (`envelope.v >= 2`).
+        const senderIsV2 = Number(envelope.v) >= 2;
+        const existingMember = group.members.find((m) => m.did === envelope.senderDid);
+        if (!existingMember) {
           const updatedMembers = [
             ...group.members,
             {
@@ -3107,8 +3135,18 @@ function importEncryptedPacket(packetInput, file = dbPath()) {
               userId: 'peer',
               signPub: envelope.senderSignPub,
               dhPub: '',
+              latticeV2: senderIsV2,
             },
           ];
+          db.prepare('UPDATE mls_groups SET members = ?, updated = ? WHERE group_id = ?').run(
+            JSON.stringify(updatedMembers),
+            nowIso(),
+            group.groupId
+          );
+        } else if (senderIsV2 && !existingMember.latticeV2) {
+          const updatedMembers = group.members.map((m) =>
+            m.did === envelope.senderDid ? { ...m, latticeV2: true } : m
+          );
           db.prepare('UPDATE mls_groups SET members = ?, updated = ? WHERE group_id = ?').run(
             JSON.stringify(updatedMembers),
             nowIso(),

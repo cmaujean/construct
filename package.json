@@ -1,5 +1,5 @@
 {
-  "name": "construct-evolved",
+  "name": "construct",
   "version": "0.3.0",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Christopher Maujean <christopher@maujean.org>",
@@ -19,8 +19,5 @@
     "bench": "node bin/construct.ts bench-lattice",
     "construct": "node bin/construct.ts",
     "install-plugin": "node -e \"require('./src/store.ts').installPluginFile()\""
-  },
-  "dependencies": {
-    "causal-lattice": "file:../causal-lattice"
   }
 }
