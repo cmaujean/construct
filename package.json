@@ -9,10 +9,10 @@
     "url": "https://github.com/cmaujean/construct.git"
   },
   "bin": {
-    "construct": "bin/construct.ts"
+    "construct": "bin/construct.js"
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.6.0"
   },
   "scripts": {
     "test": "node --test \"test/*.test.ts\"",

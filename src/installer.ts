@@ -25,7 +25,7 @@ function createInstallerModule(deps) {
     const pluginSrc = path.join(pluginSrcDir, 'construct.js');
     const pluginDestDir = path.join(configDir, 'plugins');
     const pluginDest = path.join(pluginDestDir, 'construct.js');
-    const binPath = path.resolve(__dirname, '..', 'bin', 'construct.ts').replace(/\\/g, '/');
+    const binPath = path.resolve(__dirname, '..', 'bin', 'construct.js').replace(/\\/g, '/');
 
     if (fs.existsSync(pluginSrc)) {
       fs.mkdirSync(pluginDestDir, { recursive: true });
