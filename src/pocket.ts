@@ -150,14 +150,22 @@ function loadOrCreatePocketConfig(options = {}, file = pocketFilePath()) {
   return { ...cfg, ...keys };
 }
 
-function persistPocketLastCmdTs(tsValue, file = pocketFilePath()) {
-  if (!fs.existsSync(file)) return;
+function persistPocketLastCmdTs(_tsValue, _file = pocketFilePath()) {
+  // Keep `lastAcceptedCmdTs` and `seenCmdIvs` in memory on `bridgeState` so multiple listeners
+  // never race on `pocket.json` and reject each other's commands.
+}
+
+function persistPocketActiveSession(sessionId, dir = '', file = pocketFilePath()) {
+  if (!sessionId || !fs.existsSync(file)) return;
   try {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch (_) {}
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    if (Number(tsValue) > Number(raw.lastAcceptedCmdTs || 0)) {
-      raw.lastAcceptedCmdTs = Number(tsValue);
-      fs.writeFileSync(file, JSON.stringify(raw, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
-    }
+    raw.activeSessionId = String(sessionId);
+    if (dir) raw.activeDir = String(dir);
+    raw.lastAcceptedCmdTs = 0;
+    fs.writeFileSync(file, JSON.stringify(raw, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
   } catch (_) {}
 }
 
@@ -537,12 +545,38 @@ function resolveOpenCodeServiceConfig() {
   return null;
 }
 
+// Install a process-wide fetch guard so any legacy/zombie `startPocketBridge` timers from earlier
+// Location evictions (which call `/api/session` without `X-Construct-Pocket: v2`) receive a BigInt
+// sentinel, abort inside `broadcastSnapshot` before `ws.send`, and never broadcast stale sessions.
+if (typeof globalThis.fetch === 'function' && !globalThis.__constructPocketFetchRaw) {
+  globalThis.__constructPocketFetchRaw = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = async (input, init) => {
+    const urlStr = typeof input === 'string' ? input : input?.url || '';
+    const hdrs = init?.headers || {};
+    const pocketVer = hdrs['X-Construct-Pocket'] || hdrs['x-construct-pocket'];
+    if (urlStr.endsWith('/api/session') && pocketVer !== 'v2') {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [{ id: 1n }] }),
+      };
+    }
+    if (pocketVer === 'v2') {
+      const cleanHeaders = { ...hdrs };
+      delete cleanHeaders['X-Construct-Pocket'];
+      delete cleanHeaders['x-construct-pocket'];
+      return globalThis.__constructPocketFetchRaw(input, { ...init, headers: cleanHeaders });
+    }
+    return globalThis.__constructPocketFetchRaw(input, init);
+  };
+}
+
 async function fetchOpenCodeApi(endpointPath, { method = 'GET', body = undefined } = {}) {
   const svc = resolveOpenCodeServiceConfig();
   if (!svc?.url || !svc?.password || typeof fetch !== 'function') return null;
   const auth = 'Basic ' + Buffer.from(`opencode:${svc.password}`).toString('base64');
   const url = `${String(svc.url).replace(/\/+$/, '')}${endpointPath}`;
-  const headers = { Authorization: auth };
+  const headers = { Authorization: auth, 'X-Construct-Pocket': 'v2' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   const resp = await fetch(url, {
     method,
@@ -671,9 +705,96 @@ function compactHudForPocket(rawHud) {
   };
 }
 
+function normPocketDir(d) {
+  return String(d || '')
+    .replace(/\\\\/g, '/')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+function detectBootedOpenCodeDirectories() {
+  const booted = new Set();
+  if (process.env.CONSTRUCT_DB) return booted;
+  try {
+    const logFile = path.join(os.homedir(), '.local', 'share', 'opencode', 'log', 'opencode.log');
+    if (!fs.existsSync(logFile)) return booted;
+    const stat = fs.statSync(logFile);
+    const readSize = Math.min(stat.size, 4 * 1024 * 1024);
+    const fd = fs.openSync(logFile, 'r');
+    const buf = Buffer.alloc(readSize);
+    fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+    fs.closeSync(fd);
+    const lines = buf.toString('utf8').split(/\r?\n/);
+    let runId = '';
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const m = lines[i].match(/\brun=([a-f0-9]+)\b/);
+      if (m) {
+        runId = m[1];
+        break;
+      }
+    }
+    if (!runId) return booted;
+    for (const line of lines) {
+      if (!line.includes(`run=${runId}`)) continue;
+      if (line.includes('message="location services booted"')) {
+        const dm = line.match(/\bdirectory="([^"]+)"/);
+        if (dm) booted.add(normPocketDir(dm[1]));
+      } else if (line.includes('message="spawning process"')) {
+        const cm = line.match(/\bcwd="([^"]+)"/);
+        if (cm) booted.add(normPocketDir(cm[1]));
+      }
+    }
+  } catch (_) {}
+  return booted;
+}
+
+function filterOpenSessionsForPocket(rawSessions, activeSessionId = '') {
+  if (!Array.isArray(rawSessions)) return [];
+  const bootedDirs = detectBootedOpenCodeDirectories();
+  const rootSessions = rawSessions.filter((s) => !s.parentID || s.id === activeSessionId);
+
+  // Sort by most recent activity (`viewed` or `updated`) so the active tab in each directory comes first
+  const sorted = [...rootSessions].sort((a, b) => {
+    const ta = Math.max(Number(a.time?.viewed || 0), Number(a.time?.updated || 0));
+    const tb = Math.max(Number(b.time?.viewed || 0), Number(b.time?.updated || 0));
+    return tb - ta;
+  });
+
+  const seenDirs = new Set();
+  const out = [];
+  for (const s of sorted) {
+    const rawDir = s.location?.directory || s.directory || '';
+    const nDir = normPocketDir(rawDir);
+    const isExplicitActive = Boolean(activeSessionId && s.id === activeSessionId);
+    if (!isExplicitActive) {
+      if (bootedDirs.size > 0 && nDir && !bootedDirs.has(nDir)) {
+        continue;
+      }
+      if (nDir && seenDirs.has(nDir)) {
+        continue;
+      }
+    }
+    if (nDir) seenDirs.add(nDir);
+    out.push({
+      id: s.id,
+      title: s.title || s.id.slice(0, 10),
+      dir: rawDir,
+      updated: s.time?.updated || 0,
+      idle: s.time?.idle || 0,
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 async function collectPocketSnapshot(store, options = {}) {
   let sessions = [];
-  let activeSessionId = String(options.sessionId || '');
+  let savedCfg = null;
+  try {
+    savedCfg = loadOrCreatePocketConfig();
+  } catch (_) {}
+  let activeSessionId = String(options.sessionId || savedCfg?.activeSessionId || '');
   let messages = [];
   let pendingForms = [];
   let pendingPermissions = [];
@@ -682,27 +803,20 @@ async function collectPocketSnapshot(store, options = {}) {
   try {
     const sessJson = await fetchOpenCodeApi('/api/session');
     if (Array.isArray(sessJson?.data)) {
-      // Exclude ephemeral child subagent sessions unless explicitly selected
-      sessions = sessJson.data
-        .filter((s) => !s.parentID || s.id === activeSessionId)
-        .slice(0, 15)
-        .map((s) => ({
-          id: s.id,
-          title: s.title || s.id.slice(0, 10),
-          dir: s.location?.directory || '',
-          updated: s.time?.updated || 0,
-          idle: s.time?.idle || 0,
-        }));
+      sessions = filterOpenSessionsForPocket(sessJson.data, activeSessionId);
+      if (activeSessionId && !sessions.some((s) => s.id === activeSessionId) && sessions.length > 0) {
+        activeSessionId = sessions[0].id;
+      }
       if (!activeSessionId && sessions.length > 0) {
         activeSessionId = sessions[0].id;
       }
     }
   } catch (_) {}
 
-  let activeDir = String(options.dir || '');
+  let activeDir = String(options.dir || savedCfg?.activeDir || '');
   if (activeSessionId) {
     const matchedSess = sessions.find((s) => s.id === activeSessionId);
-    if (matchedSess && matchedSess.dir && !activeDir) {
+    if (matchedSess && matchedSess.dir) {
       activeDir = matchedSess.dir;
     }
     if (matchedSess && matchedSess.updated > (matchedSess.idle || 0) + 1500) {
@@ -764,6 +878,7 @@ async function executePocketCommand(store, mcp, cmdPayload = {}, bridgeState = {
   if (action === 'select-session' && cmdPayload.sessionId) {
     bridgeState.activeSessionId = String(cmdPayload.sessionId);
     if (cmdPayload.dir) bridgeState.activeDir = String(cmdPayload.dir);
+    persistPocketActiveSession(bridgeState.activeSessionId, bridgeState.activeDir);
     return { ok: true, action };
   }
 
@@ -774,6 +889,7 @@ async function executePocketCommand(store, mcp, cmdPayload = {}, bridgeState = {
     });
     if (created?.data?.id) {
       bridgeState.activeSessionId = created.data.id;
+      persistPocketActiveSession(bridgeState.activeSessionId, bridgeState.activeDir);
     }
     return { ok: Boolean(created?.data?.id), action, sessionId: created?.data?.id || '' };
   }
@@ -906,12 +1022,17 @@ function validateAndUnwrapIncomingCmdEvent(ev, currentCfg, bridgeState) {
 }
 
 function startPocketBridge(store, mcp, options = {}) {
+  if (globalThis.__constructPocketBridge && typeof globalThis.__constructPocketBridge.stop === 'function') {
+    try {
+      globalThis.__constructPocketBridge.stop();
+    } catch (_) {}
+  }
   const cfg = loadOrCreatePocketConfig(options);
   const bridgeState = {
-    activeSessionId: options.sessionId || '',
-    activeDir: options.dir || process.cwd(),
+    activeSessionId: options.sessionId || cfg.activeSessionId || '',
+    activeDir: options.dir || cfg.activeDir || process.cwd(),
     seenCmdIvs: new Set(),
-    lastAcceptedCmdTs: Number(cfg.lastAcceptedCmdTs || 0),
+    lastAcceptedCmdTs: 0,
     sockets: new Map(),
     stopped: false,
     lastSnapshotHash: '',
@@ -921,6 +1042,12 @@ function startPocketBridge(store, mcp, options = {}) {
     if (bridgeState.stopped) return null;
     try {
       const currentCfg = loadOrCreatePocketConfig();
+      if (currentCfg.activeSessionId && currentCfg.activeSessionId !== bridgeState.activeSessionId) {
+        bridgeState.activeSessionId = currentCfg.activeSessionId;
+      }
+      if (currentCfg.activeDir && currentCfg.activeDir !== bridgeState.activeDir) {
+        bridgeState.activeDir = currentCfg.activeDir;
+      }
       const snap = await collectPocketSnapshot(store, {
         sessionId: bridgeState.activeSessionId,
         dir: bridgeState.activeDir,
@@ -1067,7 +1194,7 @@ function startPocketBridge(store, mcp, options = {}) {
   }, pollMs);
   if (typeof pollTimer.unref === 'function') pollTimer.unref();
 
-  return {
+  const controller = {
     cfg,
     bridgeState,
     broadcastSnapshot,
@@ -1082,8 +1209,13 @@ function startPocketBridge(store, mcp, options = {}) {
         } catch (_) {}
       }
       bridgeState.sockets.clear();
+      if (globalThis.__constructPocketBridge === controller) {
+        globalThis.__constructPocketBridge = null;
+      }
     },
   };
+  globalThis.__constructPocketBridge = controller;
+  return controller;
 }
 
 module.exports = {
@@ -1099,6 +1231,8 @@ module.exports = {
   buildPocketNostrEvent,
   loadOrCreatePocketConfig,
   persistPocketLastCmdTs,
+  persistPocketActiveSession,
+  filterOpenSessionsForPocket,
   buildPocketPairingUrl,
   sealPocketEnvelope,
   openPocketEnvelope,

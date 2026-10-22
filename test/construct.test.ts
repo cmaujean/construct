@@ -2464,6 +2464,37 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       testBridge.stop();
     }
 
+    // Verify `filterOpenSessionsForPocket` deduplicates historical sessions per directory and excludes child subagents
+    const filteredPocketSessions = pocket.filterOpenSessionsForPocket([
+      { id: 'ses_old_a', title: 'Old A', location: { directory: '/repo/a' }, time: { updated: 100 } },
+      { id: 'ses_new_a', title: 'Active A', location: { directory: '/repo/a' }, time: { updated: 500 } },
+      { id: 'ses_child_a', parentID: 'ses_new_a', title: 'Subagent', location: { directory: '/repo/a' }, time: { updated: 600 } },
+      { id: 'ses_new_b', title: 'Active B', location: { directory: '/repo/b' }, time: { updated: 400 } },
+    ]);
+    assert.deepEqual(
+      filteredPocketSessions.map((s) => s.id),
+      ['ses_new_a', 'ses_new_b']
+    );
+
+    // Verify `select-session` persists `activeSessionId` and `activeDir` in `pocket.json` so bridge instances never revert to the first session
+    const selState = { activeSessionId: 'ses_new_a', activeDir: '/repo/a' };
+    await pocket.executePocketCommand(
+      store,
+      mcp,
+      { action: 'select-session', sessionId: 'ses_new_b', dir: '/repo/b' },
+      selState
+    );
+    const reloadedPocketCfg = pocket.loadOrCreatePocketConfig();
+    assert.equal(reloadedPocketCfg.activeSessionId, 'ses_new_b');
+    assert.equal(reloadedPocketCfg.activeDir, '/repo/b');
+    const secondBridge = pocket.startPocketBridge(store, mcp, { relays: 'ws://127.0.0.1:9', pollIntervalMs: 60000 });
+    try {
+      assert.equal(secondBridge.bridgeState.activeSessionId, 'ses_new_b');
+      assert.equal(secondBridge.bridgeState.activeDir, '/repo/b');
+    } finally {
+      secondBridge.stop();
+    }
+
     // Verify `store.seenMessage` transitions `pending` -> `seen` (without downgrading `replied` or `delivered`)
     const msgForSeen = store.sendMessage({
       project: 'acme/guarded',

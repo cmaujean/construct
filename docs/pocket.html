@@ -657,6 +657,8 @@ let pocketKeys = null;
 let relaySockets = new Map();
 let latestSnapshot = null;
 let currentSessionId = '';
+let pinnedSessionId = '';
+let lastReassertSessionAt = 0;
 let mobCommsFilter = 'all';
 let mobCommsCollapsed = false;
 const mobExpandedMsgIds = new Set();
@@ -864,6 +866,20 @@ function openOneRelay(url) {
         if (msg[2].pubkey !== pocketKeys.nostrPubKey) return;
         const rawEnv = JSON.parse(new TextDecoder().decode(base64ToBytes(msg[2].content)));
         const snap = await openWebPocketEnvelope(pocketKeys, 'pc2phone', rawEnv);
+        if (pinnedSessionId && snap.activeSessionId && snap.activeSessionId !== pinnedSessionId) {
+          const matchedPinned = Array.isArray(snap.sessions) && snap.sessions.find((s) => s.id === pinnedSessionId);
+          if (matchedPinned) {
+            if (Date.now() - lastReassertSessionAt > 3000) {
+              lastReassertSessionAt = Date.now();
+              void sendPocketCommand({ action: 'select-session', sessionId: pinnedSessionId, dir: matchedPinned.dir || '' });
+            }
+            return;
+          }
+          pinnedSessionId = snap.activeSessionId;
+          try {
+            localStorage.setItem('construct_pocket_session_id', pinnedSessionId);
+          } catch (_) {}
+        }
         if (!latestSnapshot || Number(snap.ts || 0) >= Number(latestSnapshot.ts || 0)) {
           latestSnapshot = snap;
           renderSnapshot(snap);
@@ -972,7 +988,11 @@ function esc(s) {
 
 function renderSnapshot(snap) {
   if (!snap) return;
-  if (snap.activeSessionId) currentSessionId = snap.activeSessionId;
+  if (pinnedSessionId && Array.isArray(snap.sessions) && snap.sessions.some((s) => s.id === pinnedSessionId)) {
+    currentSessionId = pinnedSessionId;
+  } else if (snap.activeSessionId) {
+    currentSessionId = snap.activeSessionId;
+  }
 
   // Sessions dropdown
   const sel = document.getElementById('session-select');
@@ -980,6 +1000,7 @@ function renderSnapshot(snap) {
     sel.innerHTML = snap.sessions
       .map((s) => '<option value="' + esc(s.id) + '"' + (s.id === currentSessionId ? ' selected' : '') + '>' + esc(s.title) + '</option>')
       .join('');
+    sel.value = currentSessionId;
   }
 
   // Status pills
@@ -1209,12 +1230,22 @@ function switchTab(tabName) {
 function onSelectSession(sid) {
   if (!sid) return;
   currentSessionId = sid;
-  void sendPocketCommand({ action: 'select-session', sessionId: sid });
+  pinnedSessionId = sid;
+  lastReassertSessionAt = Date.now();
+  try {
+    localStorage.setItem('construct_pocket_session_id', sid);
+  } catch (_) {}
+  const matched = Array.isArray(latestSnapshot?.sessions) ? latestSnapshot.sessions.find((s) => s.id === sid) : null;
+  void sendPocketCommand({ action: 'select-session', sessionId: sid, dir: matched?.dir || '' });
 }
 
 function onNewSession() {
   const title = prompt('New session title:', 'Mobile Session');
   if (!title) return;
+  pinnedSessionId = '';
+  try {
+    localStorage.removeItem('construct_pocket_session_id');
+  } catch (_) {}
   void sendPocketCommand({ action: 'new-session', title });
 }
 
@@ -1397,6 +1428,11 @@ async function bootPocketApp() {
         if (b.getAttribute('data-filter') === mobCommsFilter) b.classList.add('primary');
         else b.classList.remove('primary');
       });
+    }
+    const savedSid = localStorage.getItem('construct_pocket_session_id');
+    if (savedSid) {
+      pinnedSessionId = savedSid;
+      currentSessionId = savedSid;
     }
   } catch (_) {}
   parseHashPairing();

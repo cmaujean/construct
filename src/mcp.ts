@@ -18,6 +18,7 @@ const store = require('./store.ts');
 const packs = require('./packs/index.ts');
 const romMod = require('./rom.ts');
 const protocol = require('./protocol.ts');
+require('./pocket.ts');
 
 const CONSTRUCT_BIN = path.join(__dirname, '..', 'bin', 'construct.ts');
 

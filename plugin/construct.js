@@ -832,6 +832,10 @@ export default {
                 res.end(JSON.stringify({ ok: true, shutdown: true }))
                 setImmediate(async () => {
                   try {
+                    hudServer?._pocketBridge?.stop()
+                    hudServer._pocketBridge = null
+                  } catch (_) {}
+                  try {
                     hudServer?.close()
                   } catch (_) {}
                   try {
@@ -885,7 +889,10 @@ export default {
                 const url = pocketMod.buildPocketPairingUrl(cfg)
                 const localUrl = pocketMod.buildPocketPairingUrl(cfg, { baseUrl: "http://127.0.0.1:47420/docs/pocket.html" })
                 const svg = pocketMod.renderQrCodeSvg(url)
-                if (!hudServer._pocketBridge) {
+                if (!hudServer._pocketBridge || payload.restartBridge) {
+                  try {
+                    hudServer?._pocketBridge?.stop()
+                  } catch (_) {}
                   hudServer._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpMod, {
                     sessionId: sid || lastActiveSessionId,
                     dir: dir || lastActiveDir,
@@ -941,6 +948,17 @@ export default {
 
               if (rawAction === "reload" || rawAction === "hot-reload") {
                 await reloadConstructEngine()
+                try {
+                  const pocketMod = loadSharedSrcModule("pocket.js", { bustCache: true })
+                  const storeMod = loadSharedSrcModule("store.js")
+                  if (pocketMod && fs.existsSync(pocketMod.pocketFilePath())) {
+                    hudServer?._pocketBridge?.stop()
+                    hudServer._pocketBridge = pocketMod.startPocketBridge(storeMod, mcpEngine, {
+                      sessionId: sid || lastActiveSessionId,
+                      dir: dir || lastActiveDir,
+                    })
+                  }
+                } catch (_) {}
                 const snap = await syncSessionHud(sid, dir, proj !== "workspace" ? proj : "")
                 res.writeHead(200, { "Content-Type": "application/json" })
                 res.end(JSON.stringify({ ok: true, reloaded: true, hud: snap }))
@@ -999,6 +1017,10 @@ export default {
     return () => {
       eventAbort.abort()
       if (courierPollTimer) clearInterval(courierPollTimer)
+      try {
+        hudServer?._pocketBridge?.stop()
+        hudServer._pocketBridge = null
+      } catch (_) {}
       try {
         hudServer?.close()
       } catch (_) {}
