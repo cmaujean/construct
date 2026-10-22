@@ -18,8 +18,8 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const protocol = require('./protocol');
-const packs = require('./packs');
+const protocol = require('./protocol.ts');
+const packs = require('./packs/index.ts');
 
 const DIAL_KEYS = Object.freeze(['terse', 'skepticism', 'edge', 'autonomy', 'telemetry']);
 

@@ -13,8 +13,8 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const packs = require('./packs');
-const romMod = require('./rom');
+const packs = require('./packs/index.ts');
+const romMod = require('./rom.ts');
 
 const PACK_EMBLEMS = Object.freeze({
   sprawl: '🌃',

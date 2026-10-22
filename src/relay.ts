@@ -15,6 +15,7 @@
 
 const crypto = require('node:crypto');
 const http = require('node:http');
+const lattice = require('./lattice.ts');
 
 // --- secp256k1 BIP-340 Schnorr (Pure BigInt, zero external deps) ---
 const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
@@ -170,7 +171,13 @@ function buildNostrWrapperEvent(routeTag, envelope) {
   const pubkey = schnorrGetPublicKey(privKey).toString('hex');
   const created_at = Math.floor(Date.now() / 1000);
   const kind = 4420;
-  const tags = [['d', routeTag]];
+  const opHashHex =
+    envelope.blindHash64 ||
+    lattice.hashString64(envelope.signature || JSON.stringify(envelope)).toString(16).padStart(16, '0');
+  const tags = [
+    ['d', routeTag],
+    ['h', opHashHex],
+  ];
   const content = Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64');
 
   const serialized = JSON.stringify([0, pubkey, created_at, kind, tags, content]);
@@ -346,8 +353,81 @@ async function publishEnvelopesToRelays(relays, routeTag, envelopes, timeoutMs =
   return { eventCount: events.length, results };
 }
 
-async function fetchEnvelopesFromRelays(relays, routeTag, timeoutMs = 4000) {
-  const results = await Promise.all(relays.map((r) => fetchFromOneRelay(r, routeTag, timeoutMs)));
+/**
+ * 1-RTT Rateless IBLT Relay Reconciliation (`IBLT_SYNC`) with automatic fallback to `REQ`
+ * for legacy NIP-01 relays that do not speak `IBLT_SYNC`.
+ */
+function reconcileViaOneRelay(url, routeTag, localHashes64 = [], timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    const sketch = new lattice.ConstructRibltSketch(48, 3);
+    for (const h of localHashes64) sketch.insert(h, 1);
+    const sketchB64 = sketch.toBase64();
+    let settled = false;
+
+    const finish = (res) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        ws.close();
+      } catch (_) {}
+      resolve(res);
+    };
+
+    let ws;
+    try {
+      ws = new WebSocket(url);
+    } catch (err) {
+      return resolve({ url, ok: false, envelopes: [], missingOnRelayHashes: [], error: err.message });
+    }
+
+    const timer = setTimeout(() => {
+      // Fallback to standard REQ if relay ignored IBLT_SYNC
+      fetchFromOneRelay(url, routeTag, 2000).then((fb) =>
+        finish({ ...fb, missingOnRelayHashes: null, ibltUsed: false })
+      );
+    }, Math.min(1500, timeoutMs));
+
+    ws.onopen = () => {
+      try {
+        ws.send(JSON.stringify(['IBLT_SYNC', routeTag, sketchB64]));
+      } catch (err) {
+        finish({ url, ok: false, envelopes: [], missingOnRelayHashes: [], error: err.message });
+      }
+    };
+
+    ws.onmessage = (msg) => {
+      try {
+        const data = JSON.parse(String(msg.data));
+        if (!Array.isArray(data)) return;
+        if (data[0] === 'IBLT_DIFF' && data[1] === routeTag) {
+          finish({
+            url,
+            ok: true,
+            envelopes: Array.isArray(data[2]) ? data[2] : [],
+            missingOnRelayHashes: Array.isArray(data[3]) ? data[3] : [],
+            ibltComplete: Boolean(data[4]),
+            ibltUsed: true,
+            sketchWireBytes: Buffer.byteLength(sketchB64, 'utf8'),
+          });
+        } else if (data[0] === 'NOTICE') {
+          // Legacy Nostr relay returned NOTICE on unknown command; fall back to REQ immediately
+          fetchFromOneRelay(url, routeTag, 2500).then((fb) =>
+            finish({ ...fb, missingOnRelayHashes: null, ibltUsed: false })
+          );
+        }
+      } catch (_) {}
+    };
+
+    ws.onerror = () => finish({ url, ok: false, envelopes: [], missingOnRelayHashes: [], error: 'websocket error' });
+    ws.onclose = () => finish({ url, ok: false, envelopes: [], missingOnRelayHashes: [], error: 'closed' });
+  });
+}
+
+async function fetchEnvelopesFromRelays(relays, routeTag, timeoutMs = 4000, localHashes64 = []) {
+  const results = await Promise.all(
+    relays.map((r) => reconcileViaOneRelay(r, routeTag, localHashes64, timeoutMs))
+  );
   const seen = new Set();
   const envelopes = [];
   for (const res of results) {
@@ -492,6 +572,58 @@ function startLocalRelayServer(port = 0) {
             const ev = parsed[1];
             eventsById.set(ev.id, ev);
             socket.write(encodeWsFrame(JSON.stringify(['OK', ev.id, true, ''])));
+          } else if (parsed[0] === 'IBLT_SYNC' && parsed[1] && parsed[2]) {
+            const routeTag = String(parsed[1]);
+            const clientSketch = lattice.ConstructRibltSketch.fromBase64(String(parsed[2]));
+            const relaySketch = new lattice.ConstructRibltSketch(
+              clientSketch.cellCount,
+              clientSketch.hashCount
+            );
+            const eventByHash = new Map();
+            for (const ev of eventsById.values()) {
+              const dTags = (ev.tags || []).filter((t) => t[0] === 'd').map((t) => t[1]);
+              if (!dTags.includes(routeTag)) continue;
+              const hTag = (ev.tags || []).find((t) => t[0] === 'h')?.[1];
+              const hash64 = hTag ? BigInt('0x' + hTag) : lattice.hashString64(ev.id);
+              eventByHash.set(hash64, ev);
+              relaySketch.insert(hash64, 1);
+            }
+            const rec = lattice.ConstructRibltSketch.reconcile(clientSketch, relaySketch);
+            const missingOnClientEnvelopes = [];
+            if (rec.complete) {
+              for (const h of rec.remoteOnlyHashes) {
+                const ev = eventByHash.get(h);
+                if (ev?.content) {
+                  try {
+                    missingOnClientEnvelopes.push(
+                      JSON.parse(Buffer.from(ev.content, 'base64').toString('utf8'))
+                    );
+                  } catch (_) {}
+                }
+              }
+            } else {
+              // Fallback if difference exceeded sketch cell budget: send all matching envelopes for routeTag
+              for (const ev of eventByHash.values()) {
+                if (ev?.content) {
+                  try {
+                    missingOnClientEnvelopes.push(
+                      JSON.parse(Buffer.from(ev.content, 'base64').toString('utf8'))
+                    );
+                  } catch (_) {}
+                }
+              }
+            }
+            socket.write(
+              encodeWsFrame(
+                JSON.stringify([
+                  'IBLT_DIFF',
+                  routeTag,
+                  missingOnClientEnvelopes,
+                  rec.localOnlyHashes.map((h) => h.toString(16).padStart(16, '0')),
+                  rec.complete,
+                ])
+              )
+            );
           } else if (parsed[0] === 'REQ' && parsed[1]) {
             const subId = parsed[1];
             const filter = parsed[2] || {};

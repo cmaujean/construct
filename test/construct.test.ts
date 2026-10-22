@@ -7,9 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 
-const store = require('../src/store');
+const store = require('../src/store.ts');
 
-const CLI = path.join(__dirname, '..', 'bin', 'construct.js');
+const CLI = path.join(__dirname, '..', 'bin', 'construct.ts');
 
 function makeTempPaths() {
   process.env.CONSTRUCT_NO_AUTOSYNC = '1';
@@ -571,7 +571,7 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     assert.ok(!subbedClockwork.roster.includes('georgie'));
 
     // Every non-generic Crew Bank must define `cameoTriggers` (world-cue -> specialist cameo mappings)
-    const allPackMeta = require('../src/packs').getAllPackMetadata();
+    const allPackMeta = require('../src/packs/index.ts').getAllPackMetadata();
     for (const [pName, pMeta] of Object.entries(allPackMeta)) {
       if (pName === 'generic') continue;
       assert.ok(
@@ -605,7 +605,7 @@ module.exports = {
     );
     process.env.CONSTRUCT_PACKS_DIR = customPacksDir;
     try {
-      const packsMod = require('../src/packs');
+      const packsMod = require('../src/packs/index.ts');
       const known = packsMod.getKnownRomTargets();
       assert.ok(known.has('rocinante'));
       assert.ok(known.has('naomi'));
@@ -990,23 +990,23 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
           project: '@comms',
           groupId: commsInvite.groupId,
           epoch: commsInvite.epoch,
-          epochSecret: require('../src/crdt').parseAndVerifyDidCommInvite(commsInvite.inviteUri).body.epochSecret,
+          epochSecret: require('../src/crdt.ts').parseAndVerifyDidCommInvite(commsInvite.inviteUri).body.epochSecret,
           members: [],
         };
-        const forgedCommsFrameEnv = require('../src/crdt').sealMlsApplicationMessage(commsGroupRow, carolId, {
+        const forgedCommsFrameEnv = require('../src/crdt.ts').sealMlsApplicationMessage(commsGroupRow, carolId, {
           project: '@comms',
           opCount: 1,
           ops: [
             {
-              opId: `${require('../src/crdt').nextHlc(carolId.did)}:frame:forged-comms-frame`,
-              hlc: require('../src/crdt').nextHlc(carolId.did),
+              opId: `${require('../src/crdt.ts').nextHlc(carolId.did)}:frame:forged-comms-frame`,
+              hlc: require('../src/crdt.ts').nextHlc(carolId.did),
               project: '@comms',
               authorDid: carolId.did,
               entity: 'frame',
               recordUid: 'forged-comms-frame',
               payload: {
                 uid: 'forged-comms-frame',
-                hlc: require('../src/crdt').nextHlc(carolId.did),
+                hlc: require('../src/crdt.ts').nextHlc(carolId.did),
                 project: '@comms',
                 kind: 'finding',
                 summary: 'Forged frame on @comms must be rejected',
@@ -1147,8 +1147,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       }
 
       // Invite URI encryption check: stripping the `#...` fragment key fails to unwrap `epochSecret`
-      const crdtMod = require('../src/crdt');
-      const relayMod = require('../src/relay');
+      const crdtMod = require('../src/crdt.ts');
+      const relayMod = require('../src/relay.ts');
       const strippedUri = invite.inviteUri.split('#')[0];
       assert.throws(() => crdtMod.parseAndVerifyDidCommInvite(strippedUri), /missing invite fragment key/);
 
@@ -1527,8 +1527,6 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
         typeof upRes.romFile === 'string' && upRes.romFile.endsWith('active-rom.md') && fs.existsSync(upRes.romFile),
         `upgradeConstruct must return a valid romFile path (got ${upRes.romFile})`
       );
-      assert.equal(upRes.claudeUpgraded, true);
-      assert.ok(fs.existsSync(path.join(bobClaudeDir, 'CLAUDE.md')), 'upgradeConstruct must sync CLAUDE.md when claude is enabled');
       const installedPluginSrc = fs.readFileSync(upRes.pluginPath, 'utf8');
       assert.match(installedPluginSrc, /rawAction === "shutdown"/, 'plugin/construct.js must handle rawAction === "shutdown" to yield port 47420 cleanly');
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).upstreamUpdate.behindCount, 0);
@@ -1834,7 +1832,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
   });
 
   it('serves all 11 tools over the JSON-RPC 2.0 MCP server and runs Claude Code context/pre-tool hooks', async () => {
-    const mcp = require('../src/mcp');
+    const mcp = require('../src/mcp.ts');
 
     // 1. JSON-RPC `initialize` and `tools/list`
     const initRes = mcp.handleJsonRpcRequest({
@@ -1889,58 +1887,15 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(callRec.result.isError, false);
     assert.match(callRec.result.content[0].text, /recorded #1 \[acme\/mcp_app\/finding\]/);
 
-    // 3. Claude Code `initConstruct({ claude: true })`, `UserPromptSubmit` pre-slotting, and `SubagentStart` specialist injection
-    const claudeDir = path.join(tmp.dir, 'claude-home');
-    const initClaude = store.initConstruct({
-      configDir: path.join(tmp.dir, 'opencode-cfg'),
-      claude: true,
-      claudeDir,
+    // 3. OpenCode `initConstruct`, ROM directive pre-slotting, and Causal Lattice Engine verification
+    const ocConfigDir = path.join(tmp.dir, 'opencode-cfg');
+    const initOc = store.initConstruct({
+      configDir: ocConfigDir,
     });
-    assert.equal(initClaude.claudeConfigured, true);
-    assert.equal(initClaude.claudeAgentsCount, 178);
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'lio.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'molly.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'johnny.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'enoch.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fastjack.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'corwin.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'ghostwheel.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'bobhoward.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'angleton.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'gandalf.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'eowyn.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'smeagol.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vimes.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'vetinari.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'adorabelle.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'sokolov.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'oberon.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'fflewddur.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'alex.md')));
-    assert.ok(fs.existsSync(path.join(claudeDir, 'agents', 'deltoid.md')));
-    const lioAgentFile = fs.readFileSync(path.join(claudeDir, 'agents', 'lio.md'), 'utf8');
-    assert.match(lioAgentFile, /^---\nname: lio\ndescription: "/);
-    assert.match(lioAgentFile, /\ncolor: pink\n/);
-    const claudeSettings = JSON.parse(fs.readFileSync(initClaude.claudeSettingsPath, 'utf8'));
-    assert.ok(claudeSettings.hooks.SessionStart);
-    assert.ok(claudeSettings.hooks.UserPromptSubmit);
-    assert.ok(claudeSettings.hooks.SubagentStart);
-    assert.equal(claudeSettings.hooks.PreToolUse[0].matcher, 'Bash|PowerShell|Agent|Task');
+    assert.ok(fs.existsSync(initOc.pluginPath));
+    assert.ok(fs.existsSync(path.join(ocConfigDir, 'opencode.jsonc')));
+    assert.ok(fs.existsSync(path.join(ocConfigDir, 'src', 'lattice.ts')));
 
-    // Turn-1 zero-round-trip ROM pre-slotting on `UserPromptSubmit` (`claude-hook context`)
-    const hookCtx = mcp.runClaudeHook(
-      'context',
-      JSON.stringify({
-        session_id: 'claude_ses_1',
-        cwd: tmp.dir,
-        hook_event_name: 'UserPromptSubmit',
-        prompt: 'switch to anathem crew',
-      })
-    );
-    assert.equal(hookCtx.exitCode, 0);
-    assert.match(hookCtx.stdout, /<construct-live-memory/);
-    assert.match(hookCtx.stdout, /The Concent of Saunt Edhar Crew/);
-    assert.match(hookCtx.stdout, /<construct-voice-lock>/);
     assert.deepEqual(mcp.detectPreSlotRomDirective('switch to a clockwork orange crew'), {
       action: 'use',
       target: 'clockwork',
@@ -1951,177 +1906,103 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     });
     assert.equal(mcp.resolveNodeExecutable('C:\\Users\\user\\AppData\\Local\\OpenCode\\opencode.exe'), 'node');
     assert.equal(mcp.resolveNodeExecutable('/usr/local/bin/node'), '/usr/local/bin/node');
-    const protocolMod = require('../src/protocol');
+    const protocolMod = require('../src/protocol.ts');
     assert.match(protocolMod.CORE_PROTOCOL, /Check and update documentation parity on every change/);
     assert.match(store.getRom('clockwork').voice, /Execution, Overwatch & Documentation Parity/);
 
-    // 4. Thin lifecycle integrations for Cursor (`--cursor`), Gemini CLI (`--gemini`), Windsurf (`--windsurf`), Codex (`--codex`), and Oh My Pi (`--omp`)
-    const cursorDir = path.join(tmp.dir, 'cursor-home');
-    const geminiDir = path.join(tmp.dir, 'gemini-home');
-    const windsurfDir = path.join(tmp.dir, 'windsurf-home');
-    const codexDir = path.join(tmp.dir, 'codex-home');
-    const ompDir = path.join(tmp.dir, 'omp-home');
-    const initMulti = store.initConstruct({
-      configDir: path.join(tmp.dir, 'opencode-cfg'),
-      cursor: true,
-      cursorDir,
-      gemini: true,
-      geminiDir,
-      windsurf: true,
-      windsurfDir,
-      codex: true,
-      codexDir,
-      omp: true,
-      ompDir,
+    // 4. Causal Lattice Engine: rANS + String-Slab Codec, Chaskey-12 Capabilities, 64B Arena, Compaction & 1-RTT IBLT
+    const lattice = store.lattice;
+    const epochSecret = Buffer.from('0123456789abcdef0123456789abcdef').toString('base64');
+    const rootCap = lattice.mintProjectCapability({
+      epochSecret,
+      projectPrefix: 'acme/',
+      allowedEntitiesMask: lattice.ENTITY_MASK.ALL_PROJECT,
+      permissionsMask: lattice.PERMISSION_MASK.ALL,
+      maxPackedHlc: 500000n,
     });
-    assert.equal(initMulti.cursorConfigured, true);
-    assert.equal(initMulti.geminiConfigured, true);
-    assert.equal(initMulti.windsurfConfigured, true);
-    assert.equal(initMulti.codexConfigured, true);
-    assert.equal(initMulti.ompConfigured, true);
-    assert.ok(fs.existsSync(path.join(cursorDir, 'mcp.json')));
-    assert.ok(fs.existsSync(path.join(cursorDir, 'hooks.json')));
-    assert.ok(fs.existsSync(path.join(cursorDir, 'rules', 'construct.mdc')));
-    assert.ok(fs.existsSync(path.join(geminiDir, 'GEMINI.md')));
-    assert.ok(fs.existsSync(path.join(geminiDir, 'settings.json')));
-    assert.ok(fs.existsSync(path.join(windsurfDir, 'mcp_config.json')));
-    assert.ok(fs.existsSync(path.join(windsurfDir, 'memories', 'global_rules.md')));
-    assert.ok(fs.existsSync(path.join(codexDir, 'AGENTS.md')));
-    assert.ok(fs.existsSync(path.join(codexDir, 'config.toml')));
-    assert.ok(fs.existsSync(path.join(ompDir, 'AGENTS.md')));
-    assert.ok(fs.existsSync(path.join(ompDir, 'mcp.json')));
-    assert.ok(fs.existsSync(path.join(ompDir, 'extensions', 'construct.js')));
-    const ompMcpJson = JSON.parse(fs.readFileSync(path.join(ompDir, 'mcp.json'), 'utf8'));
-    assert.equal(ompMcpJson.mcpServers.construct.type, 'stdio');
-    assert.equal(ompMcpJson.mcpServers.construct.command, 'node');
-    const ompExtCode = fs.readFileSync(path.join(ompDir, 'extensions', 'construct.js'), 'utf8');
-    assert.match(ompExtCode, /before_agent_start/);
-    assert.match(ompExtCode, /tool_call/);
-    assert.doesNotMatch(ompExtCode, /pi\.on\("tool_result"/);
-    assert.match(ompExtCode, /registerCommand\("construct"/);
-    // Cursor lifecycle hooks (`session-start`, `before-prompt`, `before-shell` allow & deny, `post-tool`)
-    const curPrompt = mcp.runCursorHook(
-      'before-prompt',
-      JSON.stringify({ conversation_id: 'cur_ses_1', workspace_roots: [tmp.dir], prompt: 'switch to prydain crew' })
-    );
-    assert.deepEqual(JSON.parse(curPrompt.stdout), { continue: true });
-    const curStart = mcp.runCursorHook(
-      'session-start',
-      JSON.stringify({ session_id: 'cur_ses_1', workspace_roots: [tmp.dir] })
-    );
-    const curStartJson = JSON.parse(curStart.stdout);
-    assert.match(curStartJson.additional_context, /CAER DALLBEN \/\/ THE BOOK OF THREE & PRYDAIN/);
-    assert.match(curStartJson.additional_context, /<construct-voice-lock>/);
+    const narrowedCap = lattice.attenuateProjectCapability(rootCap, {
+      projectPrefix: 'acme/alpha_app',
+      allowedEntitiesMask: lattice.ENTITY_MASK.FRAME | lattice.ENTITY_MASK.HEAD,
+      permissionsMask: lattice.PERMISSION_MASK.WRITE,
+      maxPackedHlc: 300000n,
+    });
 
-    const curShellOk = mcp.runCursorHook('before-shell', JSON.stringify({ command: 'git status -sb', cwd: tmp.dir }));
-    assert.equal(JSON.parse(curShellOk.stdout).permission, 'allow');
-    const curShellDeny = mcp.runCursorHook('before-shell', JSON.stringify({ command: 'cat <<EOF\nhello\nEOF', cwd: tmp.dir }));
-    assert.equal(JSON.parse(curShellDeny.stdout).permission, 'deny');
-    assert.match(JSON.parse(curShellDeny.stdout).agent_message, /Gotcha #1/);
+    // Authorized capability check passes
+    assert.equal(
+      lattice.verifyProjectCapability({
+        epochSecret,
+        token: narrowedCap,
+        targetProject: 'acme/alpha_app',
+        requiredEntitiesMask: lattice.ENTITY_MASK.FRAME,
+        requiredPermission: lattice.PERMISSION_MASK.WRITE,
+        operationPackedHlc: 200000n,
+      }).ok,
+      true
+    );
 
-    // Gemini CLI lifecycle hooks (`before-agent` pre-slot + context injection, `before-tool` allow & deny)
-    const gemAgent = mcp.runGeminiHook(
-      'before-agent',
-      JSON.stringify({ session_id: 'gem_ses_1', cwd: tmp.dir, prompt: 'switch to discworld crew' })
+    // Unauthorized project prefix rejected
+    assert.equal(
+      lattice.verifyProjectCapability({
+        epochSecret,
+        token: narrowedCap,
+        targetProject: 'other/beta_app',
+        requiredEntitiesMask: lattice.ENTITY_MASK.FRAME,
+        requiredPermission: lattice.PERMISSION_MASK.WRITE,
+        operationPackedHlc: 200000n,
+      }).ok,
+      false
     );
-    const gemAgentJson = JSON.parse(gemAgent.stdout);
-    assert.match(gemAgentJson.hookSpecificOutput.additionalContext, /ANKH-MORPORK \/\/ PSEUDOPOLIS YARD/);
-    assert.match(gemAgentJson.hookSpecificOutput.additionalContext, /<construct-voice-lock>/);
 
-    const gemToolOk = mcp.runGeminiHook(
-      'before-tool',
-      JSON.stringify({ tool_name: 'run_shell_command', tool_input: { command: 'npm test' }, cwd: tmp.dir })
+    // Unauthorized entity mask (GOTCHA not in FRAME | HEAD) rejected
+    assert.equal(
+      lattice.verifyProjectCapability({
+        epochSecret,
+        token: narrowedCap,
+        targetProject: 'acme/alpha_app',
+        requiredEntitiesMask: lattice.ENTITY_MASK.GOTCHA,
+        requiredPermission: lattice.PERMISSION_MASK.WRITE,
+        operationPackedHlc: 200000n,
+      }).ok,
+      false
     );
-    assert.equal(JSON.parse(gemToolOk.stdout).decision, 'allow');
-    const gemToolDeny = mcp.runGeminiHook(
-      'before-tool',
-      JSON.stringify({ tool_name: 'run_shell_command', tool_input: { command: 'npm test | tail -n 5' }, cwd: tmp.dir })
-    );
-    assert.equal(JSON.parse(gemToolDeny.stdout).decision, 'deny');
-    assert.match(JSON.parse(gemToolDeny.stdout).reason, /Gotcha #3/);
 
-    // Oh My Pi (`omp`) lifecycle hooks (`before-agent`, `before-tool` shell guard & task subagent, `after-tool`, `command`)
-    const ompAgent = mcp.runOmpHook(
-      'before-agent',
-      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, prompt: 'switch to nightcity crew', agent_kind: 'main' })
+    // Caveat-widening attack (attempting to extend maxPackedHlc from 300000n -> 450000n) rejected
+    const widenedCap = lattice.attenuateProjectCapability(narrowedCap, {
+      projectPrefix: 'acme/alpha_app',
+      allowedEntitiesMask: lattice.ENTITY_MASK.FRAME,
+      permissionsMask: lattice.PERMISSION_MASK.WRITE,
+      maxPackedHlc: 450000n,
+    });
+    assert.equal(
+      lattice.verifyProjectCapability({
+        epochSecret,
+        token: widenedCap,
+        targetProject: 'acme/alpha_app',
+        requiredEntitiesMask: lattice.ENTITY_MASK.FRAME,
+        requiredPermission: lattice.PERMISSION_MASK.WRITE,
+        operationPackedHlc: 200000n,
+      }).ok,
+      false
     );
-    const ompAgentJson = JSON.parse(ompAgent.stdout);
-    assert.match(ompAgentJson.additionalSystemPrompt, /AFTERLIFE \/\/ GIG ACTIVE/);
-    assert.match(ompAgentJson.additionalSystemPrompt, /<construct-voice-lock>/);
-    assert.match(ompAgentJson.additionalSystemPrompt, /renders internal thinking blocks visibly/);
-    assert.match(ompAgentJson.statusText, /nightcity/);
 
-    const ompTaskQueue = mcp.runOmpHook(
-      'before-tool',
-      JSON.stringify({
-        session_id: 'omp_ses_1',
-        cwd: tmp.dir,
-        tool_name: 'task',
-        tool_input: {
-          context: 'Audit auth',
-          tasks: [{ task: '[ROM: johnny] Audit the auth gate', solutionSpace: 'bounded' }],
-        },
-      })
-    );
-    assert.equal(JSON.parse(ompTaskQueue.stdout).block, false);
+    // Verify frontier-preserving compaction on repeated head/frame updates
+    store.setHead('acme/compact_test', { state: 'State v1', next: 'Step 1' });
+    store.setHead('acme/compact_test', { state: 'State v2', next: 'Step 2' });
+    store.setHead('acme/compact_test', { state: 'State v3', next: 'Step 3' });
+    const frontierBeforeCompact = lattice.globalHotArena.readProjectFrontierFast('acme/compact_test');
+    assert.notEqual(frontierBeforeCompact, 0n);
+    const compactRes = store.compactProjectCrdtLog('acme/compact_test');
+    assert.equal(compactRes.merkleFrontier64, frontierBeforeCompact);
 
-    const ompSubAgent = mcp.runOmpHook(
-      'before-agent',
-      JSON.stringify({
-        session_id: 'omp_ses_child_1',
-        parent_session_id: 'omp_ses_1',
-        cwd: tmp.dir,
-        prompt: 'Complete assignment thoroughly:\n\n[ROM: johnny] Audit the auth gate',
-        agent_kind: 'sub',
-        agent_name: 'scout',
-        agent_id: 'Johnny',
-      })
-    );
-    const ompSubJson = JSON.parse(ompSubAgent.stdout);
-    assert.equal(ompSubJson.sessionId, 'omp_ses_child_1:Johnny');
-    assert.match(ompSubJson.additionalSystemPrompt, /Active Session Personality ROM: Johnny Silverhand \/\/ Relic Engram Saboteur/);
-    assert.match(ompSubJson.additionalSystemPrompt, /ACTIVE ROM VOICE LOCK \(Johnny Silverhand/);
-
-    const ompSubByName = mcp.runOmpHook(
-      'before-agent',
-      JSON.stringify({
-        session_id: 'omp_ses_child_2',
-        parent_session_id: 'omp_ses_1',
-        cwd: tmp.dir,
-        prompt: 'Complete assignment thoroughly:\n\nAudit the CLI ergonomics',
-        agent_kind: 'sub',
-        agent_name: 'scout',
-        agent_id: 'Panam-2',
-      })
-    );
-    const ompSubByNameJson = JSON.parse(ompSubByName.stdout);
-    assert.match(ompSubByNameJson.additionalSystemPrompt, /Active Session Personality ROM: Panam Palmer/);
-    assert.match(ompSubByNameJson.additionalSystemPrompt, /ACTIVE ROM VOICE LOCK \(Panam Palmer/);
-
-    const ompBashOk = mcp.runOmpHook(
-      'before-tool',
-      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', tool_input: { command: 'git status -sb' } })
-    );
-    assert.equal(JSON.parse(ompBashOk.stdout).block, false);
-
-    const ompBashDeny = mcp.runOmpHook(
-      'before-tool',
-      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', tool_input: { command: 'cat <<EOF\nbad\nEOF' } })
-    );
-    assert.equal(JSON.parse(ompBashDeny.stdout).block, true);
-    assert.match(JSON.parse(ompBashDeny.stdout).reason, /Gotcha #1/);
-
-    const ompAfterTool = mcp.runOmpHook(
-      'after-tool',
-      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, tool_name: 'bash', is_error: false })
-    );
-    assert.deepEqual(JSON.parse(ompAfterTool.stdout), {});
-
-    const ompCmd = mcp.runOmpHook(
-      'command',
-      JSON.stringify({ session_id: 'omp_ses_1', cwd: tmp.dir, args: 'sub panam' })
-    );
-    assert.match(JSON.parse(ompCmd.stdout).message, /Subbed panam into active crew/);
+    // Verify `benchLattice` head-to-head metrics (World-Track II + World-Track III Evolved from `causal-lattice` library)
+    const benchReport = store.benchLattice({ ops: 25 });
+    assert.ok(benchReport.wire.batchCompressionRatio > 1.8);
+    assert.equal(benchReport.hotArenaReadNs.circuitCollisions, 0);
+    assert.ok(benchReport.hotArenaReadNs.speedupFactor > 2);
+    assert.equal(benchReport.evolvedPredictor.losslessVerified, true);
+    assert.ok(benchReport.evolvedPredictor.gainVsWorldTrack2 > 10);
+    assert.ok(benchReport.capabilityGateNs.speedupFactor > 5);
+    assert.equal(benchReport.relaySync.peeledIdentically, true);
 
     // Verify `/construct` slash command supports every CLI command (`parseSlashArgs` + `executeConstructSlashCommand`)
     assert.deepEqual(
@@ -2243,8 +2124,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     });
     assert.equal(reloadOut.status, 0);
     assert.match(reloadOut.stdout, /construct reloaded \(DID: did:key:/);
-    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'pocket.js')));
-    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'store.js')));
+    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'pocket.ts')));
+    assert.ok(fs.existsSync(path.join(reloadCliDir, 'src', 'store.ts')));
 
     const cliBankOut = spawnSync(process.execPath, [CLI, 'nightcity', '--session', 'cli_parity_ses'], {
       env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
@@ -2333,14 +2214,6 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     );
     assert.equal(mcp.validateShellCommand('deploy --yolo', { dir: unguardedRepoDir }), true);
     assert.throws(
-      () =>
-        mcp.runClaudeHook(
-          'pre-tool',
-          JSON.stringify({ tool_name: 'Bash', cwd: guardedRepoDir, tool_input: { command: 'deploy --yolo' } })
-        ),
-      /Never run deploy --yolo in acme\/guarded/
-    );
-    assert.throws(
       () => mcp.validateShellCommand('npm test | Select-String "pass"'),
       /Gotcha #3/
     );
@@ -2353,25 +2226,6 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const inv256 = store.createInvite('acme/guarded');
     const fragPart = inv256.inviteUri.split('#')[1] || '';
     assert.equal(Buffer.from(fragPart, 'base64url').length, 32);
-
-    // Priority 3: Per-seat model routing in Claude Code subagents & Oh My Pi `before-subagent-spawn`
-    const claudeRoutedDir = path.join(tmp.dir, 'claude-routed');
-    store.initConstruct({ configDir: path.join(tmp.dir, 'oc-routed'), claude: true, claudeDir: claudeRoutedDir });
-    const judyAgentMd = fs.readFileSync(path.join(claudeRoutedDir, 'agents', 'judy.md'), 'utf8');
-    const tbugAgentMd = fs.readFileSync(path.join(claudeRoutedDir, 'agents', 'tbug.md'), 'utf8');
-    assert.match(judyAgentMd, /model: haiku/);
-    assert.match(tbugAgentMd, /model: sonnet/);
-
-    const ompSpawnRecon = JSON.parse(
-      mcp.runOmpHook('before-subagent-spawn', JSON.stringify({ agent: 'Judy-1', session_id: 'omp_ses_1' })).stdout
-    );
-    assert.equal(ompSpawnRecon.model, '@smol');
-    assert.match(ompSpawnRecon.note, /Construct Seat 1A \(judy\/recon -> @smol\)/);
-    const ompSpawnArch = JSON.parse(
-      mcp.runOmpHook('before-subagent-spawn', JSON.stringify({ agent: 'TBug-1', session_id: 'omp_ses_1' })).stdout
-    );
-    assert.equal(ompSpawnArch.model, '@slow');
-    assert.match(ompSpawnArch.note, /Construct Seat 2 \(tbug\/architect -> @slow\)/);
 
     // Priority 4: Active Work Claims & Ref Collision Radar (`intent` auto-open & child `commit` auto-resolve)
     const intentClaim = store.recordFrame({
@@ -2403,15 +2257,17 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(bootAfterResolve.activeClaims.length, 0);
     assert.equal(bootAfterResolve.refCollisions.length, 0);
 
-    // Priority 5: Modularized `src/hud.js`, `src/github.js`, and `src/installer.js`
-    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'hud.js')));
-    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'github.js')));
-    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'installer.js')));
-    const storeLineCount = fs.readFileSync(path.join(__dirname, '..', 'src', 'store.js'), 'utf8').split('\n').length;
-    assert.ok(storeLineCount < 3600, `expected src/store.js < 3600 lines, got ${storeLineCount}`);
+    // Priority 5: Modularized `src/hud.ts`, `src/github.ts`, `src/installer.ts`, and `src/lattice.ts`
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'hud.ts')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'github.ts')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'installer.ts')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'lattice.ts')));
+    assert.ok(fs.existsSync(path.join(__dirname, '..', 'src', 'types.ts')));
+    const storeLineCount = fs.readFileSync(path.join(__dirname, '..', 'src', 'store.ts'), 'utf8').split('\n').length;
+    assert.ok(storeLineCount < 3600, `expected src/store.ts < 3600 lines, got ${storeLineCount}`);
 
     // 6. Construct Pocket (`src/pocket.js` & `docs/pocket.html` — Node <-> W3C WebCrypto AES-256-GCM + QR + Relay Bridge)
-    const pocket = require('../src/pocket');
+    const pocket = require('../src/pocket.ts');
     const vm = require('node:vm');
     const pocketCfgFile = path.join(tmp.dir, 'pocket.json');
     const pCfg1 = pocket.loadOrCreatePocketConfig({}, pocketCfgFile);
@@ -2557,85 +2413,26 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       assert.doesNotMatch(crewHtml, /—/, `crew page ${p.pack}.html must not contain em dashes`);
     }
 
-    // Subagent Path A: Named custom subagent (`subagent_type: "lio"`) fires `SubagentStart`
-    const subStartNamed = mcp.runClaudeHook(
-      'subagent-start',
-      JSON.stringify({
-        session_id: 'claude_ses_1',
-        cwd: tmp.dir,
-        hook_event_name: 'SubagentStart',
-        agent_id: 'agent-01',
-        agent_type: 'lio',
-      })
-    );
-    assert.equal(subStartNamed.exitCode, 0);
-    const subStartNamedJson = JSON.parse(subStartNamed.stdout);
-    assert.equal(subStartNamedJson.hookSpecificOutput.hookEventName, 'SubagentStart');
-    assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /session="claude_ses_1:agent-01"/);
-    assert.match(subStartNamedJson.hookSpecificOutput.additionalContext, /Active Session Personality ROM: Fraa Lio/);
+    // Verify OpenCode child subagent `[ROM: <specialist>]` context detection (`mcp.detectSubagentContextRom`)
+    const subOrolo = mcp.detectSubagentContextRom({
+      session: { id: 'ses_child_1', parentID: 'ses_main_1', title: 'Inspect built archive' },
+      messages: [{ text: '[ROM: orolo] Inspect the built dist/ archive bytes and verify version headers.' }],
+    });
+    assert.deepEqual(subOrolo, { action: 'use', target: 'orolo' });
 
+    const subLioByTitle = mcp.detectSubagentContextRom({
+      session: { id: 'ses_child_2', parentID: 'ses_main_1', title: 'Lio — Red-team the auth perimeter' },
+      messages: [],
+    });
+    assert.deepEqual(subLioByTitle, { action: 'use', target: 'lio' });
 
-    // Subagent Path A2: Generic `Explore` subagent with specialist `agent_id: "Mitch-2"` resolves `mitch` without needing queue
-    const subStartById = mcp.runClaudeHook(
-      'subagent-start',
-      JSON.stringify({
-        session_id: 'claude_ses_1',
-        cwd: tmp.dir,
-        hook_event_name: 'SubagentStart',
-        agent_id: 'Mitch-2',
-        agent_type: 'Explore',
-      })
-    );
-    assert.match(JSON.parse(subStartById.stdout).hookSpecificOutput.additionalContext, /Active Session Personality ROM: Mitch Anderson/);
-    // Subagent Path B: Generic `Explore` subagent spawned with `[ROM: orolo]` in `Agent` tool prompt
-    const preToolAgent = mcp.runClaudeHook(
-      'pre-tool',
-      JSON.stringify({
-        session_id: 'claude_ses_1',
-        cwd: tmp.dir,
-        hook_event_name: 'PreToolUse',
-        tool_name: 'Agent',
-        tool_input: {
-          subagent_type: 'Explore',
-          description: 'Inspect built archive',
-          prompt: '[ROM: orolo] Inspect the built dist/ archive bytes and verify version headers.',
-        },
-      })
-    );
-    assert.equal(preToolAgent.exitCode, 0);
-
-    const subStartExplore = mcp.runClaudeHook(
-      'subagent-start',
-      JSON.stringify({
-        session_id: 'claude_ses_1',
-        cwd: tmp.dir,
-        hook_event_name: 'SubagentStart',
-        agent_id: 'agent-02',
-        agent_type: 'Explore',
-      })
-    );
-    const subStartExploreJson = JSON.parse(subStartExplore.stdout);
-    assert.equal(subStartExploreJson.hookSpecificOutput.hookEventName, 'SubagentStart');
-    assert.match(subStartExploreJson.hookSpecificOutput.additionalContext, /session="claude_ses_1:agent-02"/);
-    assert.match(subStartExploreJson.hookSpecificOutput.additionalContext, /Active Session Personality ROM: Fraa Orolo/);
-
-    // Verify parent session `claude_ses_1` is still on the full `anathem` 9-seat crew (zero subagent bleed)
-    const parentCheck = mcp.runClaudeHook('context', JSON.stringify({ session_id: 'claude_ses_1', cwd: tmp.dir }));
-    assert.match(parentCheck.stdout, /The Concent of Saunt Edhar Crew/);
-
-    // Clean Bash command passes pre-tool hook
-    const hookClean = mcp.runClaudeHook(
-      'pre-tool',
-      JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'git status -sb' } })
-    );
-    assert.equal(hookClean.exitCode, 0);
-
-    // Heredoc in Bash command is blocked by pre-tool hook (exit code 2 on CLI)
-    const cliPreTool = spawnSync(process.execPath, [CLI, 'claude-hook', 'pre-tool'], {
-      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: "cat <<'EOF'\nhello\nEOF" } }),
+    // Verify `construct bench-lattice` CLI execution
+    const cliBench = spawnSync(process.execPath, [CLI, 'bench-lattice', '--json'], {
+      env: { ...process.env, CONSTRUCT_DB: tmp.db, CONSTRUCT_ROM_FILE: tmp.romFile, CONSTRUCT_IDENTITY_FILE: tmp.idFile },
       encoding: 'utf8',
     });
-    assert.equal(cliPreTool.status, 2);
-    assert.match(cliPreTool.stderr, /Gotcha #1/);
+    assert.equal(cliBench.status, 0);
+    const cliBenchJson = JSON.parse(cliBench.stdout);
+    assert.equal(cliBenchJson.relaySync.peeledIdentically, true);
   });
 });

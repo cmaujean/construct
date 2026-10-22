@@ -21,8 +21,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const relay = require('./relay');
-const crdt = require('./crdt');
+const relay = require('./relay.ts');
+const crdt = require('./crdt.ts');
 
 const DEFAULT_POCKET_FILE = path.join(os.homedir(), '.config', 'opencode', 'pocket.json');
 const DEFAULT_HUD_TOKEN_FILE = path.join(os.homedir(), '.config', 'opencode', 'hud-token.txt');

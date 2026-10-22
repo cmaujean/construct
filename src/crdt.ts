@@ -13,48 +13,58 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const lattice = require('./lattice.ts');
+import type { DatabaseSync } from 'node:sqlite';
+import type {
+  CourierMessage,
+  CrdtOperationsBatch,
+  CryptographicIdentity,
+  MlsGroupRecord,
+  ProjectCapabilityToken,
+  SealedMlsEnvelope,
+} from './types.ts';
 
 const DEFAULT_IDENTITY_FILE = path.join(os.homedir(), '.config', 'opencode', 'identity.json');
 
 // Default neutral, zero-signup store-and-forward WebSocket relays (overridable per group)
-const DEFAULT_RELAYS = Object.freeze([
+const DEFAULT_RELAYS: readonly string[] = Object.freeze([
   'wss://nos.lol',
   'wss://relay.damus.io',
 ]);
 
-function identityFilePath() {
+function identityFilePath(): string {
   return process.env.CONSTRUCT_IDENTITY_FILE || DEFAULT_IDENTITY_FILE;
 }
 
 // --- Base58btc encoding for W3C `did:key:z6Mk...` ---
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-function base58Encode(buf) {
+function base58Encode(buf: Uint8Array): string {
   let zeros = 0;
   while (zeros < buf.length && buf[zeros] === 0) zeros++;
   const size = Math.ceil((buf.length * Math.log(256)) / Math.log(58)) + 1;
   const b58 = new Uint8Array(size);
   for (let i = zeros; i < buf.length; i++) {
-    let carry = buf[i];
+    let carry = buf[i]!;
     for (let j = size - 1; j >= 0; j--) {
-      carry += 256 * b58[j];
+      carry += 256 * b58[j]!;
       b58[j] = carry % 58;
       carry = Math.floor(carry / 58);
     }
   }
   let it = 0;
   while (it < size && b58[it] === 0) it++;
-  let str = BASE58_ALPHABET[0].repeat(zeros);
-  for (; it < size; it++) str += BASE58_ALPHABET[b58[it]];
+  let str = BASE58_ALPHABET[0]!.repeat(zeros);
+  for (; it < size; it++) str += BASE58_ALPHABET[b58[it]!];
   return str;
 }
 
 // Extract raw 32-byte public key from SPKI DER (Ed25519 / X25519 SPKI DER is 44 bytes, last 32 are raw key)
-function rawPublicKeyFromSpkiDer(derBuf) {
+function rawPublicKeyFromSpkiDer(derBuf: Buffer): Buffer {
   return derBuf.subarray(derBuf.length - 32);
 }
 
-function makeDidKeyFromEd25519Spki(spkiDerBase64) {
+function makeDidKeyFromEd25519Spki(spkiDerBase64: string): string {
   const der = Buffer.from(spkiDerBase64, 'base64');
   const rawPub = rawPublicKeyFromSpkiDer(der);
   // Multicodec ed25519-pub is 0xed 0x01
@@ -63,7 +73,7 @@ function makeDidKeyFromEd25519Spki(spkiDerBase64) {
 }
 
 // Load or generate local operator cryptographic identity (Ed25519 signing + X25519 key agreement)
-function loadOrCreateIdentity(file = identityFilePath()) {
+function loadOrCreateIdentity(file: string = identityFilePath()): CryptographicIdentity {
   if (fs.existsSync(file)) {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   }
@@ -188,22 +198,45 @@ function verifyPayloadSignature(payloadBytes, signatureBase64, signPubBase64) {
   return crypto.verify(null, payloadBytes, pubKey, Buffer.from(signatureBase64, 'base64'));
 }
 
-// Seal an MLS ApplicationMessage (ChaCha20-Poly1305 AEAD + Ed25519 sender signature over AAD + ciphertext)
-function sealMlsApplicationMessage(group, identity, crdtOpsPayload) {
+// Seal an MLS ApplicationMessage (rANS + String-Slab binary batch + Chaskey-12 Capability + ChaCha20-Poly1305 AEAD + Ed25519 signature)
+function sealMlsApplicationMessage(
+  group: MlsGroupRecord,
+  identity: CryptographicIdentity,
+  crdtOpsPayload: CrdtOperationsBatch,
+  options: { readonly capability?: ProjectCapabilityToken; readonly legacyJson?: boolean } = {}
+): SealedMlsEnvelope {
   const { aeadKey, routeTag } = deriveEpochKeys(group.epochSecret, group.groupId, group.epoch);
   const nonce = crypto.randomBytes(12);
+  const isComms =
+    group.project === '@comms' ||
+    group.project === 'comms' ||
+    String(group.project || '').toLowerCase().startsWith('@comms/');
+  const capability =
+    options.capability ||
+    lattice.mintProjectCapability({
+      epochSecret: group.epochSecret,
+      projectPrefix: isComms ? '' : group.project,
+      allowedEntitiesMask: isComms
+        ? lattice.ENTITY_MASK.COMMS_ONLY
+        : lattice.ENTITY_MASK.ALL_PROJECT,
+      permissionsMask: lattice.PERMISSION_MASK.ALL,
+    });
+
   const aad = Buffer.from(
     JSON.stringify({
-      v: 1,
-      type: 'application/construct-mls+crdt',
+      v: 2,
+      type: 'application/construct-lattice+rans',
       groupId: group.groupId,
       epoch: group.epoch,
       senderDid: identity.did,
+      cap: capability,
     }),
     'utf8'
   );
 
-  const plaintext = Buffer.from(JSON.stringify(crdtOpsPayload), 'utf8');
+  const plaintext = options.legacyJson
+    ? Buffer.from(JSON.stringify(crdtOpsPayload), 'utf8')
+    : lattice.encodeConstructOpsBatch(crdtOpsPayload);
   const cipher = crypto.createCipheriv('chacha20-poly1305', aeadKey, nonce, { authTagLength: 16 });
   cipher.setAAD(aad, { plaintextLength: plaintext.length });
   const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -211,11 +244,13 @@ function sealMlsApplicationMessage(group, identity, crdtOpsPayload) {
 
   const toSign = Buffer.concat([aad, nonce, ciphertext, tag]);
   const signature = signPayload(toSign, identity.signPriv);
+  const blindHash64 = lattice.hashString64(signature).toString(16).padStart(16, '0');
 
   return {
-    v: 1,
-    type: 'https://didcomm.org/construct-mls/1.0/application',
+    v: 2,
+    type: 'https://didcomm.org/construct-lattice/2.0/application',
     routeTag,
+    blindHash64,
     groupId: group.groupId,
     epoch: group.epoch,
     senderDid: identity.did,
@@ -228,7 +263,11 @@ function sealMlsApplicationMessage(group, identity, crdtOpsPayload) {
   };
 }
 
-function openMlsApplicationMessage(group, envelope, options = {}) {
+function openMlsApplicationMessage(
+  group: MlsGroupRecord,
+  envelope: SealedMlsEnvelope,
+  options: { readonly strictMembers?: boolean } = {}
+): CrdtOperationsBatch {
   if (envelope.groupId !== group.groupId) {
     throw new Error(`groupId mismatch: expected ${group.groupId}, got ${envelope.groupId}`);
   }
@@ -277,7 +316,26 @@ function openMlsApplicationMessage(group, envelope, options = {}) {
     throw new Error('MLS AAD metadata mismatch against outer envelope');
   }
 
-  return JSON.parse(plaintext.toString('utf8'));
+  if (aadObj.cap) {
+    const isComms =
+      group.project === '@comms' ||
+      group.project === 'comms' ||
+      String(group.project || '').toLowerCase().startsWith('@comms/');
+    const verdict = lattice.verifyProjectCapability({
+      epochSecret: group.epochSecret,
+      token: aadObj.cap,
+      targetProject: isComms ? '' : group.project,
+      requiredEntitiesMask: isComms
+        ? lattice.ENTITY_MASK.MESSAGE
+        : lattice.ENTITY_MASK.FRAME,
+      requiredPermission: lattice.PERMISSION_MASK.WRITE,
+    });
+    if (!verdict.ok) {
+      throw new Error(`Chaskey-12 capability verification failed: ${verdict.reason}`);
+    }
+  }
+
+  return lattice.decodeConstructOpsBatch(plaintext);
 }
 
 function wrapInviteEpochSecret(epochSecretBase64, wrapSeedBytes, groupId) {
@@ -511,41 +569,55 @@ function initCrdtAndCommsSchema(db) {
   }
 }
 
-function hydrateMlsGroup(row) {
+function hydrateMlsGroup(row: Record<string, unknown> | null | undefined): MlsGroupRecord | null {
   if (!row) return null;
   return {
-    project: row.project,
-    groupId: row.group_id,
+    project: String(row.project),
+    groupId: String(row.group_id),
     epoch: Number(row.epoch),
-    epochSecret: row.epoch_secret,
-    members: JSON.parse(row.members || '[]'),
-    relays: JSON.parse(row.relays || '[]'),
-    lastSyncHlc: row.last_sync_hlc || '',
-    updated: row.updated,
+    epochSecret: String(row.epoch_secret),
+    members: JSON.parse(String(row.members || '[]')),
+    relays: JSON.parse(String(row.relays || '[]')),
+    lastSyncHlc: String(row.last_sync_hlc || ''),
+    updated: String(row.updated),
   };
 }
 
-function hydrateMessage(row) {
+function hydrateMessage(row: Record<string, unknown> | null | undefined): CourierMessage | null {
   if (!row) return null;
   return {
     id: Number(row.id),
-    uid: row.uid,
-    hlc: row.hlc,
-    project: row.project,
-    fromUser: row.from_user,
-    fromRom: row.from_rom,
-    fromDid: row.from_did,
-    toUser: row.to_user,
-    body: row.body,
-    status: row.status,
-    replyBody: row.reply_body || '',
-    replyRom: row.reply_rom || '',
-    replyHlc: row.reply_hlc || '',
-    created: row.created,
+    uid: String(row.uid),
+    hlc: String(row.hlc),
+    project: String(row.project),
+    fromUser: String(row.from_user),
+    fromRom: String(row.from_rom),
+    fromDid: String(row.from_did),
+    toUser: String(row.to_user),
+    body: String(row.body),
+    status: String(row.status) as CourierMessage['status'],
+    replyBody: String(row.reply_body || ''),
+    replyRom: String(row.reply_rom || ''),
+    replyHlc: String(row.reply_hlc || ''),
+    created: String(row.created),
   };
 }
 
-function appendCrdtOpInDb(db, { project, entity, recordUid, payload }, identityFile) {
+function appendCrdtOpInDb(
+  db: DatabaseSync,
+  {
+    project,
+    entity,
+    recordUid,
+    payload,
+  }: {
+    readonly project: string;
+    readonly entity: string;
+    readonly recordUid: string;
+    readonly payload: unknown;
+  },
+  identityFile?: string
+) {
   const identity = loadOrCreateIdentity(identityFile);
   const hlc = nextHlc(identity.did);
   const opId = `${hlc}:${entity}:${recordUid}`;
@@ -553,7 +625,40 @@ function appendCrdtOpInDb(db, { project, entity, recordUid, payload }, identityF
     `INSERT OR REPLACE INTO crdt_log (op_id, hlc, project, author_did, entity, record_uid, payload)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(opId, hlc, project, identity.did, entity, recordUid, JSON.stringify(payload));
-  return { opId, hlc, authorDid: identity.did };
+  const opHash64 = lattice.computeOpHash64(opId, hlc);
+  const packedHlc64 = lattice.hlcStringToPacked64(hlc);
+  lattice.globalHotArena.foldProjectOp(project, opHash64, packedHlc64);
+  return { opId, hlc, authorDid: identity.did, opHash64 };
+}
+
+/**
+ * Compacts superseded LWW operations in `crdt_log` for `project`, retaining only the
+ * winning causal operation per `(entity, record_uid)` while preserving the 64-bit
+ * Merkle-XOR frontier in `ConstructHotArena`.
+ */
+function compactProjectCrdtLogInDb(db, project) {
+  const rows = db
+    .prepare('SELECT op_id, hlc, entity, record_uid FROM crdt_log WHERE project = ? ORDER BY hlc ASC')
+    .all(project);
+  const winnerByKey = new Map();
+  for (const r of rows) {
+    winnerByKey.set(`${r.entity}:${r.record_uid}`, r.op_id);
+  }
+  const keepSet = new Set(winnerByKey.values());
+  const delStmt = db.prepare('DELETE FROM crdt_log WHERE op_id = ?');
+  let pruned = 0;
+  for (const r of rows) {
+    if (!keepSet.has(r.op_id)) {
+      delStmt.run(r.op_id);
+      pruned++;
+    }
+  }
+  return {
+    totalBefore: rows.length,
+    retainedAfter: keepSet.size,
+    pruned,
+    merkleFrontier64: lattice.globalHotArena.readProjectFrontierFast(project),
+  };
 }
 
 // Backfill existing project gotchas, frames, heads, and (when requested or on `@comms`) messages into crdt_log
@@ -856,6 +961,11 @@ function applyCrdtOpsInDb(db, ops, identityFile, allowedProject = null) {
       op.recordUid,
       JSON.stringify(op.payload)
     );
+    lattice.globalHotArena.foldProjectOp(
+      op.project,
+      lattice.computeOpHash64(op.opId, op.hlc),
+      lattice.hlcStringToPacked64(op.hlc)
+    );
 
     const p = op.payload;
     if (op.entity === 'gotcha') {
@@ -1085,7 +1195,9 @@ module.exports = {
   hydrateMlsGroup,
   hydrateMessage,
   appendCrdtOpInDb,
+  compactProjectCrdtLogInDb,
   backfillProjectCrdtLogInDb,
   reconcileCommsGroupInDb,
   applyCrdtOpsInDb,
+  lattice,
 };

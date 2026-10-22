@@ -10,24 +10,24 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { SEATS, SEAT_ORDER, buildDeepVoice } = require('./shared');
+const { SEATS, SEAT_ORDER, buildDeepVoice } = require('./shared.ts');
 
 const BUILTIN_PACK_FILES = Object.freeze({
-  sprawl: path.join(__dirname, 'sprawl.js'),
-  nightcity: path.join(__dirname, 'nightcity.js'),
-  anathem: path.join(__dirname, 'anathem.js'),
-  cryptonomicon: path.join(__dirname, 'cryptonomicon.js'),
-  shadowrun: path.join(__dirname, 'shadowrun.js'),
-  dresden: path.join(__dirname, 'dresden.js'),
-  amber: path.join(__dirname, 'amber.js'),
-  laundry: path.join(__dirname, 'laundry.js'),
-  tolkien: path.join(__dirname, 'tolkien.js'),
-  discworld: path.join(__dirname, 'discworld.js'),
-  reamde: path.join(__dirname, 'reamde.js'),
-  irondruid: path.join(__dirname, 'irondruid.js'),
-  prydain: path.join(__dirname, 'prydain.js'),
-  clockwork: path.join(__dirname, 'clockwork.js'),
-  generic: path.join(__dirname, 'generic.js'),
+  sprawl: path.join(__dirname, 'sprawl.ts'),
+  nightcity: path.join(__dirname, 'nightcity.ts'),
+  anathem: path.join(__dirname, 'anathem.ts'),
+  cryptonomicon: path.join(__dirname, 'cryptonomicon.ts'),
+  shadowrun: path.join(__dirname, 'shadowrun.ts'),
+  dresden: path.join(__dirname, 'dresden.ts'),
+  amber: path.join(__dirname, 'amber.ts'),
+  laundry: path.join(__dirname, 'laundry.ts'),
+  tolkien: path.join(__dirname, 'tolkien.ts'),
+  discworld: path.join(__dirname, 'discworld.ts'),
+  reamde: path.join(__dirname, 'reamde.ts'),
+  irondruid: path.join(__dirname, 'irondruid.ts'),
+  prydain: path.join(__dirname, 'prydain.ts'),
+  clockwork: path.join(__dirname, 'clockwork.ts'),
+  generic: path.join(__dirname, 'generic.ts'),
 });
 
 const PACK_METADATA = Object.freeze({

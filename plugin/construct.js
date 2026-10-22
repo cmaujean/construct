@@ -19,7 +19,7 @@ import { execFile, execFileSync } from "node:child_process"
 const requireCjs = createRequire(import.meta.url)
 const STAMPED_BIN = "__CONSTRUCT_BIN_PATH__"
 const PLUGIN_DIR = path.dirname(fileURLToPath(import.meta.url))
-const RELATIVE_BIN = path.resolve(PLUGIN_DIR, "..", "bin", "construct.js")
+const RELATIVE_BIN = path.resolve(PLUGIN_DIR, "..", "bin", "construct.ts")
 
 let cachedMcpEngine = null
 
@@ -54,7 +54,7 @@ function loadSharedSrcModule(fileName, { bustCache = false } = {}) {
 
 function loadSharedMcpEngine({ bustCache = false } = {}) {
   if (cachedMcpEngine && !bustCache) return cachedMcpEngine
-  const mod = loadSharedSrcModule("mcp.js", { bustCache })
+  const mod = loadSharedSrcModule("mcp.ts", { bustCache }) || loadSharedSrcModule("mcp.js", { bustCache })
   if (mod) {
     cachedMcpEngine = mod
     return cachedMcpEngine
@@ -672,7 +672,7 @@ export default {
 
     try {
       hudServer = http.createServer((req, res) => {
-        const pocketMod = loadSharedSrcModule("pocket.js")
+        const pocketMod = loadSharedSrcModule("pocket.ts") || loadSharedSrcModule("pocket.js")
         const origin = req.headers.origin
         if (!pocketMod?.isAllowedLocalOrigin(origin)) {
           res.writeHead(403, { "Content-Type": "application/json" })
@@ -724,7 +724,7 @@ export default {
               const parsedUrl = new URL(req.url, "http://127.0.0.1:47420")
               const qSid = parsedUrl.searchParams.get("sessionId") || lastActiveSessionId || ""
               const pocketMod = loadSharedSrcModule("pocket.js")
-              const storeMod = loadSharedSrcModule("store.js")
+              const storeMod = loadSharedSrcModule("store.ts") || loadSharedSrcModule("store.js")
               const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: qSid, dir: lastActiveDir })
               res.writeHead(200, { "Content-Type": "application/json" })
               res.end(JSON.stringify({ ok: true, snapshot: snap }))

@@ -25,14 +25,26 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const romMod = require('./rom');
-const protocol = require('./protocol');
-const crdt = require('./crdt');
-const relay = require('./relay');
-const assimilateMod = require('./assimilate');
-const siteMod = require('./site');
+const romMod = require('./rom.ts');
+const protocol = require('./protocol.ts');
+const crdt = require('./crdt.ts');
+const relay = require('./relay.ts');
+const assimilateMod = require('./assimilate.ts');
+const siteMod = require('./site.ts');
+import type {
+  AddGotchaRequest,
+  EditFrameRequest,
+  FrameKind,
+  FrameRecord,
+  HeadRecord,
+  RecordFrameRequest,
+  ResolveFramesOptions,
+  SendMessageRequest,
+  SetHeadRequest,
+  SetUserRequest,
+} from './types.ts';
 
-const KINDS = Object.freeze([
+const KINDS: readonly FrameKind[] = Object.freeze([
   'intent',
   'probe',
   'finding',
@@ -46,11 +58,11 @@ const KINDS = Object.freeze([
 
 const DEFAULT_DB = path.join(os.homedir(), '.config', 'opencode', 'construct.db');
 
-function dbPath() {
+function dbPath(): string {
   return process.env.CONSTRUCT_DB || DEFAULT_DB;
 }
 
-function expandHome(p) {
+function expandHome(p: string): string {
   if (!p || typeof p !== 'string') return '';
   const trimmed = p.trim();
   if (trimmed === '~') return os.homedir();
@@ -60,19 +72,19 @@ function expandHome(p) {
   return trimmed;
 }
 
-function normalizeFsPath(p) {
+function normalizeFsPath(p: string): string {
   if (!p) return '';
   const abs = path.resolve(expandHome(String(p)));
   const norm = abs.replace(/\\/g, '/').replace(/\/+$/, '');
   return process.platform === 'win32' ? norm.toLowerCase() : norm;
 }
 
-function isCommsChannel(proj) {
+function isCommsChannel(proj: string): boolean {
   const s = String(proj || '').trim().toLowerCase();
   return s === 'comms' || s === '@comms' || s.startsWith('@comms/') || s.startsWith('comms/');
 }
 
-function normalizeProject(project, wsRoot = '') {
+function normalizeProject(project: string, wsRoot = ''): string {
   if (typeof project !== 'string' || !project.trim()) {
     throw new Error('project key is required (e.g. "acme/alpha_app" or "board")');
   }
@@ -251,22 +263,22 @@ function initSchema(db) {
   crdt.initCrdtAndCommsSchema(db);
 }
 
-function hydrateFrame(row) {
+function hydrateFrame(row: Record<string, unknown> | null | undefined): FrameRecord | null {
   if (!row) return null;
-  let refs = [];
+  let refs: string[] = [];
   try {
-    refs = JSON.parse(row.refs || '[]');
+    refs = JSON.parse(String(row.refs || '[]'));
   } catch (_) {
     refs = [];
   }
   return {
     seq: Number(row.seq),
-    ts: row.ts,
-    project: row.project,
-    kind: row.kind,
-    summary: row.summary,
-    detail: row.detail || '',
-    verified: row.verified || '',
+    ts: String(row.ts),
+    project: String(row.project),
+    kind: String(row.kind) as FrameKind,
+    summary: String(row.summary),
+    detail: String(row.detail || ''),
+    verified: String(row.verified || ''),
     parentSeq: row.parent_seq === null || row.parent_seq === undefined ? null : Number(row.parent_seq),
     open: Boolean(row.open),
     resolvedBy: row.resolved_by === null || row.resolved_by === undefined ? null : Number(row.resolved_by),
@@ -677,7 +689,7 @@ function syncRom(file = dbPath()) {
   }, file);
 }
 
-function recordFrame(fields, file = dbPath()) {
+function recordFrame(fields: RecordFrameRequest, file: string = dbPath()) {
   const project = normalizeProject(fields.project);
   const kind = validateKind(fields.kind);
   const summary = typeof fields.summary === 'string' ? fields.summary.trim() : '';
@@ -920,7 +932,7 @@ function reopenFrame(seq, file = dbPath()) {
   );
 }
 
-function setHead(projectInput, fields, file = dbPath()) {
+function setHead(projectInput: string, fields: SetHeadRequest, file: string = dbPath()): HeadRecord | null {
   const project = normalizeProject(projectInput);
   const ts = fields.ts ? String(fields.ts).trim() : nowIso();
 
@@ -942,6 +954,19 @@ function setHead(projectInput, fields, file = dbPath()) {
            next = excluded.next,
            updated = excluded.updated`
         ).run(project, repo, state, next, ts);
+
+        crdt.appendCrdtOpInDb(db, {
+          project,
+          entity: 'head',
+          recordUid: project,
+          payload: {
+            project,
+            repo,
+            state,
+            next,
+            updated: ts,
+          },
+        });
 
         return getHeadInDb(db, project);
       }),
@@ -1212,7 +1237,7 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
           if (grp.project === project) autoSyncTriggered = true;
           if (!options.dryRunAutoSync) {
             try {
-              const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+              const binScript = path.resolve(__dirname, '..', 'bin', 'construct.ts');
               const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
               const child = spawn(nodeCmd, [binScript, 'sync', grp.project], {
                 detached: true,
@@ -1248,7 +1273,7 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
         ghIssuesSyncTriggered = true;
         if (!options.dryRunAutoSync) {
           try {
-            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.ts');
             const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
             const child = spawn(nodeCmd, [binScript, 'issues', 'sync', project], {
               detached: true,
@@ -1277,7 +1302,7 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
         upstreamCheckTriggered = true;
         if (!options.dryRunAutoSync) {
           try {
-            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+            const binScript = path.resolve(__dirname, '..', 'bin', 'construct.ts');
             const child = spawn(process.execPath, [binScript, 'upgrade', '--check'], {
               detached: true,
               stdio: 'ignore',
@@ -1634,81 +1659,6 @@ function useRom(name, options = {}, file = dbPath()) {
   );
 }
 
-function enqueuePendingSubagentRom(sessionId, romName, file = dbPath()) {
-  const sid = String(sessionId || 'claude').trim();
-  const target = String(romName || '').trim().toLowerCase();
-  if (!sid || !target) return null;
-  const key = `pending_subagent:${sid}`;
-  return withDb(
-    (db) =>
-      tx(db, () => {
-        const row = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(key);
-        let queue = [];
-        if (row && row.rom_name) {
-          try {
-            const parsed = JSON.parse(row.rom_name);
-            if (Array.isArray(parsed)) queue = parsed;
-          } catch (_) {
-            queue = [row.rom_name];
-          }
-        }
-        queue.push(target);
-        db.prepare(
-          `INSERT INTO session_roms (session_id, rom_name, updated)
-           VALUES (?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET
-             rom_name = excluded.rom_name,
-             updated = excluded.updated`
-        ).run(key, JSON.stringify(queue), nowIso());
-        return queue;
-      }),
-    file
-  );
-}
-
-function consumePendingSubagentRom(sessionId, preferredAgentType = '', file = dbPath()) {
-  const sid = String(sessionId || 'claude').trim();
-  const pref = String(preferredAgentType || '').trim().toLowerCase();
-  const key = `pending_subagent:${sid}`;
-  return withDb(
-    (db) =>
-      tx(db, () => {
-        const row = db.prepare('SELECT rom_name FROM session_roms WHERE session_id = ?').get(key);
-        let queue = [];
-        if (row && row.rom_name) {
-          try {
-            const parsed = JSON.parse(row.rom_name);
-            if (Array.isArray(parsed)) queue = parsed;
-          } catch (_) {
-            queue = [row.rom_name];
-          }
-        }
-        if (!queue.length) return null;
-
-        // If `preferredAgentType` matches an item in the queue, remove that specific item; otherwise FIFO shift
-        let chosen = null;
-        if (pref && queue.includes(pref)) {
-          const idx = queue.indexOf(pref);
-          chosen = queue.splice(idx, 1)[0];
-        } else {
-          chosen = queue.shift();
-        }
-
-        if (queue.length) {
-          db.prepare('UPDATE session_roms SET rom_name = ?, updated = ? WHERE session_id = ?').run(
-            JSON.stringify(queue),
-            nowIso(),
-            key
-          );
-        } else {
-          db.prepare('DELETE FROM session_roms WHERE session_id = ?').run(key);
-        }
-        return chosen;
-      }),
-    file
-  );
-}
-
 function tuneRom(dialUpdates, options = {}, file = dbPath()) {
   if (!dialUpdates || typeof dialUpdates !== 'object' || !Object.keys(dialUpdates).length) {
     throw new Error(`give at least one dial=0..1 to tune (${romMod.DIAL_KEYS.join(', ')})`);
@@ -1881,7 +1831,7 @@ function getUser(id, file = dbPath()) {
   }, file);
 }
 
-function setUser(idInput, fields = {}, file = dbPath()) {
+function setUser(idInput: string, fields: SetUserRequest = {}, file: string = dbPath()) {
   const id = String(idInput || '').trim().toLowerCase();
   if (!id || !/^[a-z0-9_-]+$/.test(id)) {
     throw new Error('user id must be alphanumeric/hyphen/underscore, e.g. "alice" or "bob"');
@@ -1972,7 +1922,7 @@ function listGotchas(scope = 'global', file = dbPath()) {
   return withDb((db) => protocol.listGotchasInDb(db, normScope), file);
 }
 
-function addGotcha(fields = {}, file = dbPath()) {
+function addGotcha(fields: AddGotchaRequest = { title: '' }, file: string = dbPath()) {
   const title = typeof fields.title === 'string' ? fields.title.trim() : '';
   if (!title) throw new Error('gotcha title is required');
   const rawScope = fields.scope || fields.project;
@@ -2193,7 +2143,7 @@ function buildCourierProfileInDb(db, romNameInput = '', senderUser = '', roleLab
   };
 }
 
-function sendMessage(fields = {}, file = dbPath()) {
+function sendMessage(fields: SendMessageRequest = { body: '' }, file: string = dbPath()) {
   const toUser = String(fields.to || fields.toUser || '').trim().toLowerCase();
   const body = String(fields.body || '').trim();
   if (!toUser) throw new Error('recipient user id (--to <user>) is required, e.g. --to bob');
@@ -3208,7 +3158,31 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
   const { routeTag } = crdt.deriveEpochKeys(group.epochSecret, group.groupId, group.epoch);
   const fetchTimeoutMs = options.timeoutMs || 2500;
 
-  // 1. Pull and merge remote MLS envelopes from relays (including any preserved `@comms/peer/*` routeTags)
+  // 1. Pre-export local CRDT envelopes so their 64-bit blindHash64 fingerprints can ride in the
+  //    1-RTT Rateless IBLT sketch (`IBLT_SYNC`) when contacting relays.
+  const preExported = exportEncryptedPacket(
+    project,
+    {
+      relays,
+      sinceHlc: options.full ? '' : group.lastSyncHlc || '',
+      onlyLocal: true,
+      includeMessages: !isCommsChannel(project),
+      freshCommsBackfill: isCommsChannel(project) && !group.lastSyncHlc,
+      forceCommsRequeue: isCommsChannel(project) && !group.lastSyncHlc,
+    },
+    file
+  );
+  const preEnvs =
+    preExported.opCount > 0 && Array.isArray(preExported.envelopes) && preExported.envelopes.length
+      ? preExported.envelopes.map((c) => c.envelope)
+      : preExported.opCount > 0
+        ? [preExported.envelope]
+        : [];
+  const localHashes64 = preEnvs
+    .map((e) => (e && e.blindHash64 ? BigInt('0x' + e.blindHash64) : 0n))
+    .filter((h) => h !== 0n);
+
+  // Pull and merge remote MLS envelopes from relays via 1-RTT IBLT reconciliation
   const routeTagsToFetch = [routeTag];
   for (const pg of peerCommsGroups) {
     try {
@@ -3218,7 +3192,9 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
   }
 
   const fetchedBatches = await Promise.all(
-    routeTagsToFetch.map((tag) => relay.fetchEnvelopesFromRelays(relays, tag, fetchTimeoutMs))
+    routeTagsToFetch.map((tag, idx) =>
+      relay.fetchEnvelopesFromRelays(relays, tag, fetchTimeoutMs, idx === 0 ? localHashes64 : [])
+    )
   );
   const allEnvelopes = [];
   for (const b of fetchedBatches) {
@@ -3296,6 +3272,8 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
           nowIso(),
           project
         );
+        // Automatically compact superseded LWW ops in crdt_log while preserving the 64-bit Merkle frontier
+        crdt.compactProjectCrdtLogInDb(db, project);
       }, file);
     }
   }
@@ -3324,6 +3302,15 @@ async function syncProject(projectInput, options = {}, file = dbPath()) {
     pushedOps: exported.opCount,
     relaysAcked: pushedOk,
   };
+}
+
+function compactProjectCrdtLog(projectInput, file = dbPath()) {
+  const project = normalizeProject(projectInput);
+  return withDb((db) => tx(db, () => crdt.compactProjectCrdtLogInDb(db, project)), file);
+}
+
+function benchLattice(options = {}) {
+  return crdt.lattice.runLatticeBenchmark(options, { crdt, romMod });
 }
 
 function recordAssimilatedFiles(projectInput, files = [], file = dbPath()) {
@@ -3371,9 +3358,9 @@ function assimilateLdk(targetDir, options = {}, file = dbPath()) {
 //   4. Installs `~/.config/opencode/plugins/construct.js`
 //   5. Ensures `~/.config/opencode/active-rom.md` is in `~/.config/opencode/opencode.jsonc` instructions
 //   6. Compiles `active-rom.md` (with New Operator Onboarding active if no user agreement exists yet)
-const { createInstallerModule } = require('./installer');
-const { createGithubModule } = require('./github');
-const { createHudModule } = require('./hud');
+const { createInstallerModule } = require('./installer.ts');
+const { createGithubModule } = require('./github.ts');
+const { createHudModule } = require('./hud.ts');
 
 const installerMod = createInstallerModule({
   dbPath,
@@ -3388,7 +3375,6 @@ const installerMod = createInstallerModule({
   romMod,
 });
 const {
-  writeClaudeSubagentsInDb,
   installPluginFile,
   initConstruct,
   getCachedConstructUpstreamInDb,
@@ -3502,8 +3488,6 @@ module.exports = {
   getRom,
   useRom,
   subRom,
-  enqueuePendingSubagentRom,
-  consumePendingSubagentRom,
   setDefaultRom,
   tuneRom,
   setRom,
@@ -3537,6 +3521,7 @@ module.exports = {
   openGithubPr,
   reviewGithubPr,
   mergeGithubPr,
+  setHudUiPrefs,
   getHudSnapshot,
   setLastCliOutput,
   clearLastCliOutput,
@@ -3544,16 +3529,6 @@ module.exports = {
   startStandaloneHudServer,
   checkConstructUpstream,
   upgradeConstruct,
-  ackMessage,
-  listMessages,
-  dropPatch,
-  applyDrop,
-  whyTarget,
-  setHudUiPrefs,
-  getHudSnapshot,
-  generateDashboardHtml,
-  syncGithubIssues,
-  publishThreadToGithub,
   getIdentity,
   createInvite,
   joinInvite,
@@ -3561,6 +3536,9 @@ module.exports = {
   exportEncryptedPacket,
   importEncryptedPacket,
   syncProject,
+  compactProjectCrdtLog,
+  benchLattice,
+  lattice: crdt.lattice,
   assimilateLdk,
   installPluginFile,
   initConstruct,

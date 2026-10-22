@@ -14,12 +14,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const store = require('./store');
-const packs = require('./packs');
-const romMod = require('./rom');
-const protocol = require('./protocol');
+const store = require('./store.ts');
+const packs = require('./packs/index.ts');
+const romMod = require('./rom.ts');
+const protocol = require('./protocol.ts');
 
-const CONSTRUCT_BIN = path.join(__dirname, '..', 'bin', 'construct.js');
+const CONSTRUCT_BIN = path.join(__dirname, '..', 'bin', 'construct.ts');
 
 function resolveNodeExecutable(execPath = process.execPath) {
   return /node(?:\.exe)?$/i.test(String(execPath || '')) ? execPath : 'node';
@@ -1895,7 +1895,6 @@ module.exports = {
   MCP_RESOURCES,
   executeMcpTool,
   handleJsonRpcRequest,
-  startMcpStdioServer,
   validateShellCommand,
   buildFrontierVoiceLock,
   isValidRomTarget,
@@ -1908,9 +1907,4 @@ module.exports = {
   executeConstructSlashCommand,
   handleOpenCodeSlashCommand,
   resolveNodeExecutable,
-  runClaudeHook,
-  runCursorHook,
-  runGeminiHook,
-  runOmpHook,
-  buildOmpExtensionSource,
 };

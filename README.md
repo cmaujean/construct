@@ -412,33 +412,31 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 
 ---
 
-## 11. How It Works Under the Hood
+## 11. How It Works Under the Hood (TypeScript + `causal-lattice` World-Track III Library)
 
-| Component | Implementation | Latency / Footprint |
+`construct-evolved` is written in TypeScript (`src/*.ts`, `bin/construct.ts`, `test/construct.test.ts`) with typed request/options contracts (`src/types.ts`) and consumes [`causal-lattice`](../causal-lattice) (World-Track II & III Evolved) directly as an external library via `src/lattice.ts`:
+
+| Component | Implementation (`causal-lattice` Library) | Latency / Footprint |
 |---|---|---|
-| **Storage Engine** | Node.js built-in `node:sqlite` (`DatabaseSync` in `WAL` mode + `FTS5` BM25 virtual tables & triggers) | `0.12 ms` raw query, `5.3 ms` in-process `bootProject`, `0 MB` resident between turns |
-| **Modular Crew Packs** | 15 lazy-loaded `src/packs/<bank>.js` banks (`179` ROMs) + user drop-in packs (`~/.config/opencode/packs/*.js`) | `0` inactive pack files parsed into memory on normal turns |
-| **Unified Tool & MCP Core** | `src/mcp.js` (`CONSTRUCT_TOOL_SPECS`, `executeMcpTool`, `initialize.result.instructions`, MCP `prompts` & `resources`) shared by OpenCode, Claude Code, Cursor, Windsurf, Oh My Pi, Cline, Zed, and Goose | `2.4 ms` in-process tool execution (`0.013 ms` `tools/list`); zero schema duplication |
-| **OpenCode Integration** | OpenCode V2 plugin (`~/.config/opencode/plugins/construct.js`) with `prompt` pre-slotting (`<4 ms`), `context` injection, `<construct-voice-lock>`, per-project HUD server (`127.0.0.1:47420`), and `shell` guard (`0.083 ms`) | Zero round-trip ROM/Crew switching; tab- and project-scoped HUD |
-| **Claude Code Integration** | `construct init --claude` (`construct mcp` JSON-RPC 2.0 server, 178 `~/.claude/agents/*.md` subagents with per-seat `haiku`/`sonnet` model routing, `SessionStart`/`UserPromptSubmit`/`SubagentStart`/`PreToolUse` hooks) | Full subagent lifecycle parity (`[ROM: <name>]` & `@<specialist>`) + `<construct-voice-lock>` |
-| **Cursor, Gemini CLI, Windsurf, Codex & Oh My Pi** | `construct init [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all]` (`runCursorHook`, `runGeminiHook`, `runOmpHook` with `before_subagent_spawn` `@smol`/`@slow`/`@default` seat routing, `.mdc`/`GEMINI.md`/`global_rules.md`/`AGENTS.md`, `extensions/construct.js`, and `mcpServers.construct`) | Zero-roundtrip Turn-1 Crew pre-slotting, `<construct-live-memory>` + `<construct-voice-lock>`, `[ROM: <name>]` subagents, and `0`-token shell guards |
-| **Identity & Auth** | Self-certifying W3C `did:key:z6Mk...` (`Ed25519` signing + `X25519` ECDH via native OpenSSL `node:crypto`) | Stored in `~/.config/opencode/identity.json` (`0600`) |
-| **Group Encryption** | Stateless Epoch-Keyed AEAD (`HKDF-SHA256` + `ChaCha20-Poly1305` AEAD + pinned `Ed25519` member keys + authenticated inner `AAD`, 256-bit invite seed) | Out-of-order multi-relay CRDT decryptability without a central Delivery Service; relay sees only ciphertext + blinded HKDF `routeTag` |
-| **Conflict-Free Merge & Collision Radar** | Hybrid Logical Clock (`<13d-ms>-<4h-counter>-<did-tail>`, 5m drift ceiling) driving a G-Set (`frames`, `gotchas`, `message_tombstone`) + LWW-Element-Map (`heads`, `messages`) + active `[intent]` ref collision radar | Commutative, associative, idempotent (`merge(A, B) === merge(B, A)`) + pre-edit collision warnings |
-| **Relay Transport** | Built-in `WebSocket` speaking NIP-01 ephemeral events (`<= 16 KB` chunked batch publisher) signed with cached pure-BigInt BIP-340 `secp256k1` Schnorr keys (`4 MB` frame cap) | Works over any public relay (`wss://nos.lol`, `wss://relay.damus.io`) or self-hosted `construct relay` |
+| **World-Track III Evolved Branchless ROM Arena** | `EvolvedConstructArena` + `evolvePerfectLookupCircuit` (`causal-lattice`) evolves a zero-collision (`collisions = 0`) 4-step immediate-literal CPU circuit over all 179 ROMs | **`~93 ns/op`** branchless 64B register read (**`46.5x faster`** than SQLite `SELECT` + `JSON.parse`) |
+| **World-Track III Evolved Cross-Field Predictor** | `evolveCrossFieldGenome` + `EvolvedCrossFieldCodec` (`causal-lattice`) evolves 16-term fixed-point integer coupling weights and residual rANS tables | **`61 B`** for 100 6-field states (**`4.88 bits/state`**: **`14.64x smaller`** than static World-Track II, **`135.3x smaller`** than JSON, 100% lossless) |
+| **Schema-Compiled rANS + String-Slab CRDT Codec** | `encodeLatticeCrdtBatch` / `decodeLatticeCrdtBatch` (`causal-lattice`) | **`21.88x smaller`** wire batches than legacy UTF-8 JSON (`1,203 B` vs `26,321 B` on 40 CRDT ops); **`13.56x smaller`** sealed MLS envelopes |
+| **Chaskey-12 Attenuated Capabilities** | `mintProjectCapability`, `attenuateProjectCapability`, `verifyProjectCapability` (`causal-lattice`, ISO/IEC 29192-6 128-bit ARX MAC) | **`~4.7 us`** verification (**`~34.6x faster`** than Ed25519 signature verification, zero DB lookups) |
+| **1-RTT Rateless IBLT Relay Sync** | `CompactRibltSketch` (`causal-lattice`) speaking `IBLT_SYNC` over WebSocket relays (`src/relay.ts`) | **`1,399x less wire traffic`** than full `REQ` envelope fetches when reconciling 1 new envelope across 50 shared envelopes (`1,292 B` vs `1.8 MB`) |
+| **Storage Engine & Compaction** | Node.js `node:sqlite` (`WAL` + `FTS5` BM25) + frontier-preserving `compactProjectCrdtLog` (`src/crdt.ts`) | Prunes superseded LWW operations while preserving the exact 64-bit Merkle-XOR frontier |
+| **OpenCode V2 Integration** | `~/.config/opencode/plugins/construct.js` + `tui.tsx` + `src/mcp.ts` | Zero round-trip ROM/Crew switching, `<construct-voice-lock>`, and `0`-token shell guards |
 
 ---
 
 ## 12. CLI Reference (Optional)
 
-Everything above works conversationally inside OpenCode (`tools.construct.*`), Claude Code (`mcp__construct__*`), and any MCP coding agent (`construct mcp`). When you want to inspect or script Construct from a terminal:
+Everything above works conversationally inside OpenCode (`tools.construct.*`). When you want to inspect or script Construct from a terminal:
 
 ```sh
-# One-command setup (OpenCode + optional Claude Code, Cursor, Gemini CLI, Windsurf, Codex, Oh My Pi, or --all), self-update & assimilation
-construct init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all]
+# One-command OpenCode setup, self-update & assimilation
+construct init [--rom <name>] [--dir <config_dir>]
 construct upgrade [--check]
 construct assimilate [<dir>] [--project <proj>] [--remove-files]
-construct mcp
 
 # Project boot, sequential tape, causal zoom, FTS5 search, GitHub Issues & PRs
 construct projects
@@ -478,11 +476,13 @@ construct gotcha add "<title>" [--project <proj>] [--status observed|from_source
 construct gotcha search "<query>" [--project <proj> | --all]
 construct gotcha rm <id>
 
-# W3C did:key + Epoch-Keyed AEAD (HKDF-SHA256 + ChaCha20-Poly1305 + Ed25519) + HLC-CRDT sync, Encrypted Patch Drops & Person-to-Person Courier Comms
+# Causal-Lattice-Evolved Sync, Compaction, Benchmark & Courier Comms
 construct did
 construct invite [comms | <project>] [--relays wss://...] [--git-url ..] [--branch ..] [--setup "cmd1,cmd2"]
 construct join "<construct://invite/...#...>" [--dir <target_dir>]
 construct sync <project|comms> [--relays wss://...]
+construct compact <project>
+construct bench-lattice [-n 40] [--json]
 construct site [--out <docs_dir>]
 construct relay [--port 8787]
 construct msg --to <user> [--via <messenger>] "<in-character message>"

@@ -954,7 +954,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
 
   <script>
     const HUD_SCHEMA_VERSION = 7;
-    const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket').loadOrCreateHudToken())};
+    const HUD_CSRF_TOKEN = ${JSON.stringify(require('./pocket.ts').loadOrCreateHudToken())};
     const selectedSessionId = ${JSON.stringify(hud.sessionId || '')};
     const selectedProject = ${JSON.stringify(hud.project || '')};
     const SEAT_GLYPHS = ['🔵', '🟠', '🟣', '🔴', '🟢', '⚡', '🛡️', '🎨', '📓'];
@@ -1630,7 +1630,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
   // Ensure the local loopback HUD server (`127.0.0.1:47420`) is running even if an OpenCode Location plugin unloaded
   if (!process.env.CONSTRUCT_DB && !options.noServerSpawn) {
     try {
-      const binScript = path.resolve(__dirname, '..', 'bin', 'construct.js');
+      const binScript = path.resolve(__dirname, '..', 'bin', 'construct.ts');
       const nodeCmd = /node(?:\.exe)?$/i.test(process.execPath) ? process.execPath : 'node';
       const child = spawn(nodeCmd, [binScript, 'hud-server'], {
         detached: true,
@@ -1649,7 +1649,7 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
   return new Promise((resolve) => {
     const bindServer = () => {
     const server = http.createServer((req, res) => {
-      const pocketMod = require('./pocket');
+      const pocketMod = require('./pocket.ts');
       const origin = req.headers.origin;
       if (!pocketMod.isAllowedLocalOrigin(origin)) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -1697,8 +1697,8 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
           try {
             const parsedUrl = new URL(req.url, `http://127.0.0.1:${port}`);
             const qSid = parsedUrl.searchParams.get('sessionId') || '';
-            const pocketMod = require('./pocket');
-            const storeMod = require('./store');
+            const pocketMod = require('./pocket.ts');
+            const storeMod = require('./store.ts');
             const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: qSid });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ ok: true, snapshot: snap }));
@@ -1717,9 +1717,9 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
         req.on('end', async () => {
           try {
             const cmdPayload = JSON.parse(body || '{}');
-            const pocketMod = require('./pocket');
-            const storeMod = require('./store');
-            const mcpMod = require('./mcp');
+            const pocketMod = require('./pocket.ts');
+            const storeMod = require('./store.ts');
+            const mcpMod = require('./mcp.ts');
             const bState = { activeSessionId: cmdPayload.sessionId || '', activeDir: process.cwd() };
             await pocketMod.executePocketCommand(storeMod, mcpMod, cmdPayload, bState);
             const snap = await pocketMod.collectPocketSnapshot(storeMod, { sessionId: bState.activeSessionId });
@@ -1848,9 +1848,9 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
               return;
             }
             if (rawAction === 'pocket-qr') {
-              const pocketMod = require('./pocket');
-              const storeMod = require('./store');
-              const mcpMod = require('./mcp');
+              const pocketMod = require('./pocket.ts');
+              const storeMod = require('./store.ts');
+              const mcpMod = require('./mcp.ts');
               const cfg = pocketMod.loadOrCreatePocketConfig({ rotate: Boolean(payload.rotate) });
               const url = pocketMod.buildPocketPairingUrl(cfg);
               const localUrl = pocketMod.buildPocketPairingUrl(cfg, { baseUrl: `http://127.0.0.1:${port}/docs/pocket.html` });
@@ -1883,7 +1883,7 @@ function startStandaloneHudServer(port = 47420, file = dbPath(), options = {}) {
             }
 
             if (rawAction === 'cli' && payload.args) {
-              const mcpMod = require('./mcp');
+              const mcpMod = require('./mcp.ts');
               const cliRes = mcpMod.executeConstructSlashCommand(String(payload.args), {
                 sessionId: sid,
                 cwd: dir,

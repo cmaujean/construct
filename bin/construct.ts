@@ -6,16 +6,16 @@
 
 const { parseArgs } = require('node:util');
 const fs = require('node:fs');
-const store = require('../src/store');
-const mcp = require('../src/mcp');
+const store = require('../src/store.ts');
+const mcp = require('../src/mcp.ts');
 
-const USAGE = `CONSTRUCT — Sequential Memory Tape, 15 Crew Banks (179 ROMs) & Encrypted CRDT Sync
+const USAGE = `CONSTRUCT-LATTICE: Sequential Memory Tape, 15 Crew Banks (179 ROMs) & Causal Lattice Sync
 usage: construct <command> [args] [options]    (In-session: /construct <command> [args])
        construct help <command>                (Detailed flags & examples: /construct help <command>)
 
 SETUP, SELF-UPDATE & ASSIMILATION
-  init [--all | --omp | --claude ...]      Initialize DID identity, DB, 179 ROMs & agent integrations
-  upgrade [--check]                        Pull origin/main, reseed ROMs & refresh all agent plugins
+  init [--rom <name>] [--dir <cfg_dir>]    Initialize DID identity, DB, 179 ROMs & OpenCode V2 plugin
+  upgrade [--check]                        Pull origin/main, reseed ROMs & refresh OpenCode plugin
   reload                                   Re-stamp configs & hot-reload plugin engine in memory (/construct)
   assimilate [<dir>] [--project <proj>]    Import AGENTS.md, CLAUDE.md, GEMINI.md & .cursorrules into DB
 
@@ -51,9 +51,11 @@ PERSON-TO-PERSON COURIER COMMS & ENCRYPTED CRDT SYNC
   apply-drop <msg_id> [--apply]            Write or git-apply an incoming encrypted patch drop
   invite [comms | <project>]               Generate a signed 256-bit AEAD out-of-band invitation URI
   join "<construct://invite/...>"          Verify and join a project or @comms invite (auto-clones repo)
-  sync [<project> | comms]                 Live pull + decrypt + HLC-CRDT merge + push over WebSocket relays
+  sync [<project> | comms]                 Live 1-RTT IBLT set reconciliation + rANS CRDT merge over relays
+  compact <project>                        Compact superseded LWW CRDT ops while preserving Merkle frontier
+  bench-lattice [--ops 40]                 Run empirical benchmark (Legacy JSON/REQ vs Causal Lattice)
   did  |  hud  |  dashboard  |  site       Show did:key, status pill, HTML HUD, or generate 17-page Docs Hub
-  mcp  |  relay [--port 8787]              Run stdio JSON-RPC 2.0 MCP server or zero-knowledge WS relay
+  relay [--port 8787]                      Run zero-knowledge WebSocket relay with 1-RTT IBLT sync support
 
 Run "construct help <command>" or "construct <command> --help" (in-session: "/construct help <command>")
 for detailed options and examples on any subcommand.`;
@@ -81,37 +83,30 @@ const COMMAND_HELP_ALIASES = Object.freeze({
   identity: 'did',
   'docs-site': 'site',
   'hot-reload': 'reload',
+  bench: 'bench-lattice',
 });
 
 const COMMAND_HELP = Object.freeze({
   init: `NAME
-  construct init - Initialize Construct identity, database, ROMs, and coding-agent integrations
+  construct init - Initialize Construct identity, database, 179 ROMs, and OpenCode V2 plugin
 
 SYNOPSIS
-  construct init [--rom <name>] [--claude] [--cursor] [--gemini] [--windsurf] [--codex] [--omp] [--all] [--dir <config_dir>] [--json]
-  /construct init [--all]
+  construct init [--rom <name>] [--dir <config_dir>] [--json]
+  /construct init
 
 DESCRIPTION
   Generates local W3C did:key identity, seeds all 15 Crew Banks (179 ROMs) in construct.db,
   assimilates any existing global instruction files, installs the OpenCode V2 plugin, and
-  compiles active-rom.md. Optional flags wire additional coding agents against the same DB.
+  compiles active-rom.md.
 
 OPTIONS
   --rom <name>        Set initial active ROM or Crew Bank (default: crew)
-  --claude            Wire Claude Code (~/.claude/CLAUDE.md, settings.json hooks/MCP, 178 subagents)
-  --cursor            Wire Cursor (~/.cursor/mcp.json, hooks.json, rules/construct.mdc)
-  --gemini            Wire Gemini CLI (~/.gemini/GEMINI.md, settings.json hooks/MCP)
-  --windsurf          Wire Windsurf (~/.codeium/windsurf/mcp_config.json, memories/global_rules.md)
-  --codex             Wire Codex CLI (~/.codex/AGENTS.md, config.toml)
-  --omp, --oh-my-pi   Wire Oh My Pi (~/.omp/agent/AGENTS.md, mcp.json, extensions/construct.js)
-  --all               Configure all supported coding agents in one pass
   --dir <path>        Override OpenCode config directory (default: ~/.config/opencode)
   --json              Emit machine-readable JSON result
 
 EXAMPLES
-  construct init --all
-  construct init --omp --claude
-  /construct init --all`,
+  construct init
+  /construct init`,
 
   upgrade: `NAME
   construct upgrade - Check for or pull upstream Construct updates and refresh all agent integrations
@@ -654,11 +649,17 @@ SYNOPSIS
   construct packet export <project> [--since <hlc>]
   construct packet import <packet_token>`,
 
-  mcp: `NAME
-  construct mcp - Run Construct as a stdio JSON-RPC 2.0 MCP server
+  compact: `NAME
+  construct compact - Compact superseded LWW CRDT operations while preserving the 64-bit Merkle frontier
 
 SYNOPSIS
-  construct mcp`,
+  construct compact <project> [--json]`,
+
+  'bench-lattice': `NAME
+  construct bench-lattice (alias: bench) - Run empirical head-to-head benchmark (Legacy JSON/REQ vs Causal Lattice)
+
+SYNOPSIS
+  construct bench-lattice [--n <ops>] [--json]`,
 });
 
 function formatCommandHelp(rawTopic = '') {
@@ -1315,20 +1316,13 @@ async function main(argv) {
       const res = store.initConstruct({
         rom: o.rom || rest[0],
         configDir: o.dir,
-        claude: Boolean(o.claude),
-        cursor: Boolean(o.cursor),
-        gemini: Boolean(o.gemini),
-        windsurf: Boolean(o.windsurf),
-        codex: Boolean(o.codex),
-        omp: Boolean(o.omp || o['oh-my-pi']),
-        allAgents: isReloadCmd ? true : Boolean(o.all),
       });
       if (isReloadCmd) {
         try {
           store.generateDashboardHtml({ sessionId: o.session, project: o.project, dir: o.dir });
         } catch (_) {}
         try {
-          const pocketMod = require('../src/pocket');
+          const pocketMod = require('../src/pocket.ts');
           const tok = pocketMod.loadOrCreateHudToken();
           await fetch('http://127.0.0.1:47420/action', {
             method: 'POST',
@@ -1347,26 +1341,6 @@ async function main(argv) {
         );
         console.log(`  plugin:   ${res.pluginPath}`);
         console.log(`  rom file: ${res.romFilePath}`);
-        if (res.claudeConfigured) {
-          console.log(
-            `  claude:   ${res.claudeMdPath} (+ MCP, hooks in ${res.claudeSettingsPath}, & ${res.claudeAgentsCount} subagents in ${res.claudeAgentsDir})`
-          );
-        }
-        if (res.cursorConfigured) {
-          console.log(`  cursor:   ${res.cursorMcpPath} (+ hooks in ${res.cursorHooksPath} & rules in ${res.cursorRulePath})`);
-        }
-        if (res.geminiConfigured) {
-          console.log(`  gemini:   ${res.geminiMdPath} (+ MCP & hooks in ${res.geminiSettingsPath})`);
-        }
-        if (res.windsurfConfigured) {
-          console.log(`  windsurf: ${res.windsurfMcpPath} (+ rules in ${res.windsurfRulesPath})`);
-        }
-        if (res.codexConfigured) {
-          console.log(`  codex:    ${res.codexMdPath} (+ MCP in ${res.codexConfigPath})`);
-        }
-        if (res.ompConfigured) {
-          console.log(`  omp:      ${res.ompMdPath} (+ MCP in ${res.ompMcpPath} & extension in ${res.ompExtensionPath})`);
-        }
         console.log(
           `  operator: ${res.user ? res.user : `UNREGISTERED (${res.detectedLogin}) -> ROM will onboard on first turn`}`
         );
@@ -1398,73 +1372,54 @@ async function main(argv) {
       return 0;
     }
 
-    case 'mcp': {
-      mcp.startMcpStdioServer();
-      return new Promise(() => {});
+    case 'compact': {
+      const project = rest[0] || o.project || (o.dir ? store.resolveProjectFromDir(o.dir) : '');
+      if (!project) throw new Error('usage: construct compact <project>');
+      const res = store.compactProjectCrdtLog(project);
+      if (o.json) {
+        console.log(
+          JSON.stringify(
+            { ...res, merkleFrontier64: '0x' + res.merkleFrontier64.toString(16) },
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(
+          `compacted ${project} CRDT log: ${res.totalBefore} -> ${res.retainedAfter} active op(s) (${res.pruned} superseded pruned, frontier 0x${res.merkleFrontier64.toString(16)})`
+        );
+      }
+      return 0;
     }
 
-    case 'claude-hook': {
-      const mode = rest[0] || 'context';
-      let stdinText = '';
-      try {
-        stdinText = fs.readFileSync(0, 'utf8');
-      } catch (_) {}
-      try {
-        const res = mcp.runClaudeHook(mode, stdinText);
-        if (res.stdout) console.log(res.stdout);
-        return res.exitCode || 0;
-      } catch (err) {
-        console.error(err.message);
-        return 2; // Exit code 2 blocks PreToolUse in Claude Code and surfaces stderr to the model
+    case 'bench-lattice':
+    case 'bench': {
+      const opsCount = o.limit ? Number(o.limit) : rest[0] ? Number(rest[0]) : 40;
+      const report = store.benchLattice({ ops: opsCount });
+      if (o.json) {
+        console.log(JSON.stringify(report, null, 2));
+      } else {
+        console.log('=== CONSTRUCT CAUSAL-LATTICE-EVOLVED (WORLD-TRACK II & III) BENCHMARK ===');
+        console.log(
+          `1. Wire Batch (${report.opCount} CRDT ops): Legacy JSON ${report.wire.rawJsonBytes}B -> Lattice rANS+Slab ${report.wire.latticeBatchBytes}B (${report.wire.batchCompressionRatio}x smaller)`
+        );
+        console.log(
+          `2. Sealed MLS Envelope: Legacy ${report.wire.legacyEnvelopeBytes}B -> Lattice ${report.wire.latticeEnvelopeBytes}B (${report.wire.envelopeCompressionRatio}x smaller)`
+        );
+        console.log(
+          `3. World-Track III Evolved Branchless ROM Arena (${report.hotArenaReadNs.romCount} ROMs, collisions=${report.hotArenaReadNs.circuitCollisions}): SQLite+JSON ${report.hotArenaReadNs.sqliteSelectAndJsonParseNs}ns -> Evolved Circuit ${report.hotArenaReadNs.evolvedBranchlessArenaReadNs}ns (${report.hotArenaReadNs.speedupFactor}x faster)`
+        );
+        console.log(
+          `4. World-Track III Evolved Cross-Field Predictor (${report.evolvedPredictor.trajectorySteps} steps): WT-II ${report.evolvedPredictor.worldTrack2Bytes}B -> Evolved ${report.evolvedPredictor.worldTrack3EvolvedBytes}B (${report.evolvedPredictor.bitsPer6FieldState} bits/state, ${report.evolvedPredictor.gainVsWorldTrack2}x smaller than WT-II, ${report.evolvedPredictor.gainVsJsonRaw}x smaller than JSON, lossless=${report.evolvedPredictor.losslessVerified})`
+        );
+        console.log(
+          `5. Zero-Trust Capability Verify: Ed25519 ${report.capabilityGateNs.ed25519VerifyNs}ns -> Chaskey-12 Chain ${report.capabilityGateNs.chaskey12CapabilityVerifyNs}ns (${report.capabilityGateNs.speedupFactor}x faster)`
+        );
+        console.log(
+          `6. 1-RTT IBLT Relay Sync (${report.relaySync.sharedEnvelopes} shared, ${report.relaySync.divergentEnvelopes} diff): Legacy REQ ${report.relaySync.legacyFetchAllBytes}B -> IBLT Sketch ${report.relaySync.ibltSingleRttSketchBytes}B (${report.relaySync.wireSavingsFactor}x less wire traffic, converged=${report.relaySync.peeledIdentically})`
+        );
       }
-    }
-
-    case 'cursor-hook': {
-      const mode = rest[0] || 'session-start';
-      let stdinText = '';
-      try {
-        stdinText = fs.readFileSync(0, 'utf8');
-      } catch (_) {}
-      try {
-        const res = mcp.runCursorHook(mode, stdinText);
-        if (res.stdout) console.log(res.stdout);
-        return res.exitCode || 0;
-      } catch (err) {
-        console.error(err.message);
-        return 2;
-      }
-    }
-
-    case 'gemini-hook': {
-      const mode = rest[0] || 'before-agent';
-      let stdinText = '';
-      try {
-        stdinText = fs.readFileSync(0, 'utf8');
-      } catch (_) {}
-      try {
-        const res = mcp.runGeminiHook(mode, stdinText);
-        if (res.stdout) console.log(res.stdout);
-        return res.exitCode || 0;
-      } catch (err) {
-        console.error(err.message);
-        return 2;
-      }
-    }
-
-    case 'omp-hook': {
-      const mode = rest[0] || 'before-agent';
-      let stdinText = '';
-      try {
-        stdinText = fs.readFileSync(0, 'utf8');
-      } catch (_) {}
-      try {
-        const res = mcp.runOmpHook(mode, stdinText);
-        if (res.stdout) console.log(res.stdout);
-        return res.exitCode || 0;
-      } catch (err) {
-        console.error(err.message);
-        return 2;
-      }
+      return 0;
     }
 
     case 'assimilate': {
@@ -1853,7 +1808,7 @@ async function main(argv) {
     }
 
     case 'pocket': {
-      const pocketMod = require('../src/pocket');
+      const pocketMod = require('../src/pocket.ts');
       const cfg = pocketMod.loadOrCreatePocketConfig({
         rotate: Boolean(o.rotate),
         relays: o.relays,

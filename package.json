@@ -1,22 +1,26 @@
 {
-  "name": "construct",
-  "version": "0.1.0",
+  "name": "construct-evolved",
+  "version": "0.3.0",
   "license": "SEE LICENSE IN LICENSE",
   "author": "Christopher Maujean <christopher@maujean.org>",
-  "description": "Sequential memory construct, swappable Personality ROMs, operator agreements, and DIDComm/MLS/CRDT sync for OpenCode.",
+  "description": "TypeScript Sequential Memory Construct, 15 Crew Banks (179 ROMs), and World-Track III Evolved Causal Lattice Engine for OpenCode.",
   "repository": {
     "type": "git",
     "url": "https://github.com/cmaujean/construct.git"
   },
   "bin": {
-    "construct": "bin/construct.js"
+    "construct": "bin/construct.ts"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=24.0.0"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\"",
-    "construct": "node bin/construct.js",
-    "install-plugin": "node -e \"require('./src/store').installPluginFile()\""
+    "test": "node --test \"test/*.test.ts\"",
+    "bench": "node bin/construct.ts bench-lattice",
+    "construct": "node bin/construct.ts",
+    "install-plugin": "node -e \"require('./src/store.ts').installPluginFile()\""
+  },
+  "dependencies": {
+    "causal-lattice": "file:../causal-lattice"
   }
 }
