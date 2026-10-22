@@ -2042,6 +2042,39 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(bareParsed.project, 'acme/interop_test');
     assert.ok(bareParsed.ops.length > 0);
 
+    // Regression test: `editFrame`, `resolveFrames`, and `reopenFrame` must advance `hlc` and emit CRDT ops
+    // so peer nodes importing subsequent packets converge on edited summaries, verified layers, and open/resolved states.
+    const editThread = store.recordFrame({
+      project: 'acme/interop_test',
+      kind: 'thread',
+      summary: 'Original unedited thread summary',
+      open: true,
+    }).frame;
+    const initialPacket = store.exportEncryptedPacket('acme/interop_test');
+    const afterInitialHlc = initialPacket.maxHlc;
+
+    // Mutate the existing frame via `editFrame` and `resolveFrames`
+    store.editFrame(editThread.seq, {
+      summary: 'Updated thread summary after editFrame',
+      detail: 'Added root-cause detail',
+      verified: 'unit-test-layer',
+    });
+    store.resolveFrames(editThread.seq);
+
+    // Export delta since `afterInitialHlc` — must contain the updated frame CRDT op!
+    const deltaPacket = store.exportEncryptedPacket('acme/interop_test', {
+      sinceHlc: afterInitialHlc,
+    });
+    assert.ok(
+      deltaPacket.opCount > 0,
+      `Expected editFrame + resolveFrames to emit new CRDT op(s) after ${afterInitialHlc}, got opCount=${deltaPacket.opCount}`
+    );
+    const frameOp = deltaPacket.ops.find((o) => o.entity === 'frame' && o.recordUid === editThread.uid);
+    assert.ok(frameOp, 'Expected delta packet to contain updated frame CRDT op for editThread.uid');
+    assert.equal(frameOp.payload.summary, 'Updated thread summary after editFrame');
+    assert.equal(frameOp.payload.verified, 'unit-test-layer');
+    assert.equal(frameOp.payload.open, false);
+
     // Verify `benchLattice` head-to-head metrics (World-Track II + World-Track III Evolved from `causal-lattice` library)
     const benchReport = store.benchLattice({ ops: 25 });
     assert.ok(benchReport.wire.batchCompressionRatio > 1.8);

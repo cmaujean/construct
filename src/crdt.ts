@@ -604,6 +604,37 @@ function hydrateMessage(row: Record<string, unknown> | null | undefined): Courie
   };
 }
 
+function emitFrameCrdtUpdateInDb(db: DatabaseSync, seq: number): void {
+  const row = db.prepare('SELECT * FROM frames WHERE seq = ?').get(seq) as Record<string, unknown> | undefined;
+  if (!row) return;
+  const identity = loadOrCreateIdentity();
+  const project = String(row.project);
+  const uid = String(row.uid || '') || `frame-${project}-${seq}-${crypto.randomBytes(4).toString('hex')}`;
+  const hlc = nextHlc(identity.did, row.hlc ? String(row.hlc) : null);
+  db.prepare('UPDATE frames SET uid = ?, hlc = ? WHERE seq = ?').run(uid, hlc, seq);
+  let refs: string[] = [];
+  try {
+    refs = JSON.parse(String(row.refs || '[]'));
+  } catch (_) {}
+  appendCrdtOpInDb(db, {
+    project,
+    entity: 'frame',
+    recordUid: uid,
+    payload: {
+      uid,
+      hlc,
+      ts: String(row.ts),
+      project,
+      kind: String(row.kind),
+      summary: String(row.summary),
+      detail: String(row.detail || ''),
+      verified: String(row.verified || ''),
+      open: Boolean(row.open),
+      refs,
+    },
+  });
+}
+
 function appendCrdtOpInDb(
   db: DatabaseSync,
   {
@@ -1201,6 +1232,7 @@ module.exports = {
   initCrdtAndCommsSchema,
   hydrateMlsGroup,
   hydrateMessage,
+  emitFrameCrdtUpdateInDb,
   appendCrdtOpInDb,
   compactProjectCrdtLogInDb,
   backfillProjectCrdtLogInDb,

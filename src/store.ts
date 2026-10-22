@@ -273,6 +273,8 @@ function hydrateFrame(row: Record<string, unknown> | null | undefined): FrameRec
   }
   return {
     seq: Number(row.seq),
+    uid: row.uid ? String(row.uid) : undefined,
+    hlc: row.hlc ? String(row.hlc) : undefined,
     ts: String(row.ts),
     project: String(row.project),
     kind: String(row.kind) as FrameKind,
@@ -769,6 +771,7 @@ function recordFrame(fields: RecordFrameRequest, file: string = dbPath()) {
           const resolveStmt = db.prepare('UPDATE frames SET open = 0, resolved_by = ? WHERE seq = ?');
           for (const rSeq of resolvesList) {
             resolveStmt.run(newSeq, rSeq);
+            crdt.emitFrameCrdtUpdateInDb(db, rSeq);
           }
         }
 
@@ -826,6 +829,7 @@ function editFrame(seq, changes, file = dbPath()) {
          WHERE seq = ?`
         ).run(kind, summary, detail, verified, parentSeq, JSON.stringify(refs), targetSeq);
 
+        crdt.emitFrameCrdtUpdateInDb(db, targetSeq);
         return getFrameInDb(db, targetSeq);
       }),
     file
@@ -873,12 +877,14 @@ function resolveFrames(seqList, options = {}, file = dbPath()) {
               JSON.stringify(targets.flatMap((t) => t.refs))
             );
           bySeq = Number(info.lastInsertRowid);
+          crdt.emitFrameCrdtUpdateInDb(db, bySeq);
           createdFrame = getFrameInDb(db, bySeq);
         }
 
         const stmt = db.prepare('UPDATE frames SET open = 0, resolved_by = COALESCE(?, resolved_by) WHERE seq = ?');
         for (const id of ids) {
           stmt.run(bySeq, id);
+          crdt.emitFrameCrdtUpdateInDb(db, id);
         }
 
         const resolvedFrames = ids.map((id) => getFrameInDb(db, id));
@@ -926,6 +932,7 @@ function reopenFrame(seq, file = dbPath()) {
         const existing = getFrameInDb(db, id);
         if (!existing) throw new Error(`no frame #${id}`);
         db.prepare('UPDATE frames SET open = 1, resolved_by = NULL WHERE seq = ?').run(id);
+        crdt.emitFrameCrdtUpdateInDb(db, id);
         return getFrameInDb(db, id);
       }),
     file
