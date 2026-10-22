@@ -47,13 +47,11 @@ function createInstallerModule(deps) {
     const shimDir = path.join(configDir, 'src');
     try {
       fs.mkdirSync(shimDir, { recursive: true });
-      for (const modName of ['pocket.ts', 'store.ts', 'mcp.ts', 'lattice.ts']) {
-        const targetMod = path.resolve(__dirname, modName).replace(/\\/g, '/');
-        fs.writeFileSync(
-          path.join(shimDir, modName),
-          `module.exports = require(${JSON.stringify(targetMod)});\n`,
-          'utf8'
-        );
+      for (const baseName of ['pocket', 'store', 'mcp', 'lattice']) {
+        const targetMod = path.resolve(__dirname, `${baseName}.ts`).replace(/\\/g, '/');
+        const shimCode = `module.exports = require(${JSON.stringify(targetMod)});\n`;
+        fs.writeFileSync(path.join(shimDir, `${baseName}.ts`), shimCode, 'utf8');
+        fs.writeFileSync(path.join(shimDir, `${baseName}.js`), shimCode, 'utf8');
       }
     } catch (_) {}
 
@@ -63,6 +61,16 @@ function createInstallerModule(deps) {
   function initConstruct(options = {}, file = dbPath()) {
     const configDir = options.configDir || path.join(os.homedir(), '.config', 'opencode');
     fs.mkdirSync(configDir, { recursive: true });
+
+    // Take an automatic pre-upgrade backup of construct.db if it exists and hasn't been backed up yet
+    if (file && file !== ':memory:' && fs.existsSync(file)) {
+      const bakPath = `${file}.pre-evolved.bak`;
+      if (!fs.existsSync(bakPath)) {
+        try {
+          fs.copyFileSync(file, bakPath);
+        } catch (_) {}
+      }
+    }
 
     const identity = crdt.loadOrCreateIdentity();
     if (options.rom) {
