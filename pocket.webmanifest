@@ -1,0 +1,10 @@
+{
+  "name": "Construct Pocket",
+  "short_name": "Construct",
+  "description": "Encrypted mobile thin client for OpenCode & Construct sessions",
+  "start_url": "./pocket.html",
+  "display": "standalone",
+  "background_color": "#0b0e14",
+  "theme_color": "#0b0e14",
+  "orientation": "portrait"
+}
