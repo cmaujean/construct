@@ -548,8 +548,10 @@ function resolveOpenCodeServiceConfig() {
 // Install a process-wide fetch guard so any legacy/zombie `startPocketBridge` timers from earlier
 // Location evictions (which call `/api/session` without `X-Construct-Pocket: v2`) receive a BigInt
 // sentinel, abort inside `broadcastSnapshot` before `ws.send`, and never broadcast stale sessions.
-if (typeof globalThis.fetch === 'function' && !globalThis.__constructPocketFetchRaw) {
-  globalThis.__constructPocketFetchRaw = globalThis.fetch.bind(globalThis);
+if (typeof globalThis.fetch === 'function') {
+  if (!globalThis.__constructPocketFetchRaw) {
+    globalThis.__constructPocketFetchRaw = globalThis.fetch.bind(globalThis);
+  }
   globalThis.fetch = async (input, init) => {
     const urlStr = typeof input === 'string' ? input : input?.url || '';
     const hdrs = init?.headers || {};
@@ -558,7 +560,7 @@ if (typeof globalThis.fetch === 'function' && !globalThis.__constructPocketFetch
       return {
         ok: true,
         status: 200,
-        json: async () => ({ data: [{ id: 1n }] }),
+        json: async () => ({ data: [{ id: 1n, title: 'x' }] }),
       };
     }
     if (pocketVer === 'v2') {
@@ -1005,7 +1007,7 @@ function validateAndUnwrapIncomingCmdEvent(ev, currentCfg, bridgeState) {
   if (!envTs || Math.abs(Date.now() - envTs) > MAX_POCKET_CLOCK_SKEW_MS) {
     throw new Error('Rejected relay event: timestamp outside 60s replay window');
   }
-  const minTs = Math.max(Number(bridgeState.lastAcceptedCmdTs || 0), Number(currentCfg.lastAcceptedCmdTs || 0));
+  const minTs = Number(bridgeState.lastAcceptedCmdTs || 0);
   if (envTs <= minTs) {
     throw new Error('Rejected relay event: non-monotonic command timestamp');
   }
