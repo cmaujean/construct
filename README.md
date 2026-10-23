@@ -11,21 +11,22 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 ## Table of Contents
 
 1. [What Construct Is (The Crew Paradigm)](#1-what-construct-is-the-crew-paradigm)
-2. [One-Prompt Installation (OpenCode & Claude Code)](#2-one-prompt-installation-opencode--claude-code)
-3. [First Boot: Choosing Your Crew & Setting Up Agreements](#3-first-boot-choosing-your-crew--setting-up-agreements)
-4. [Assimilating Existing Instruction Files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)](#4-assimilating-existing-instruction-files-agentsmd-claudemd-geminimd)
-5. [The 15 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (179 ROMs)](#5-the-15-crew-banks-the-bench-cross-bank-cameos--modular-packs-179-roms)
-6. [Working Agreements, Rules & Gotchas](#6-working-agreements-rules--gotchas)
+2. [One-Prompt Installation (OpenCode)](#2-one-prompt-installation-opencode)
+3. [First Boot: Choosing Your Crew and Setting Up Agreements](#3-first-boot-choosing-your-crew-and-setting-up-agreements)
+4. [Assimilating Existing Instruction Files](#4-assimilating-existing-instruction-files)
+5. [The 15 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs](#5-the-15-crew-banks-the-bench-cross-bank-cameos-and-modular-packs)
+6. [Working Agreements, Rules and Gotchas](#6-working-agreements-rules-and-gotchas)
 7. [The Sequential Memory Tape (Sandwich Pattern)](#7-the-sequential-memory-tape-sandwich-pattern)
-8. [Collaborating: Project Invites, Auto-Clone & Zero Bleed](#8-collaborating-project-invites-auto-clone--zero-bleed)
-9. [Construct-to-Construct Comms (ROM-to-ROM Messaging)](#9-construct-to-construct-comms-rom-to-rom-messaging)
-10. [Token-Saving Architecture, Mechanical Guards & Smart Model Routing](#10-token-saving-architecture-mechanical-guards--smart-model-routing)
+8. [Collaborating: Project Invites, Auto-Clone and Zero Bleed](#8-collaborating-project-invites-auto-clone-and-zero-bleed)
+9. [Construct-to-Construct Comms and Courier Cameo Protocol](#9-construct-to-construct-comms-and-courier-cameo-protocol)
+10. [Token-Saving Architecture, Mechanical Guards and Smart Model Routing](#10-token-saving-architecture-mechanical-guards-and-smart-model-routing)
 11. [How It Works Under the Hood](#11-how-it-works-under-the-hood)
 12. [CLI Reference (Optional)](#12-cli-reference-optional)
-13. [License, Literary Homage & Good-Faith Pack Policy](#13-license-literary-homage--good-faith-pack-policy)
+13. [License, Literary Homage and Good-Faith Pack Policy](#13-license-literary-homage-and-good-faith-pack-policy)
 
 ---
 
+<a id="1-what-construct-is-the-crew-paradigm"></a>
 ## 1. What Construct Is (The Crew Paradigm)
 
 Out of the box, AI coding sessions suffer from three structural flaws:
@@ -42,7 +43,8 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 ---
 
-## 2. One-Prompt Installation (OpenCode & Claude Code)
+<a id="2-one-prompt-installation-opencode"></a>
+## 2. One-Prompt Installation (OpenCode)
 
 You do not need to set up Construct by hand, and Construct does not assume any particular directory layout. Open OpenCode and paste:
 
@@ -66,7 +68,8 @@ construct init
 
 ---
 
-## 3. First Boot: Choosing Your Crew & Setting Up Agreements
+<a id="3-first-boot-choosing-your-crew-and-setting-up-agreements"></a>
+## 3. First Boot: Choosing Your Crew and Setting Up Agreements
 
 When you open a new OpenCode session for the first time, Construct detects that your OS username has no operator agreement on file yet.
 
@@ -102,7 +105,8 @@ Whenever you get tired of repeating an instruction, just tell OpenCode in plain 
 
 ---
 
-## 4. Assimilating Existing Instruction Files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`)
+<a id="4-assimilating-existing-instruction-files"></a>
+## 4. Assimilating Existing Instruction Files
 
 If you already have repositories with `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.github/copilot-instructions.md`, or `docs/` notes, Construct can assimilate them into `construct.db` so you do not have to maintain static instruction files in git.
 
@@ -122,7 +126,8 @@ How the assimilation flow works:
 
 ---
 
-## 5. The 15 Crew Banks, The Bench, Cross-Bank Cameos & Modular Packs (179 ROMs)
+<a id="5-the-15-crew-banks-the-bench-cross-bank-cameos-and-modular-packs"></a>
+## 5. The 15 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs
 
 In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to machine a hull joint.
 
@@ -249,7 +254,8 @@ Talk to Construct naturally to customize any Crew or specialist:
 
 ---
 
-## 6. Working Agreements, Rules & Gotchas
+<a id="6-working-agreements-rules-and-gotchas"></a>
+## 6. Working Agreements, Rules and Gotchas
 
 ### The Core Engineering Protocol
 
@@ -275,6 +281,7 @@ To record or search gotchas in conversation:
 
 ---
 
+<a id="7-the-sequential-memory-tape-sandwich-pattern"></a>
 ## 7. The Sequential Memory Tape (Sandwich Pattern)
 
 Instead of overwriting a flat markdown handoff file, Construct maintains an append-only, monotonically numbered **Sequential Tape** (`frames`) alongside a concise **Project State Head** (`heads`).
@@ -298,7 +305,8 @@ As you and the crew work, Construct records inflection points onto the tape in r
 
 ---
 
-## 8. Collaborating: Project Invites, Auto-Clone & Zero Bleed
+<a id="8-collaborating-project-invites-auto-clone-and-zero-bleed"></a>
+## 8. Collaborating: Project Invites, Auto-Clone and Zero Bleed
 
 You can share a specific project's gotchas, sequential tape, state head, and construct comms with a collaborator (for example, Alice on Windows working with Bob on Linux) without exposing any of your other projects.
 
@@ -342,7 +350,8 @@ Not all of your projects are shared with the same people. Construct enforces har
 
 ---
 
-## 9. Construct-to-Construct Comms & Courier Cameo Protocol (`--via <messenger>`)
+<a id="9-construct-to-construct-comms-and-courier-cameo-protocol"></a>
+## 9. Construct-to-Construct Comms and Courier Cameo Protocol
 
 Because each developer works with their own slotted Crew or specialist (for example, Alice works with the **Dresden Crew** on Windows while her teammate Bob works with the **Sprawl Crew** on Linux), your constructs can dispatch any specialist as a **Courier** over your shared encrypted sync channels -- popping into the recipient's feed in the courier's own voice to deliver the message without changing the recipient's active Crew!
 
@@ -367,7 +376,8 @@ Once you connect with a collaborator on *any* shared project (which automaticall
 
 ---
 
-## 10. Token-Saving Architecture, Mechanical Guards & Smart Model Routing
+<a id="10-token-saving-architecture-mechanical-guards-and-smart-model-routing"></a>
+## 10. Token-Saving Architecture, Mechanical Guards and Smart Model Routing
 
 Static markdown rule setups bleed tokens in three ways: loading multiple overlapping instruction files on every turn (`15,000+` tokens), re-reading bloated handoff files via tool calls, and wasting full-price frontier-model turns on failed shell commands or mechanical file searches.
 
@@ -390,14 +400,14 @@ Construct's OpenCode plugin (`ctx.shell.hook("create.before")`) and Claude Code 
 3. **Gotcha #4 (PowerShell 5.1 Quote Stripping on `gh api graphql` `[win32]`):** Blocks inline `gh api graphql -f query=...` calls containing inner double quotes on Windows and directs the model to pass `--input <scratch>/payload.json`.
 4. **Gotcha #6 (`core.protectNTFS=false` & `:Zone.Identifier` Staging `[all]`):** Blocks disabling Git's NTFS path protection guard or staging `:Zone.Identifier` streams on any OS.
 
-### 4. Recommended Operator Agreement Rule: Smart Model Routing
-The largest cost lever in OpenCode is routing mechanical exploration and bulk log/doc reading to fast, low-cost models while reserving your primary frontier model for architecture, debugging, and code changes.
+### 4. Built-In Per-Seat Smart Model Routing (Active by Default)
+The largest cost lever in OpenCode is routing mechanical exploration, log/doc scanning, and Courier dispatches to fast, low-cost models while reserving your primary frontier model for architecture, deep diagnostics, and code changes.
 
-We recommend telling Construct during onboarding (or adding to your operator agreement at any time):
+Construct bakes **Per-Seat Smart Model Routing** directly into the Core Engineering Protocol (`src/protocol.ts`) and the 9-seat Crew Pipeline (`src/rom.ts` & `src/packs/shared.ts`) **by default out of the box** (no custom operator agreement rule required):
+- **Fast / Low-Cost Subagent Tier (Seats `1A` Recon, `4A` Forensics, `4B` Velocity, `5` Archivist, and `[ROM: <courier>]` Comms dispatches):** The Crew has standing default permission to offload codebase searches, log/doc scanning, mechanical verification checks, and Courier dispatches to parallel `explore` and `general` subagents prefixed with `[ROM: <specialist>]`.
+- **Frontier Primary Tier (Seats `1B` Diagnostics, `2` Architecture, `3` Blitz, `4C` Adversarial Security, and `4D` UI/Ergonomics):** Reserved for invariant design, tricky root-cause debugging, surgical code changes, security red-teaming, and UX clarity.
 
-> *"Add to my operator agreement: You have standing permission to offload codebase searches, log/doc scanning, and mechanical multi-step checks to `explore` and `general` subagents running lower-cost models (`google/gemini-3.8-flash` or `google/gemini-flash-lite-latest`), reserving the primary frontier model for design, tricky debugging, and code changes."*
-
-And pair it in `~/.config/opencode/opencode.jsonc`:
+Pair this in `~/.config/opencode/opencode.jsonc` so OpenCode's `explore`, `general`, `title`, and `summary` agents automatically run on your preferred fast model:
 
 ```jsonc
 {
@@ -413,7 +423,8 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 
 ---
 
-## 11. How It Works Under the Hood (TypeScript + Bundled `src/causal-lattice` World-Track III Engine)
+<a id="11-how-it-works-under-the-hood"></a>
+## 11. How It Works Under the Hood
 
 `construct` is written in TypeScript (`src/*.ts`, `bin/construct.ts`, `test/construct.test.ts`) with typed request/options contracts (`src/types.ts`) and bundles the zero-dependency `causal-lattice` (World-Track II & III Evolved) library in-tree at `src/causal-lattice/`:
 
@@ -429,6 +440,7 @@ And pair it in `~/.config/opencode/opencode.jsonc`:
 
 ---
 
+<a id="12-cli-reference-optional"></a>
 ## 12. CLI Reference (Optional)
 
 Everything above works conversationally inside OpenCode (`tools.construct.*`). When you want to inspect or script Construct from a terminal:
@@ -496,7 +508,8 @@ construct purge-msg <msg_id[,msg_id...]>
 construct inbox [--project <proj>] [--to <user>] [--status pending|replied|delivered|hidden] [--all | --hidden]
 ```
 
-## 13. License, Literary Homage & Good-Faith Pack Policy
+<a id="13-license-literary-homage-and-good-faith-pack-policy"></a>
+## 13. License, Literary Homage and Good-Faith Pack Policy
 
 ### Software License (`MIT + Commons Clause v1.0`)
 

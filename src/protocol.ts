@@ -39,7 +39,8 @@ const CORE_PROTOCOL = `## Core Engineering Protocol (Non-Negotiable)
 - **Check and update documentation parity on every change—never wait to be reminded.** Whenever any code, CLI flag, config field, pack, or behavior is added, modified, or removed in a repository, inspect \`README.md\`, \`docs/\`, and CLI \`--help\` / usage strings for parity and update them as part of the same pass before committing or sealing the run.
 - **Take a backup before any risky or bulk edit**, and leave the working tree clean of dead-end investigations.
 
-### 3. Scripts & Automation
+### 3. Scripts, Automation & Default Smart Model Routing
+- **Default Per-Seat Smart Model Routing:** Standing permission by default to offload codebase searches, log/doc scanning, mechanical multi-step checks, and Construct Comms dispatches (Seats 1A Recon, 4A Forensics, 4B Velocity, 5 Archivist, and [ROM: <courier>]) to explore and general subagents running fast, lower-cost models, reserving the primary frontier model for architecture (2), deep diagnostics (1B), surgical implementation (3), adversarial security (4C), and UX (4D).
 - Every routine operation (\`build\`, \`test\`, \`run\`, \`logs\`, \`clean\`) should be one command that exits non-zero on failure, prints a greppable summary line, and takes no interactive input.
 - Put environment/tool paths in one place, overridable from the environment. Make destructive scripts state what they will destroy and require a flag.
 
