@@ -408,7 +408,8 @@ SYNOPSIS
 DESCRIPTION
   Controls the 15 lazy-loaded Crew Banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun,
   dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic)
-  and 179 specialist ROMs.
+  and 179 specialist ROMs. Per-project defaults in project_roms are strictly reserved for Crew
+  Banks/rosters (solo subagent specialists bind only to their child session_id).
 
 OPTIONS
   --pack <bank>       Filter "rom list" by bank, or assign bank on "rom set/clone"
@@ -1449,7 +1450,7 @@ async function main(argv) {
         if (o.dir) {
           // Directory is not inside a specific git repository; show session ROM + project overview
           if (o.session) {
-            const b = store.bootProject('construct', { tapeLimit: 1, sessionId: o.session });
+            const b = store.bootProject('', { tapeLimit: 1, sessionId: o.session, dir: o.dir, workspaceOnly: true });
             if (b.sessionRomPrompt) {
               console.log(b.sessionRomPrompt);
               console.log('\n---\n');
@@ -1926,7 +1927,7 @@ async function main(argv) {
         console.log(JSON.stringify(projects, null, 2));
       } else {
         if (o.session) {
-          const b = store.bootProject('construct', { tapeLimit: 1, sessionId: o.session });
+          const b = store.bootProject('', { tapeLimit: 1, sessionId: o.session, workspaceOnly: true });
           if (b.sessionRomPrompt) {
             console.log(b.sessionRomPrompt);
             console.log('\n---\n');

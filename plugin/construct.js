@@ -197,7 +197,7 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, "")
+    .replace(/^(?:(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*)+/u, "")
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge
@@ -320,6 +320,7 @@ export default {
   id: "construct",
   async setup(ctx) {
     const promptedSessions = new Set()
+    const subagentSessions = new Set()
     const lastGoodBootBySession = new Map()
     const lastBadgeBySession = new Map()
     let lastActiveSessionId = ""
@@ -328,15 +329,20 @@ export default {
 
     const syncSessionHud = async (sessionID, dirOverride = "", projectOverride = "") => {
       const sid = String(sessionID || "")
-      if (sid) lastActiveSessionId = sid
+      if (sid && subagentSessions.has(sid)) return null
       let dir = dirOverride || ""
       let sess = null
       if (sid && ctx.session?.get) {
         try {
           sess = await ctx.session.get({ sessionID: sid })
+          if (sess?.parentID || sess?.parentId) {
+            subagentSessions.add(sid)
+            return null
+          }
           if (!dir && sess?.directory) dir = sess.directory
         } catch (_) {}
       }
+      if (sid) lastActiveSessionId = sid
       if (!dir && !sid && !projectOverride) {
         dir = lastActiveDir || ctx.location?.directory || ""
       }
@@ -402,14 +408,31 @@ export default {
 
     // 0b. Zero-Round-Trip ROM Pre-Slotting: intercept explicit "slot <rom>" / "switch to <rom>"
     //     prompts before `context` runs so the new ROM is already active on Turn 1 without a tool loop.
-    await ctx.session.hook("prompt", (event) => {
+    await ctx.session.hook("prompt", async (event) => {
       const detectFn = mcpEngine?.detectPreSlotRomDirective || detectPreSlotRomDirective
       const directive = detectFn(event.prompt?.text)
       if (!directive) return
+      const isTagDirective = /(?:^|\n)\s*\[ROM:\s*[a-z0-9_]+/i.test(String(event.prompt?.text || ""))
+      let isChildSession = false
+      if (event.sessionID && ctx.session?.get) {
+        try {
+          const sess = await ctx.session.get({ sessionID: event.sessionID })
+          if (sess?.parentID || sess?.parentId) {
+            isChildSession = true
+            subagentSessions.add(String(event.sessionID))
+          }
+        } catch (_) {}
+      }
+      // Never let a `[ROM: <specialist>]` subagent tag flip a root interactive session
+      if (isTagDirective && !isChildSession && event.sessionID && ctx.session?.get) {
+        return
+      }
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
-      if (ctx.location?.directory) sessionArgs.push("--dir", String(ctx.location.directory))
+      if (!isTagDirective && !isChildSession && ctx.location?.directory) {
+        sessionArgs.push("--dir", String(ctx.location.directory))
+      }
       runConstruct(["rom", directive.action, directive.target, ...sessionArgs])
-      if (event.sessionID) {
+      if (event.sessionID && !isChildSession && !isTagDirective) {
         void syncSessionHud(event.sessionID, ctx.location?.directory || "")
       }
     })
@@ -468,11 +491,17 @@ export default {
         } catch (_) {}
       }
       const sessionArgs = event.sessionID ? ["--session", String(event.sessionID)] : []
+      let isSubagent = Boolean(sess?.parentID || sess?.parentId)
+      if (isSubagent && event.sessionID) {
+        subagentSessions.add(String(event.sessionID))
+      }
       if (event.sessionID && !contextPreSlottedSessions.has(String(event.sessionID))) {
         contextPreSlottedSessions.add(String(event.sessionID))
         const subDetectFn = mcpEngine?.detectSubagentContextRom || detectSubagentContextRom
         const subDirective = subDetectFn({ session: sess, messages: event.messages })
         if (subDirective) {
+          isSubagent = true
+          subagentSessions.add(String(event.sessionID))
           const romArgs = ["rom", subDirective.action, subDirective.target, ...sessionArgs]
           runConstruct(romArgs)
         }
@@ -509,7 +538,7 @@ export default {
           if (m[1]) runConstructAsync(["ack", String(m[1])])
         }
       }
-      if (event.sessionID) {
+      if (event.sessionID && !isSubagent && !subagentSessions.has(String(event.sessionID))) {
         void syncSessionHud(event.sessionID, dir)
       }
     })
@@ -612,7 +641,8 @@ export default {
     let lastDiskHudKey = ""
     let courierPollTimer = null
     let lastBgSyncMs = 0
-    const seenCourierKeys = new Set()
+    const seenCourierKeys =
+      globalThis.__constructSeenCourierKeys || (globalThis.__constructSeenCourierKeys = new Set())
 
     // Seed `seenCourierKeys` with any already-present messages at boot so we only wake on newly arrived dispatches
     try {
@@ -647,6 +677,8 @@ export default {
             }
           }
           if (isIdle) {
+            if (isIncoming) runConstructAsync(["seen", String(m.id)])
+            else if (isReply) runConstructAsync(["ack", String(m.id)])
             const cRom = isIncoming ? m.fromRom : (m.replyRom || m.fromRom)
             const cGlyph = isIncoming ? (m.fromGlyph || "📬") : (m.replyGlyph || "📬")
             const cSender = isIncoming ? m.fromUser : m.toUser
