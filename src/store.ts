@@ -1168,7 +1168,8 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       .get(project);
 
     const projectGotchas = protocol.listGotchasInDb(db, project);
-    const { inboxPending, inboxReplies } = crdt.selectInboxForBootInDb(db, {
+    const { inboxPending, inboxReplies, otherProjectCouriers } = crdt.selectInboxForBootInDb(db, {
+      project,
       sessionId,
       user,
       detectedLogin,
@@ -1321,6 +1322,7 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       driftedFiles,
       inboxPending,
       inboxReplies,
+      otherProjectCouriers,
       projectGotchas,
       activeClaims,
       refCollisions,
@@ -2174,6 +2176,12 @@ function sendMessage(fields: SendMessageRequest = { body: '' }, file: string = d
           .run(uid, hlc, primaryProject, fromUser, fromRom, identity.did, toUser, body, created);
 
         const newId = Number(info.lastInsertRowid);
+        crdt.retireOlderMessagesWithPeerInDb(db, {
+          peerUser: toUser,
+          localUser: fromUser,
+          beforeId: newId,
+          nowHlc: hlc,
+        });
 
         // Divorced Personal Comms (`@comms`): all person-to-person messages ride on the `@comms`
         // MLS channel rather than inside project archival packets.
@@ -2234,6 +2242,12 @@ function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = d
            SET status = 'replied', reply_body = ?, reply_rom = ?, reply_hlc = ?
            WHERE id = ?`
         ).run(replyBody, replyRom, replyHlc, row.id);
+        crdt.retireOlderMessagesWithPeerInDb(db, {
+          peerUser: row.from_user,
+          localUser: row.to_user,
+          beforeId: row.id,
+          nowHlc: replyHlc,
+        });
 
         const updated = crdt.hydrateMessage(db.prepare('SELECT * FROM messages WHERE id = ?').get(row.id));
 

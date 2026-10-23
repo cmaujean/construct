@@ -2175,6 +2175,61 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       'Tab 2 must not be spammed with a Courier message already claimed by Tab 1'
     );
 
+    // Regression test for Cross-Project Heads-Up Note & Causal Thread Retirement:
+    // 1. A pending Courier for `psilogi/cookimg_app` must NOT dump a full cameo into `acme/gh7_app`,
+    //    but MUST surface once in `otherProjectCouriers` ("you have a courier waiting in psilogi/cookimg_app"),
+    //    while remaining unclaimed so the `psilogi/cookimg_app` tab still gets the full cameo.
+    const crossProjMsg = store.sendMessage({
+      project: 'psilogi/cookimg_app',
+      fromUser: 'mike',
+      fromRom: 'bobhoward',
+      to: currentRecipient,
+      body: 'Handset QA report for cookimg_app',
+    });
+    const wrongProjBoot1 = store.bootProject('acme/gh7_app', { sessionId: 'ses_wrong_proj_tab' });
+    assert.equal(
+      wrongProjBoot1.inboxPending.some((m) => m.id === crossProjMsg.id),
+      false,
+      'Foreign project tab must not receive full inboxPending cameo for psilogi/cookimg_app'
+    );
+    assert.ok(
+      Array.isArray(wrongProjBoot1.otherProjectCouriers) &&
+        wrongProjBoot1.otherProjectCouriers.some(
+          (c) => c.id === crossProjMsg.id && c.project === 'psilogi/cookimg_app'
+        ),
+      'Foreign project tab should receive 1-line otherProjectCouriers heads-up on first boot'
+    );
+    // Second boot on the same foreign project tab must not repeat the heads-up note
+    const wrongProjBoot2 = store.bootProject('acme/gh7_app', { sessionId: 'ses_wrong_proj_tab' });
+    assert.equal(
+      (wrongProjBoot2.otherProjectCouriers || []).some((c) => c.id === crossProjMsg.id),
+      false,
+      'Foreign project tab must not repeat otherProjectCouriers heads-up on subsequent turns'
+    );
+    // Booting the actual target project (`psilogi/cookimg_app`) still delivers the full cameo!
+    const rightProjBoot = store.bootProject('psilogi/cookimg_app', { sessionId: 'ses_cookimg_tab' });
+    assert.ok(
+      rightProjBoot.inboxPending.some((m) => m.id === crossProjMsg.id),
+      'Target project tab (psilogi/cookimg_app) must still receive the full Courier cameo'
+    );
+
+    // 2. Sending a new outbound message to `mike` on `psilogi/cookimg_app` automatically retires
+    //    older incoming `pending`/`seen` messages from `mike` to `delivered` so they never resurrect.
+    store.sendMessage({
+      project: 'psilogi/cookimg_app',
+      fromUser: currentRecipient,
+      fromRom: 'case',
+      to: 'mike',
+      body: 'Cut v0.4.24 with all fixes!',
+    });
+    const afterOutboundMsgs = store.listMessages({ project: 'psilogi/cookimg_app' });
+    const retiredMsg = afterOutboundMsgs.find((m) => m.id === crossProjMsg.id);
+    assert.equal(
+      retiredMsg?.status,
+      'delivered',
+      `Expected older incoming message #${crossProjMsg.id} from mike to auto-retire to 'delivered' after outbound send, got '${retiredMsg?.status}'`
+    );
+
     // Verify `benchLattice` head-to-head metrics (World-Track II + World-Track III Evolved from `causal-lattice` library)
     const benchReport = store.benchLattice({ ops: 25 });
     assert.ok(benchReport.wire.batchCompressionRatio > 1.8);

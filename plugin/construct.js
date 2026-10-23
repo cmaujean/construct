@@ -660,10 +660,23 @@ export default {
       const targetSid = String(snap.sessionId || lastActiveSessionId || "")
       if (!opId || !targetSid) return
 
+      const snapProj = String(snap.project || "").trim().toLowerCase()
       for (const m of snap.comms) {
         const isIncoming = m.status === "pending" && String(m.toUser || "").toLowerCase() === opId
         const isReply = m.status === "replied" && String(m.fromUser || "").toLowerCase() === opId
         if (!isIncoming && !isReply) continue
+        const msgProj = String(m.project || "").trim().toLowerCase()
+        if (
+          msgProj &&
+          msgProj !== "global" &&
+          msgProj !== "@comms" &&
+          msgProj !== "comms" &&
+          snapProj &&
+          snapProj !== "workspace" &&
+          (msgProj.split("/").pop() || msgProj) !== (snapProj.split("/").pop() || snapProj)
+        ) {
+          continue
+        }
         const key = `${m.id}:${m.status}`
         if (seenCourierKeys.has(key)) continue
         seenCourierKeys.add(key)

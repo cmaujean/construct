@@ -804,6 +804,7 @@ function printBoot(data) {
     stats,
     inboxPending = [],
     inboxReplies = [],
+    otherProjectCouriers = [],
     projectGotchas = [],
     activeClaims = [],
     refCollisions = [],
@@ -943,6 +944,15 @@ function printBoot(data) {
       console.log(`         Reply from ${m.toUser}: "${m.replyBody}"`);
       console.log(
         `         -> COURIER CAMEO & STICKY FRONTIER RULE: Hold this Return Courier until your FINAL turn-closing message (never bury it mid-tool-loop). At the VERY BOTTOM of your final reply, have ${c.badge} pop directly into the feed in ${c.name}'s own authentic voice to deliver ${m.toUser}'s answer to ${m.fromUser}, hand the mic back to ${m.fromUser}'s active Crew without changing ${m.fromUser}'s slotted Crew, and run: construct ack ${m.id}`
+      );
+    }
+  }
+
+  if (otherProjectCouriers.length) {
+    console.log(`\nOTHER PROJECT COMMS WAITING (${otherProjectCouriers.length} unseen):`);
+    for (const oc of otherProjectCouriers) {
+      console.log(
+        `  * You have a Courier waiting in ${oc.project} ([M#${oc.id}] from ${oc.fromUser}/${oc.fromRom}). Mention in 1 short line at the end of your reply that they have a courier waiting in ${oc.project} (do NOT run the full Courier cameo in this tab).`
       );
     }
   }

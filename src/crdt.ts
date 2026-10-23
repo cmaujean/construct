@@ -604,15 +604,28 @@ function hydrateMessage(row: Record<string, unknown> | null | undefined): Courie
   };
 }
 
+function sameProjectScopeForComms(msgProj: string, currentProj: string): boolean {
+  const m = String(msgProj || '').trim().toLowerCase();
+  const c = String(currentProj || '').trim().toLowerCase();
+  if (!m || m === 'global' || m === '@comms' || m === 'comms' || m.startsWith('@comms/')) return true;
+  if (!c || c === 'global' || c === 'workspace') return true;
+  if (m === c) return true;
+  const mBase = m.split('/').pop() || m;
+  const cBase = c.split('/').pop() || c;
+  return mBase === cBase;
+}
+
 function selectInboxForBootInDb(
   db: DatabaseSync,
   {
+    project = '',
     sessionId,
     user,
     detectedLogin,
     buildCourierProfileInDb,
     options = {},
   }: {
+    readonly project?: string;
     readonly sessionId: string;
     readonly user: { readonly id?: string; readonly name?: string; readonly osUsers?: readonly string[] } | null;
     readonly detectedLogin: string;
@@ -625,7 +638,7 @@ function selectInboxForBootInDb(
     sessionId.includes(':') ||
     sessionId.startsWith('pending_subagent:');
   if (isSubagentSession) {
-    return { inboxPending: [], inboxReplies: [] };
+    return { inboxPending: [], inboxReplies: [], otherProjectCouriers: [] };
   }
 
   const activeUserId = user?.id || detectedLogin;
@@ -655,6 +668,15 @@ function selectInboxForBootInDb(
     return existingOwner === sessionId;
   };
 
+  const otherProjectCouriers: Array<{
+    readonly id: number;
+    readonly uid: string;
+    readonly fromUser: string;
+    readonly fromRom: string;
+    readonly project: string;
+    readonly isReply: boolean;
+  }> = [];
+
   const allPendingRows = db
     .prepare("SELECT * FROM messages WHERE status = 'pending' ORDER BY hlc ASC")
     .all() as Array<Record<string, unknown>>;
@@ -665,7 +687,31 @@ function selectInboxForBootInDb(
         recipientAliases.has(toLower) ||
         Boolean(row.from_did && localIdentity?.did && row.from_did !== localIdentity.did);
       if (!isForMe) return false;
-      return claimForTab(`pending:${String(row.uid)}`);
+      const uid = String(row.uid);
+      const rowProj = String(row.project || '');
+      if (!sameProjectScopeForComms(rowProj, project)) {
+        // Cross-project unseen Courier: do not claim for full cameo here; emit a 1-time heads-up note
+        // if not already claimed by its own project tab and not already noted in this tab.
+        if (!claimsMap[`pending:${uid}`]) {
+          const noteKey = `cross_note:${uid}:${sessionId || 'cli'}`;
+          if (!claimsMap[noteKey]) {
+            if (sessionId) {
+              claimsMap[noteKey] = '1';
+              claimsDirty = true;
+            }
+            otherProjectCouriers.push({
+              id: Number(row.id),
+              uid,
+              fromUser: String(row.from_user || ''),
+              fromRom: String(row.from_rom || ''),
+              project: rowProj,
+              isReply: false,
+            });
+          }
+        }
+        return false;
+      }
+      return claimForTab(`pending:${uid}`);
     })
     .map((row) => {
       const m = hydrateMessage(row) as CourierMessage & { courier?: unknown };
@@ -684,7 +730,30 @@ function selectInboxForBootInDb(
         recipientAliases.has(fromLower) ||
         Boolean(row.from_did && localIdentity?.did && row.from_did === localIdentity.did);
       if (!isMine) return false;
-      return claimForTab(`reply:${String(row.uid)}:${String(row.reply_hlc || '')}`);
+      const uid = String(row.uid);
+      const replyKey = `reply:${uid}:${String(row.reply_hlc || '')}`;
+      const rowProj = String(row.project || '');
+      if (!sameProjectScopeForComms(rowProj, project)) {
+        if (!claimsMap[replyKey]) {
+          const noteKey = `cross_note:${replyKey}:${sessionId || 'cli'}`;
+          if (!claimsMap[noteKey]) {
+            if (sessionId) {
+              claimsMap[noteKey] = '1';
+              claimsDirty = true;
+            }
+            otherProjectCouriers.push({
+              id: Number(row.id),
+              uid,
+              fromUser: String(row.to_user || ''),
+              fromRom: String(row.reply_rom || row.from_rom || ''),
+              project: rowProj,
+              isReply: true,
+            });
+          }
+        }
+        return false;
+      }
+      return claimForTab(replyKey);
     })
     .map((row) => {
       const m = hydrateMessage(row) as CourierMessage & { courier?: unknown };
@@ -702,7 +771,46 @@ function selectInboxForBootInDb(
     } catch (_) {}
   }
 
-  return { inboxPending, inboxReplies };
+  return { inboxPending, inboxReplies, otherProjectCouriers };
+}
+
+function retireOlderMessagesWithPeerInDb(
+  db: DatabaseSync,
+  {
+    peerUser,
+    localUser,
+    beforeId,
+    nowHlc,
+  }: {
+    readonly peerUser: string;
+    readonly localUser: string;
+    readonly beforeId: number;
+    readonly nowHlc: string;
+  }
+): number {
+  const pLower = String(peerUser || '').trim().toLowerCase();
+  const lLower = String(localUser || '').trim().toLowerCase();
+  if (!pLower) return 0;
+
+  const candidates = db
+    .prepare(
+      `SELECT * FROM messages
+       WHERE id < ?
+         AND (
+           (lower(from_user) = ? AND status IN ('pending', 'seen'))
+           OR (lower(to_user) = ? AND lower(from_user) = ? AND status = 'replied')
+         )`
+    )
+    .all(beforeId, pLower, pLower, lLower) as Array<Record<string, unknown>>;
+
+  if (!candidates.length) return 0;
+  const updateStmt = db.prepare(
+    "UPDATE messages SET status = 'delivered', reply_hlc = CASE WHEN reply_hlc = '' THEN ? ELSE reply_hlc END WHERE id = ?"
+  );
+  for (const row of candidates) {
+    updateStmt.run(nowHlc, Number(row.id));
+  }
+  return candidates.length;
 }
 
 function emitFrameCrdtUpdateInDb(db: DatabaseSync, seq: number): void {
@@ -1334,6 +1442,7 @@ module.exports = {
   hydrateMlsGroup,
   hydrateMessage,
   selectInboxForBootInDb,
+  retireOlderMessagesWithPeerInDb,
   emitFrameCrdtUpdateInDb,
   appendCrdtOpInDb,
   compactProjectCrdtLogInDb,
