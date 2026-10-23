@@ -1162,45 +1162,13 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       .get(project);
 
     const projectGotchas = protocol.listGotchasInDb(db, project);
-
-    const activeUserId = user?.id || detectedLogin;
-    const localIdentity = crdt.loadOrCreateIdentity();
-    const recipientAliases = new Set(
-      [activeUserId, user?.id, user?.name, detectedLogin, ...(user?.osUsers || []), 'all', 'team']
-        .filter(Boolean)
-        .map((s) => String(s).trim().toLowerCase())
-    );
-    const allPendingRows = db
-      .prepare("SELECT * FROM messages WHERE status = 'pending' ORDER BY hlc ASC")
-      .all();
-    const inboxPending = allPendingRows
-      .filter((row) => {
-        const toLower = String(row.to_user || '').trim().toLowerCase();
-        if (recipientAliases.has(toLower)) return true;
-        // If sent by a remote MLS peer (different cryptographic DID), treat it as addressed to the local operator
-        if (row.from_did && localIdentity?.did && row.from_did !== localIdentity.did) return true;
-        return false;
-      })
-      .map((row) => {
-        const m = crdt.hydrateMessage(row);
-        m.courier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
-        return m;
-      });
-
-    const inboxReplies = db
-      .prepare("SELECT * FROM messages WHERE status = 'replied' ORDER BY reply_hlc ASC")
-      .all()
-      .filter((row) => {
-        const fromLower = String(row.from_user || '').trim().toLowerCase();
-        if (recipientAliases.has(fromLower)) return true;
-        if (row.from_did && localIdentity?.did && row.from_did === localIdentity.did) return true;
-        return false;
-      })
-      .map((row) => {
-        const m = crdt.hydrateMessage(row);
-        m.courier = buildCourierProfileInDb(db, m.replyRom || m.fromRom, m.toUser, 'RETURN COURIER');
-        return m;
-      });
+    const { inboxPending, inboxReplies } = crdt.selectInboxForBootInDb(db, {
+      sessionId,
+      user,
+      detectedLogin,
+      buildCourierProfileInDb,
+      options,
+    });
 
     const sessionRomPrompt = romSlotted
       ? rom.isCrew
@@ -1627,7 +1595,11 @@ function useRom(name, options = {}, file = dbPath()) {
           if (!proj && dir) proj = resolveProjectFromDirInDb(db, dir) || '';
         }
 
-        if (proj) {
+        const canUpdateProjectRom =
+          !sid ||
+          Boolean(rawProject) ||
+          (Boolean(target.isCrew) && !sid.includes(':') && !sid.startsWith('pending_subagent:'));
+        if (proj && canUpdateProjectRom) {
           db.prepare(
             `INSERT INTO project_roms (project, rom_name, updated)
              VALUES (?, ?, ?)

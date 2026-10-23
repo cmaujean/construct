@@ -2075,6 +2075,53 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(frameOp.payload.verified, 'unit-test-layer');
     assert.equal(frameOp.payload.open, false);
 
+    // Regression test for GH #7: child subagent `[ROM: <specialist>]` or session-scoped solo specialist
+    // must NOT overwrite `project_roms` for future tabs opened in that repository.
+    const gh7Dir = path.join(tmp.dir, 'gh7-repo');
+    fs.mkdirSync(gh7Dir, { recursive: true });
+    store.setHead('acme/gh7_app', { repo: gh7Dir, state: 'Testing GH #7' });
+    store.useRom('amber', { sessionId: 'ses_primary_tab', dir: gh7Dir });
+    // Child subagent boots in gh7Dir and slots solo specialist `fiona`
+    store.bootProject('acme/gh7_app', { sessionId: 'ses_child_sub', dir: gh7Dir });
+    store.useRom('fiona', { sessionId: 'ses_child_sub', dir: gh7Dir });
+    const childBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_child_sub', dir: gh7Dir });
+    assert.equal(childBoot.rom.name, 'fiona');
+    // Newly opened tab in the same repo must inherit the `amber` Crew Bank, NOT `fiona`!
+    const newTabBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_fresh_tab', dir: gh7Dir });
+    assert.equal(
+      newTabBoot.rom.name,
+      'amber',
+      `GH #7 regression: expected fresh tab in acme/gh7_app to inherit 'amber' Crew Bank, got '${newTabBoot.rom.name}'`
+    );
+
+    // Regression test for Multi-Tab Comms Spam: an incoming Courier message claimed by Tab 1 (`ses_comms_tab_1`)
+    // must NOT spam Tab 2 (`ses_comms_tab_2`) or child subagents (`ses_comms_tab_1:sub`).
+    const currentRecipient = store.getUser().user?.id || store.getUser().detectedLogin;
+    const spamMsg = store.sendMessage({
+      project: 'acme/gh7_app',
+      fromUser: 'mike',
+      fromRom: 'case',
+      to: currentRecipient,
+      body: 'Single-tab delivery check for TUI',
+    });
+    const tab1Boot = store.bootProject('acme/gh7_app', { sessionId: 'ses_comms_tab_1' });
+    assert.ok(
+      tab1Boot.inboxPending.some((m) => m.id === spamMsg.id),
+      'Tab 1 should receive the incoming Courier message'
+    );
+    const subBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_comms_tab_1:explore' });
+    assert.equal(
+      subBoot.inboxPending.length,
+      0,
+      'Child subagents must never receive inboxPending Comms injections'
+    );
+    const tab2Boot = store.bootProject('acme/gh7_app', { sessionId: 'ses_comms_tab_2' });
+    assert.equal(
+      tab2Boot.inboxPending.some((m) => m.id === spamMsg.id),
+      false,
+      'Tab 2 must not be spammed with a Courier message already claimed by Tab 1'
+    );
+
     // Verify `benchLattice` head-to-head metrics (World-Track II + World-Track III Evolved from `causal-lattice` library)
     const benchReport = store.benchLattice({ ops: 25 });
     assert.ok(benchReport.wire.batchCompressionRatio > 1.8);

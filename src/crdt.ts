@@ -604,6 +604,107 @@ function hydrateMessage(row: Record<string, unknown> | null | undefined): Courie
   };
 }
 
+function selectInboxForBootInDb(
+  db: DatabaseSync,
+  {
+    sessionId,
+    user,
+    detectedLogin,
+    buildCourierProfileInDb,
+    options = {},
+  }: {
+    readonly sessionId: string;
+    readonly user: { readonly id?: string; readonly name?: string; readonly osUsers?: readonly string[] } | null;
+    readonly detectedLogin: string;
+    readonly buildCourierProfileInDb: (db: DatabaseSync, rom: string, sender: string, role: string) => unknown;
+    readonly options?: { readonly isSubagent?: boolean };
+  }
+) {
+  const isSubagentSession =
+    Boolean(options?.isSubagent) ||
+    sessionId.includes(':') ||
+    sessionId.startsWith('pending_subagent:');
+  if (isSubagentSession) {
+    return { inboxPending: [], inboxReplies: [] };
+  }
+
+  const activeUserId = user?.id || detectedLogin;
+  const localIdentity = loadOrCreateIdentity();
+  const recipientAliases = new Set(
+    [activeUserId, user?.id, user?.name, detectedLogin, ...(user?.osUsers || []), 'all', 'team']
+      .filter(Boolean)
+      .map((s) => String(s).trim().toLowerCase())
+  );
+
+  let claimsMap: Record<string, string> = {};
+  if (sessionId) {
+    try {
+      const claimRow = db.prepare("SELECT value FROM meta WHERE key = 'courier_tab_claims'").get() as { value?: string } | undefined;
+      if (claimRow?.value) claimsMap = JSON.parse(claimRow.value);
+    } catch (_) {}
+  }
+  let claimsDirty = false;
+  const claimForTab = (uid: string): boolean => {
+    if (!sessionId) return true;
+    const existingOwner = claimsMap[uid];
+    if (!existingOwner) {
+      claimsMap[uid] = sessionId;
+      claimsDirty = true;
+      return true;
+    }
+    return existingOwner === sessionId;
+  };
+
+  const allPendingRows = db
+    .prepare("SELECT * FROM messages WHERE status = 'pending' ORDER BY hlc ASC")
+    .all() as Array<Record<string, unknown>>;
+  const inboxPending = allPendingRows
+    .filter((row) => {
+      const toLower = String(row.to_user || '').trim().toLowerCase();
+      const isForMe =
+        recipientAliases.has(toLower) ||
+        Boolean(row.from_did && localIdentity?.did && row.from_did !== localIdentity.did);
+      if (!isForMe) return false;
+      return claimForTab(`pending:${String(row.uid)}`);
+    })
+    .map((row) => {
+      const m = hydrateMessage(row) as CourierMessage & { courier?: unknown };
+      m.courier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
+      return m;
+    });
+
+  const inboxReplies = (
+    db
+      .prepare("SELECT * FROM messages WHERE status = 'replied' ORDER BY reply_hlc ASC")
+      .all() as Array<Record<string, unknown>>
+  )
+    .filter((row) => {
+      const fromLower = String(row.from_user || '').trim().toLowerCase();
+      const isMine =
+        recipientAliases.has(fromLower) ||
+        Boolean(row.from_did && localIdentity?.did && row.from_did === localIdentity.did);
+      if (!isMine) return false;
+      return claimForTab(`reply:${String(row.uid)}:${String(row.reply_hlc || '')}`);
+    })
+    .map((row) => {
+      const m = hydrateMessage(row) as CourierMessage & { courier?: unknown };
+      m.courier = buildCourierProfileInDb(db, m.replyRom || m.fromRom, m.toUser, 'RETURN COURIER');
+      return m;
+    });
+
+  if (claimsDirty) {
+    try {
+      db.prepare(
+        `INSERT INTO meta (key, value, updated)
+         VALUES ('courier_tab_claims', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated`
+      ).run(JSON.stringify(claimsMap), new Date().toISOString());
+    } catch (_) {}
+  }
+
+  return { inboxPending, inboxReplies };
+}
+
 function emitFrameCrdtUpdateInDb(db: DatabaseSync, seq: number): void {
   const row = db.prepare('SELECT * FROM frames WHERE seq = ?').get(seq) as Record<string, unknown> | undefined;
   if (!row) return;
@@ -1232,6 +1333,7 @@ module.exports = {
   initCrdtAndCommsSchema,
   hydrateMlsGroup,
   hydrateMessage,
+  selectInboxForBootInDb,
   emitFrameCrdtUpdateInDb,
   appendCrdtOpInDb,
   compactProjectCrdtLogInDb,

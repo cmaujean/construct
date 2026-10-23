@@ -474,7 +474,6 @@ export default {
         const subDirective = subDetectFn({ session: sess, messages: event.messages })
         if (subDirective) {
           const romArgs = ["rom", subDirective.action, subDirective.target, ...sessionArgs]
-          if (dir) romArgs.push("--dir", String(dir))
           runConstruct(romArgs)
         }
       }
@@ -498,6 +497,17 @@ export default {
           type: "text",
           text: `<construct-live-memory directory="${dir || ""}" session="${event.sessionID || ""}">\n${output}${voiceLock ? `\n\n${voiceLock}` : ""}\n</construct-live-memory>`,
         })
+        // Auto-transition any surfaced Courier messages to 'seen' (or 'ack' for return couriers)
+        // after injecting them on this turn so TUI/Desktop sessions never re-inject the same
+        // message on Turn 2, 3, 4 or across other tabs.
+        const incomingMatches = [...output.matchAll(/\[M#(\d+)\]\s+Courier:/g)]
+        for (const m of incomingMatches) {
+          if (m[1]) runConstructAsync(["seen", String(m[1])])
+        }
+        const replyMatches = [...output.matchAll(/\[M#(\d+)\]\s+Return Courier:/g)]
+        for (const m of replyMatches) {
+          if (m[1]) runConstructAsync(["ack", String(m[1])])
+        }
       }
       if (event.sessionID) {
         void syncSessionHud(event.sessionID, dir)
