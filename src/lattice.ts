@@ -83,7 +83,7 @@ export function runLatticeBenchmark(
     groupId: crypto.randomBytes(16).toString("hex"),
     epoch: 1,
     epochSecret: crypto.randomBytes(32).toString("base64"),
-    members: [{ did, userId: "chris", signPub, dhPub }],
+    members: [{ did, userId: "alice", signPub, dhPub }],
     relays: [],
     lastSyncHlc: "",
     updated: new Date().toISOString(),

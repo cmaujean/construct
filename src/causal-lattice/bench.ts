@@ -107,7 +107,7 @@ function createFakeHttpJwtMutationWire(entityKey: string, hlcMs: number): Buffer
   );
   const jwtPayload = Buffer.from(
     JSON.stringify({
-      sub: "operator:chris",
+      sub: "operator:alice",
       scope: "telemetry:read telemetry:write",
       prefix: "vehicle:",
       exp: 1999999999,
@@ -236,7 +236,7 @@ export function runHeadToHeadBenchmark(recordCount = 2000): BenchmarkReport {
     .prepare(
       `INSERT INTO acl_tokens (token_id, prefix, permissions, expires_at) VALUES (?, ?, ?, ?)`
     )
-    .run("operator:chris", "vehicle:fleet-", 7, 1999999999);
+    .run("operator:alice", "vehicle:fleet-", 7, 1999999999);
 
   const insertStmt = sqliteDb.prepare(`
     INSERT INTO entities (entity_key, hlc_ms, payload_json)
@@ -269,7 +269,7 @@ export function runHeadToHeadBenchmark(recordCount = 2000): BenchmarkReport {
       .update(`${parts[0]}.${parts[1]}`)
       .digest("base64url");
     if (expected === parts[2]) {
-      const acl = aclStmt.get("operator:chris") as { prefix: string } | undefined;
+      const acl = aclStmt.get("operator:alice") as { prefix: string } | undefined;
       if (!acl || !key.startsWith(acl.prefix)) {
         throw new Error("ACL failure");
       }
