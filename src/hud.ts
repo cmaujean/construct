@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
+const { DatabaseSync } = require('node:sqlite');
 
 function createHudModule(deps) {
   const {
@@ -131,13 +132,22 @@ function listActiveTabsInDb(db, file = dbPath()) {
   }
 
   // When running against the primary Construct DB, also inspect OpenCode's live `session_v2` table (read-only)
-  // so we know every open root tab's directory, human title, and `time_viewed` / `time_updated` across all Locations.
+  // so we know every open root tab's directory, human title, and `time_viewed` / `time_updated` across all Locations,
+  // and prune any child subagent (`parent_id IS NOT NULL`) or archived sessions from `bySid`.
   if (!process.env.CONSTRUCT_DB) {
     const ocDbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
     if (fs.existsSync(ocDbPath)) {
       let ocDb = null;
       try {
         ocDb = new DatabaseSync(ocDbPath, { readOnly: true });
+        for (const sid of [...bySid.keys()]) {
+          const metaRow = ocDb
+            .prepare('SELECT parent_id, time_archived FROM session_v2 WHERE id = ? LIMIT 1')
+            .get(sid);
+          if (metaRow && (metaRow.parent_id !== null || metaRow.time_archived !== null)) {
+            bySid.delete(sid);
+          }
+        }
         const ocRows = ocDb
           .prepare(
             'SELECT id, title, directory, time_viewed, time_updated FROM session_v2 WHERE parent_id IS NULL AND time_archived IS NULL ORDER BY COALESCE(time_viewed, time_updated) DESC LIMIT 10'
@@ -152,11 +162,13 @@ function listActiveTabsInDb(db, file = dbPath()) {
             directory: '',
             title: '',
             updatedMs: 0,
+            isRootSession: true,
           };
+          existing.isRootSession = true;
           if (row.directory) existing.directory = row.directory;
           if (row.title) {
             existing.title = String(row.title)
-              .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
+              .replace(/^(?:(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*)+/u, '')
               .trim();
           }
           const ocTs = Math.max(Number(row.time_viewed || 0), Number(row.time_updated || 0));
@@ -178,6 +190,11 @@ function listActiveTabsInDb(db, file = dbPath()) {
     let proj = item.project;
     if (!proj && item.directory) {
       proj = resolveProjectFromDirInDb(db, item.directory) || '';
+    }
+    // Exclude child subagent sessions that slotted a solo specialist (`!rom.isCrew`)
+    if (item.romName && !item.isRootSession) {
+      const explicitRom = getRomInDb(db, item.romName);
+      if (explicitRom && !explicitRom.isCrew) continue;
     }
     const rom = getActiveRomInDb(db, item.sessionId, proj);
     const pack = rom.pack || (rom.name === 'crew' ? 'sprawl' : rom.name);
@@ -475,7 +492,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
 
     const projectRoms = {};
     for (const r of db.prepare('SELECT project, rom_name FROM project_roms').all()) {
-      const pRom = getRomInDb(db, r.rom_name);
+      const pRom = getActiveRomInDb(db, '', r.project);
       const pPack = pRom.pack || (pRom.name === 'crew' ? 'sprawl' : pRom.name);
       projectRoms[r.project] = {
         romName: pRom.name === 'crew' ? 'sprawl' : pRom.name,

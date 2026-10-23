@@ -1149,7 +1149,10 @@ function detectPreSlotRomDirective(promptText) {
   const text = normalizeMultiWordRomPhrases(String(promptText || '').trim());
   if (!text) return null;
 
-  const tagMatch = text.match(/(?:^|\s)\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
+  // Match `[ROM: <name>]` only at the start of a line inside the leading preamble (first 4 lines),
+  // never when buried mid-line inside a pasted log or transcript in an interactive root prompt.
+  const headLines = text.split(/\r?\n/).slice(0, 4).join('\n');
+  const tagMatch = headLines.match(/(?:^|\n)\s*\[ROM:\s*([a-z0-9_]+(?:,[a-z0-9_]+)*)\s*\]/i);
   if (tagMatch && isValidRomTarget(tagMatch[1])) {
     return { action: 'use', target: tagMatch[1].toLowerCase() };
   }
@@ -1267,7 +1270,7 @@ function detectSubagentContextRom({ session = null, messages = [] } = {}) {
   const isChildSession = Boolean(session?.parentID || session?.parentId || /@\w+/.test(title));
   if (isChildSession && title) {
     const cleanLead = title
-      .replace(/^(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*/u, '')
+      .replace(/^(?:(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*)+/u, '')
       .trim()
       .split(/[\s(:@_-]/)[0]
       .toLowerCase();

@@ -433,10 +433,39 @@ function getDefaultRomNameInDb(db) {
     if (user.defaultRom === 'off') return '';
     if (user.defaultRom) return user.defaultRom;
   }
+  try {
+    const metaRow = db.prepare("SELECT value FROM meta WHERE key = 'default_rom' LIMIT 1").get();
+    if (metaRow && metaRow.value) {
+      if (metaRow.value === 'off') return '';
+      return String(metaRow.value);
+    }
+  } catch (_) {}
   const offRow = db.prepare('SELECT active FROM roms WHERE active = -1 LIMIT 1').get();
   if (offRow) return '';
   const activeRow = db.prepare('SELECT name FROM roms WHERE active = 1 LIMIT 1').get();
   return activeRow?.name || 'crew';
+}
+
+function healPoisonedProjectRomsInDb(db) {
+  const rows = db.prepare('SELECT project, rom_name FROM project_roms').all();
+  const now = nowIso();
+  for (const r of rows) {
+    if (!r.rom_name) continue;
+    try {
+      const resolved = getRomInDb(db, r.rom_name);
+      if (resolved && !resolved.isCrew) {
+        const healedPack =
+          resolved.pack && resolved.pack !== 'core'
+            ? resolved.pack
+            : getDefaultRomNameInDb(db) || 'sprawl';
+        db.prepare('UPDATE project_roms SET rom_name = ?, updated = ? WHERE project = ?').run(
+          healedPack,
+          now,
+          r.project
+        );
+      }
+    } catch (_) {}
+  }
 }
 
 function getActiveRomInDb(db, sessionId, project = '') {
@@ -454,7 +483,22 @@ function getActiveRomInDb(db, sessionId, project = '') {
   if (proj) {
     const projRow = db.prepare('SELECT rom_name FROM project_roms WHERE project = ?').get(proj);
     if (projRow && projRow.rom_name) {
-      return getRomInDb(db, projRow.rom_name);
+      const projRom = getRomInDb(db, projRow.rom_name);
+      if (projRom && !projRom.isCrew) {
+        const healedPack =
+          projRom.pack && projRom.pack !== 'core'
+            ? projRom.pack
+            : getDefaultRomNameInDb(db) || 'sprawl';
+        try {
+          db.prepare('UPDATE project_roms SET rom_name = ?, updated = ? WHERE project = ?').run(
+            healedPack,
+            nowIso(),
+            proj
+          );
+        } catch (_) {}
+        return getRomInDb(db, healedPack);
+      }
+      return projRom;
     }
   }
   const defaultRom = getDefaultRomNameInDb(db);
@@ -490,42 +534,13 @@ function isSessionRomSlottedInDb(db, sessionId, project = '') {
 function resolveSingleRomRowInDb(db, name) {
   const key = String(name || '').trim().toLowerCase();
   const aliasMap = {
-    architect: 'wintermute',
-    raz: 'erasmus',
-    waterhouse: 'lawrence',
-    shaman: 'talon',
-    samurai: 'hatchetman',
-    face: 'siren',
-    sysop: 'captainchaos',
-    toottoot: 'toot',
-    archive: 'ivy',
-    yonderboy: 'lupus',
-    florimel: 'flora',
-    ghost: 'ghostwheel',
-    howard: 'bobhoward',
-    teapot: 'angleton',
-    cassie: 'persephone',
-    registry: 'stacks',
-    mithrandir: 'gandalf',
-    strider: 'aragorn',
-    sam: 'samwise',
-    gollum: 'smeagol',
-    stibbons: 'ponder',
-    lipwig: 'moist',
-    spike: 'adorabelle',
-    ook: 'librarian',
-    esme: 'weatherwax',
-    granny: 'weatherwax',
-    dodge: 'richard',
-    forthrast: 'richard',
-    alkali: 'wallace',
-    siodhachan: 'atticus',
-    brigid: 'brighid',
-    fflam: 'fflewddur',
-    littlealex: 'alex',
-    georgieboy: 'georgie',
-    prisoncharlie: 'chaplain',
-    charlie: 'chaplain',
+    architect: 'wintermute', raz: 'erasmus', waterhouse: 'lawrence', shaman: 'talon', samurai: 'hatchetman',
+    face: 'siren', sysop: 'captainchaos', toottoot: 'toot', archive: 'ivy', yonderboy: 'lupus', florimel: 'flora',
+    ghost: 'ghostwheel', howard: 'bobhoward', teapot: 'angleton', cassie: 'persephone', registry: 'stacks',
+    mithrandir: 'gandalf', strider: 'aragorn', sam: 'samwise', gollum: 'smeagol', stibbons: 'ponder',
+    lipwig: 'moist', spike: 'adorabelle', ook: 'librarian', esme: 'weatherwax', granny: 'weatherwax',
+    dodge: 'richard', forthrast: 'richard', alkali: 'wallace', siodhachan: 'atticus', brigid: 'brighid',
+    fflam: 'fflewddur', littlealex: 'alex', georgieboy: 'georgie', prisoncharlie: 'chaplain', charlie: 'chaplain',
     weathers: 'catlady',
   };
   const target = aliasMap[key] || key;
@@ -543,50 +558,19 @@ function getRomInDb(db, name) {
   // Check if `rawSpec` is a known pack alias (`crew`, `all`, `sprawl`, `anathem`, `generic`, `standard`, `plain`)
   // or a custom pack name present in `roms.pack`
   const packAliasMap = {
-    crew: 'sprawl',
-    all: 'sprawl',
-    sprawl: 'sprawl',
-    anathem: 'anathem',
-    nightcity: 'nightcity',
-    afterlife: 'nightcity',
-    cyberpunk: 'nightcity',
-    cryptonomicon: 'cryptonomicon',
-    epiphyte: 'cryptonomicon',
-    shadowrun: 'shadowrun',
-    shadowland: 'shadowrun',
-    dresden: 'dresden',
-    paranet: 'dresden',
-    amber: 'amber',
-    kolvir: 'amber',
-    pattern: 'amber',
-    laundry: 'laundry',
-    qdivision: 'laundry',
-    mahoganyrow: 'laundry',
-    tolkien: 'tolkien',
-    fellowship: 'tolkien',
-    middleearth: 'tolkien',
-    rivendell: 'tolkien',
-    discworld: 'discworld',
-    ankhmorpork: 'discworld',
-    nightwatch: 'discworld',
-    clacks: 'discworld',
-    reamde: 'reamde',
-    tgd: 'reamde',
-    corporation9592: 'reamde',
-    train: 'reamde',
-    irondruid: 'irondruid',
-    tirnanog: 'irondruid',
-    thirdeye: 'irondruid',
-    prydain: 'prydain',
-    caerdath: 'prydain',
-    caerdallben: 'prydain',
-    clockwork: 'clockwork',
-    korova: 'clockwork',
-    droogs: 'clockwork',
-    nadsat: 'clockwork',
-    generic: 'generic',
-    standard: 'generic',
-    plain: 'generic',
+    crew: 'sprawl', all: 'sprawl', sprawl: 'sprawl', anathem: 'anathem',
+    nightcity: 'nightcity', afterlife: 'nightcity', cyberpunk: 'nightcity',
+    cryptonomicon: 'cryptonomicon', epiphyte: 'cryptonomicon',
+    shadowrun: 'shadowrun', shadowland: 'shadowrun', dresden: 'dresden', paranet: 'dresden',
+    amber: 'amber', kolvir: 'amber', pattern: 'amber',
+    laundry: 'laundry', qdivision: 'laundry', mahoganyrow: 'laundry',
+    tolkien: 'tolkien', fellowship: 'tolkien', middleearth: 'tolkien', rivendell: 'tolkien',
+    discworld: 'discworld', ankhmorpork: 'discworld', nightwatch: 'discworld', clacks: 'discworld',
+    reamde: 'reamde', tgd: 'reamde', corporation9592: 'reamde', train: 'reamde',
+    irondruid: 'irondruid', tirnanog: 'irondruid', thirdeye: 'irondruid',
+    prydain: 'prydain', caerdath: 'prydain', caerdallben: 'prydain',
+    clockwork: 'clockwork', korova: 'clockwork', droogs: 'clockwork', nadsat: 'clockwork',
+    generic: 'generic', standard: 'generic', plain: 'generic',
   };
   let packName = packAliasMap[rawSpec] || null;
   if (!packName && !rawSpec.includes(',')) {
@@ -668,6 +652,9 @@ function getRomInDb(db, name) {
 }
 
 function syncActiveRomInDb(db, targetFile = romMod.activeRomPath()) {
+  try {
+    healPoisonedProjectRomsInDb(db);
+  } catch (_) {}
   const rom = getActiveRomInDb(db);
   const detectedLogin = protocol.detectOsUsername();
   const user = protocol.getCurrentUserInDb(db);
@@ -1079,7 +1066,8 @@ function getTape(options = {}, file = dbPath()) {
 }
 
 function bootProject(projectInput, options = {}, file = dbPath()) {
-  const project = normalizeProject(projectInput);
+  const workspaceOnly = Boolean(options.workspaceOnly);
+  const project = workspaceOnly ? '' : normalizeProject(projectInput);
   const tapeLimit = Number.isInteger(options.tapeLimit) && options.tapeLimit > 0 ? options.tapeLimit : 25;
   const sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
 
@@ -1089,6 +1077,22 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
     const allRoms = db.prepare('SELECT * FROM roms ORDER BY name ASC').all().map(romMod.hydrateRom);
     const detectedLogin = protocol.detectOsUsername();
     const user = protocol.getCurrentUserInDb(db);
+    if (workspaceOnly) {
+      const sessionRomPrompt = romSlotted
+        ? rom.isCrew
+          ? rom.voice
+          : romMod.compileRomPersonaOnly(rom)
+        : romMod.compileUnassignedBootloaderPrompt(rom, allRoms);
+      return {
+        rom,
+        romSlotted,
+        sessionId: sessionId || null,
+        sessionRomPrompt,
+        allRoms,
+        user,
+        detectedLogin,
+      };
+    }
     const head = getHeadInDb(db, project) || {
       project,
       repo: defaultRepoPathInDb(db, project),
@@ -1097,8 +1101,10 @@ function bootProject(projectInput, options = {}, file = dbPath()) {
       updated: '',
     };
 
-    // Record tab -> project/directory binding on `session_roms` (preserving any explicitly slotted `rom_name`)
-    if (sessionId && !sessionId.startsWith('pending_subagent:') && !sessionId.includes(':')) {
+    // Record tab -> project/directory binding on `session_roms` (preserving any explicitly slotted `rom_name`,
+    // and skipping project/directory binding if this session is already bound to a solo subagent specialist).
+    const isSoloSession = Boolean(rom && !rom.isCrew && romSlotted);
+    if (sessionId && !isSoloSession && !sessionId.startsWith('pending_subagent:') && !sessionId.includes(':')) {
       const now = nowIso();
       const repoDir = options.dir || head.repo || '';
       db.prepare(
@@ -1466,6 +1472,10 @@ function setDefaultRom(nameOrOff, options = {}, file = dbPath()) {
         if (isClear) {
           db.prepare('UPDATE roms SET active = 0').run();
           db.prepare("UPDATE roms SET active = -1 WHERE name = 'razor'").run();
+          db.prepare(
+            `INSERT INTO meta (key, value, updated) VALUES ('default_rom', 'off', ?)
+             ON CONFLICT(key) DO UPDATE SET value = 'off', updated = excluded.updated`
+          ).run(now);
           if (user) {
             db.prepare("UPDATE users SET default_rom = 'off', updated = ? WHERE id = ?").run(now, user.id);
           }
@@ -1477,6 +1487,10 @@ function setDefaultRom(nameOrOff, options = {}, file = dbPath()) {
         if (!target.isCrew) {
           db.prepare('UPDATE roms SET active = 1, updated = ? WHERE name = ?').run(now, target.name);
         }
+        db.prepare(
+          `INSERT INTO meta (key, value, updated) VALUES ('default_rom', ?, ?)
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated`
+        ).run(target.name, now);
         if (user) {
           db.prepare('UPDATE users SET default_rom = ?, updated = ? WHERE id = ?').run(target.name, now, user.id);
         }
@@ -1595,10 +1609,10 @@ function useRom(name, options = {}, file = dbPath()) {
           if (!proj && dir) proj = resolveProjectFromDirInDb(db, dir) || '';
         }
 
+        // `project_roms` strictly stores repository-level Crew Banks / rosters (`target.isCrew`),
+        // never solo subagent specialists (`!target.isCrew`).
         const canUpdateProjectRom =
-          !sid ||
-          Boolean(rawProject) ||
-          (Boolean(target.isCrew) && !sid.includes(':') && !sid.startsWith('pending_subagent:'));
+          Boolean(target.isCrew) && !sid.includes(':') && !sid.startsWith('pending_subagent:');
         if (proj && canUpdateProjectRom) {
           db.prepare(
             `INSERT INTO project_roms (project, rom_name, updated)
@@ -1610,20 +1624,22 @@ function useRom(name, options = {}, file = dbPath()) {
         }
 
         if (sid) {
+          const sessProj = target.isCrew ? proj : '';
+          const sessDir = target.isCrew ? dir : '';
           db.prepare(
             `INSERT INTO session_roms (session_id, rom_name, project, directory, updated)
              VALUES (?, ?, ?, ?, ?)
              ON CONFLICT(session_id) DO UPDATE SET
                rom_name = excluded.rom_name,
-               project = CASE WHEN excluded.project != '' THEN excluded.project ELSE session_roms.project END,
-               directory = CASE WHEN excluded.directory != '' THEN excluded.directory ELSE session_roms.directory END,
+               project = CASE WHEN ? = 0 THEN '' WHEN excluded.project != '' THEN excluded.project ELSE session_roms.project END,
+               directory = CASE WHEN ? = 0 THEN '' WHEN excluded.directory != '' THEN excluded.directory ELSE session_roms.directory END,
                updated = excluded.updated`
-          ).run(sid, target.name, proj, dir, now);
+          ).run(sid, target.name, sessProj, sessDir, now, target.isCrew ? 1 : 0, target.isCrew ? 1 : 0);
           return { ...target, active: true, sessionId: sid, project: proj || null };
         }
 
-        if (proj) {
-          // When switching a project's ROM without a specific session ID, also update any open tabs bound to that project
+        if (proj && target.isCrew) {
+          // When switching a project's Crew without a specific session ID, also update any open tabs bound to that project
           db.prepare('UPDATE session_roms SET rom_name = ?, updated = ? WHERE project = ?').run(target.name, now, proj);
           return { ...target, active: true, sessionId: null, project: proj };
         }

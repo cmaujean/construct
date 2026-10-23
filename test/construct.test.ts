@@ -2086,12 +2086,65 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     store.useRom('fiona', { sessionId: 'ses_child_sub', dir: gh7Dir });
     const childBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_child_sub', dir: gh7Dir });
     assert.equal(childBoot.rom.name, 'fiona');
+    // Project HUD snapshot (`getHudSnapshot({ project: 'acme/gh7_app' })`) and `tabs` list must NOT be hijacked
+    // by the OpenCode child subagent `ses_child_sub` (`fiona`) right after the child subagent runs!
+    const gh7Hud = store.getHudSnapshot({ project: 'acme/gh7_app' });
+    assert.equal(
+      gh7Hud.romName,
+      'amber',
+      `GH #7 HUD regression: child subagent ses_child_sub ('fiona') hijacked project HUD romName ('${gh7Hud.romName}')`
+    );
+    assert.equal(
+      gh7Hud.tabs.some((t) => t.sessionId === 'ses_child_sub'),
+      false,
+      'GH #7 HUD regression: child subagent with solo specialist ROM must not appear in active root tabs list'
+    );
     // Newly opened tab in the same repo must inherit the `amber` Crew Bank, NOT `fiona`!
     const newTabBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_fresh_tab', dir: gh7Dir });
     assert.equal(
       newTabBoot.rom.name,
       'amber',
       `GH #7 regression: expected fresh tab in acme/gh7_app to inherit 'amber' Crew Bank, got '${newTabBoot.rom.name}'`
+    );
+    // Even if `project` is explicitly passed alongside a solo specialist (`useRom('julian', { sessionId, project })`),
+    // `project_roms` must never be overwritten with a non-Crew solo ROM.
+    store.useRom('julian', { sessionId: 'ses_child_sub_2', project: 'acme/gh7_app', dir: gh7Dir });
+    assert.equal(
+      store.bootProject('acme/gh7_app', { sessionId: 'ses_fresh_tab', dir: gh7Dir }).rom.name,
+      'amber',
+      'GH #7 regression: passing project with a solo specialist must not overwrite project_roms'
+    );
+    // Self-healing invariant: if `project_roms` on disk was previously poisoned with a solo ROM (e.g. `corwin` or `julian`
+    // from pre-bd3798b), `bootProject` and `getHudSnapshot` must auto-heal `project_roms` to its parent Crew Bank (`amber`).
+    {
+      const { DatabaseSync } = require('node:sqlite');
+      const rawDb = new DatabaseSync(store.dbPath());
+      rawDb.prepare("UPDATE project_roms SET rom_name = 'corwin' WHERE project = 'acme/gh7_app'").run();
+      rawDb.close();
+    }
+    const healedBoot = store.bootProject('acme/gh7_app', { sessionId: 'ses_fresh_tab', dir: gh7Dir });
+    assert.equal(
+      healedBoot.rom.name,
+      'amber',
+      `GH #7 self-heal regression: poisoned project_roms ('corwin') should auto-heal to 'amber', got '${healedBoot.rom.name}'`
+    );
+    assert.equal(store.getHudSnapshot({ project: 'acme/gh7_app' }).projectRoms['acme/gh7_app']?.romName, 'amber');
+    // Non-repo workspace root boot (`workspaceOnly: true`) must use the operator's `default_rom` without
+    // binding the session in `session_roms` to `project = 'construct'`.
+    store.setDefaultRom('amber');
+    store.useRom('sprawl', { project: 'construct' });
+    const wsBoot = store.bootProject('', { sessionId: 'ses_workspace_root', workspaceOnly: true });
+    assert.equal(wsBoot.rom.name, 'amber');
+    // `detectPreSlotRomDirective` must not match `[ROM: ...]` buried mid-line inside pasted logs/transcripts,
+    // while still matching subagent preambles (`You are a subagent...\n[ROM: corwin]`).
+    assert.equal(
+      mcp.detectPreSlotRomDirective('Check why the log had this line:\n2026-10-23 [ROM: corwin] finished scan'),
+      null,
+      'GH #7 prompt hook regression: mid-prompt pasted [ROM: ...] must not flip a root session to a solo ROM'
+    );
+    assert.deepEqual(
+      mcp.detectPreSlotRomDirective('You are a subagent spawned by another session.\n[ROM: corwin] Audit repo'),
+      { action: 'use', target: 'corwin' }
     );
 
     // Regression test for Multi-Tab Comms Spam: an incoming Courier message claimed by Tab 1 (`ses_comms_tab_1`)
