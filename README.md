@@ -186,7 +186,7 @@ Because 90% of coding turns only need the 9 core engineering seats, and keeping 
 
 Each Crew Bank carries Bench specialists designed for specific high-leverage moments:
 1. **Legal, Licensing, Contract Scope & Rhetorical Cross-Examination ("The Procians"):**
-   - **`lodoghir`** (*Thainhoding, The Lodoghir* in `anathem`): Master Procian Rhetor and Convox inquisitor. Call him off the bench when you want ruthless cross-examination of a software license (MIT vs. Commons Clause vs. GPL), fair-use/IP boundaries, App Store / Play Store compliance, or when you want him to cross-examine a test suite by asking *"What bug could still pass this assertion?"*
+   - **`lodoghir`** (*Fraa Lodoghir* in `anathem`): Master Procian Rhetor and Convox inquisitor. Call him off the bench when you want ruthless cross-examination of a software license (MIT vs. Commons Clause vs. GPL), fair-use/IP boundaries, App Store / Play Store compliance, or when you want him to cross-examine a test suite by asking *"What bug could still pass this assertion?"*
    - **`johnson`** (*Mr. Johnson* in `shadowrun`): Immaculate corporate intermediary. Call him in when auditing contract deliverables, third-party vendor SLA/licensing traps, or strict scope boundaries.
 2. **State-Machine Computability, Structural Foundations & Formal Logic:**
    - **`turing`** (*Alan Turing* in `cryptonomicon`), **`takemura`** (*Goro Takemura* in `nightcity`), or **`ebenezar`** (*Ebenezar McCoy, The Blackstaff* in `dresden`): Call them in when reducing a complex async retry loop to a decidable transition table or tearing down rotten legacy abstractions.
