@@ -762,19 +762,27 @@ function executeMcpTool(name, input = {}, meta = {}) {
       return runConstructCli(args);
     }
     case 'comms': {
-      if (input.action === 'msg') {
+      if (input.action === 'msg' || (input as any).action === 'send') {
+        const msgBody = String((input as any).body ?? (input as any).message ?? (input as any).text ?? '').trim();
+        if (!msgBody || msgBody === 'undefined') {
+          throw new Error('message body cannot be empty');
+        }
         const args = ['msg', '--to', String(input.to)];
         if (input.project) args.push('--project', String(input.project));
         if (input.via) args.push('--via', String(input.via));
         if (sessionID) args.push('--session', String(sessionID));
-        args.push(String(input.body));
+        args.push(msgBody);
         return runConstructCli(args);
       }
       if (input.action === 'reply') {
+        const repBody = String((input as any).body ?? (input as any).message ?? (input as any).text ?? '').trim();
+        if (!repBody || repBody === 'undefined') {
+          throw new Error('reply text cannot be empty');
+        }
         const args = ['reply', String(input.id)];
         if (input.via) args.push('--via', String(input.via));
         if (sessionID) args.push('--session', String(sessionID));
-        args.push(String(input.body));
+        args.push(repBody);
         return runConstructCli(args);
       }
       if (input.action === 'seen') {

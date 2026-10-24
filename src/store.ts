@@ -2214,8 +2214,9 @@ function sendMessage(fields: SendMessageRequest = { body: '' }, file: string = d
 }
 
 function replyMessage(idOrUid, replyBodyInput, optionsOrFile = {}, maybeFile = dbPath()) {
-  const replyBody = String(replyBodyInput || '').trim();
-  if (!replyBody) throw new Error('reply text cannot be empty');
+  const replyBody =
+    replyBodyInput === undefined || replyBodyInput === null ? '' : String(replyBodyInput).trim();
+  if (!replyBody || replyBody === 'undefined') throw new Error('reply text cannot be empty');
   const options = typeof optionsOrFile === 'string' ? {} : optionsOrFile || {};
   const file = typeof optionsOrFile === 'string' ? optionsOrFile : maybeFile;
 
