@@ -14,7 +14,7 @@ Inspired by the ROM constructs and Hosaka sequential memory modules in William G
 2. [One-Prompt Installation (OpenCode)](#2-one-prompt-installation-opencode)
 3. [First Boot: Choosing Your Crew and Setting Up Agreements](#3-first-boot-choosing-your-crew-and-setting-up-agreements)
 4. [Assimilating Existing Instruction Files](#4-assimilating-existing-instruction-files)
-5. [The 15 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs](#5-the-15-crew-banks-the-bench-cross-bank-cameos-and-modular-packs)
+5. [The 16 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs](#5-the-16-crew-banks-the-bench-cross-bank-cameos-and-modular-packs)
 6. [Working Agreements, Rules and Gotchas](#6-working-agreements-rules-and-gotchas)
 7. [The Sequential Memory Tape (Sandwich Pattern)](#7-the-sequential-memory-tape-sandwich-pattern)
 8. [Collaborating: Project Invites, Auto-Clone and Zero Bleed](#8-collaborating-project-invites-auto-clone-and-zero-bleed)
@@ -36,7 +36,7 @@ Out of the box, AI coding sessions suffer from three structural flaws:
 
 **Construct** replaces single-persona chatbots, static handoff files, and scattered markdown instruction files with a **coordinated 9-seat engineering crew (`crew` mode by default)** backed by a sub-millisecond embedded SQLite (`WAL` + `FTS5`) sequential memory engine:
 
-- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with fifteen complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, `clockwork`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
+- **A Crew of Specialists Across 9 Canonical Seats, Not a Generalist Bot:** Every session runs as a coordinated 9-seat engineering crew (**Recon**, **Diagnostics**, **Architecture**, **Blitz**, **Forensics**, **Velocity**, **Adversarial Security**, **UI/Ergonomics**, and **Archivist**). Construct ships with sixteen complete, lazy-loaded **Crew Banks** (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, `clockwork`, `cybertron`, and `generic`), plus **Bench / Seconds** you can call in for specialized questions (legal/licensing cross-examination, rapid A/B benchmarking, deep RFC archaeology, or design-system audits), **Cross-Bank Cameos**, and drop-in custom pack support (`~/.config/opencode/packs/*.js`). All 9 seats and the Bench are in the room at all times: you can talk 1-on-1 with any specialist just by addressing them (*"Wintermute, ..."*, *"Jad, ..."*, *"Lodoghir, cross-examine this license"*), other seats can raise a hand if they have relevant input, and the crew runs **in parallel** across OpenCode `subagent` and Claude Code `Agent` child sessions over Construct's SQLite WAL database.
 - **You interact with it in plain English inside OpenCode or Claude Code.** You do not need to memorize CLI flags or manually load handoffs.
 - **Zero git pollution.** Construct never writes `.construct` folders, databases, or `AGENTS.md` headers into your project repositories. All state lives in `~/.config/opencode/construct.db` outside your repos.
 - **Zero external dependencies.** Built 100% on Node.js (`>= 22.5`) built-in `node:sqlite`, `node:crypto`, and `WebSocket`.
@@ -62,7 +62,7 @@ construct init
 
 ### What `construct init` Does Automatically
 1. Generates your local cryptographic identity (`~/.config/opencode/identity.json`, a W3C `did:key:z6Mk...` Ed25519 + X25519 keypair).
-2. Creates `~/.config/opencode/construct.db` with all 179 built-in ROM constructs across the 15 modular Crew Banks and the Core Engineering Protocol.
+2. Creates `~/.config/opencode/construct.db` with all 191 built-in ROM constructs across the 16 modular Crew Banks and the Core Engineering Protocol.
 3. Scans for any existing global AI instruction files and imports your agreements and gotchas if found.
 4. Installs the OpenCode V2 plugin at `~/.config/opencode/plugins/construct.js` and adds `~/.config/opencode/active-rom.md` to `~/.config/opencode/opencode.jsonc` (and when `--claude` is passed, wires `~/.claude/CLAUDE.md`, `~/.claude/settings.json`, and `~/.claude/agents/*.md`).
 
@@ -126,14 +126,14 @@ How the assimilation flow works:
 
 ---
 
-<a id="5-the-15-crew-banks-the-bench-cross-bank-cameos-and-modular-packs"></a>
-## 5. The 15 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs
+<a id="5-the-16-crew-banks-the-bench-cross-bank-cameos-and-modular-packs"></a>
+## 5. The 16 Crew Banks, The Bench, Cross-Bank Cameos and Modular Packs
 
 In Gibson's *Sprawl* trilogy and Stephenson's *Anathem*, nobody runs a complex operation solo. You do not send the street samurai to translate Victorian architecture, and you do not ask the Lorite scholar to machine a hull joint.
 
 Construct separates **9 Canonical Engineering Seats** (plus the zero-prose `razor` instrument and specialized **Bench / Seconds**) from **Swappable Crew Banks (`packs`)**. Each bank lives in its own lazy-loaded module under `src/packs/<bank>.js` (so normal turns load `0` inactive pack files into memory, and only your session's active 9 seats are queried from SQLite).
 
-Out of the box, Construct ships with **179 deep ROM constructs** across fifteen Crew Banks:
+Out of the box, Construct ships with **191 deep ROM constructs** across sixteen Crew Banks:
 - 🌃 **`sprawl` (default `crew`):** William Gibson's *Neuromancer*, *Count Zero*, and *Mona Lisa Overdrive* (9 starters + 3 bench seconds).
 - 🦾 **`nightcity` (`afterlife` / `cyberpunk`):** *Cyberpunk 2077 / Phantom Liberty* Afterlife Edgerunners (9 starters + 3 bench seconds).
 - 🏛️ **`anathem`:** Neal Stephenson's *Anathem* Concent of Saunt Edhar (9 starters + 3 bench seconds).
@@ -148,21 +148,22 @@ Out of the box, Construct ships with **179 deep ROM constructs** across fifteen 
 - 🐺 **`irondruid` (`tirnanog` / `thirdeye`):** Kevin Hearne's *The Iron Druid Chronicles* Third Eye Books, Tempe Pack & The World Tree (9 starters + 3 bench seconds).
 - ⚔️ **`prydain` (`caerdath` / `caerdallben`):** Lloyd Alexander's *The Chronicles of Prydain* Caer Dallben, Caer Dathyl & The Free Commots (9 starters + 3 bench seconds).
 - 🥛 **`clockwork` (`korova` / `droogs` / `nadsat`):** Anthony Burgess's *A Clockwork Orange* Korova Milkbar & Ludovico Center (9 starters + 3 bench seconds).
+- 🤖 **`cybertron` (`transformers` / `theark` / `autobots`):** *Transformers Generation 1 (1984)* The Ark & Teletraan I (9 starters + 3 bench seconds).
 - ⚙️ **`generic` (`standard` / `plain`):** Zero-fiction principal engineering pipeline (9 starters + `razor`).
 
-### The 9-Seat Crew Matrix Across All Fifteen Built-In Banks
+### The 9-Seat Crew Matrix Across All Sixteen Built-In Banks
 
-| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `dresden` | `amber` | `laundry` | `tolkien` | `discworld` | `reamde` | `irondruid` | `prydain` | `clockwork` | `generic` |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`bob`** | **`corwin`** | **`bobhoward`** (`howard`) | **`gandalf`** (`mithrandir`) | **`ponder`** (`stibbons`) | **`richard`** (`dodge`) | **`atticus`** (`siodhachan`) | **`dallben`** | **`alex`** (`littlealex`) | **`guide`** |
-| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`butters`** | **`merlin`** *(bench: **`caine`**)* | **`pinky`** *(bench: **`bridget`**)* | **`aragorn`** (`strider`, *bench: **`frodo`**)* | **`vimes`** *(bench: **`angua`**)* | **`zula`** *(bench: **`marlon`**)* | **`oberon`** | **`taran`** | **`pete`** *(bench: **`barnes`**)* | **`trace`** |
-| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`mab`** *(bench: **`ebenezar`**)* | **`fiona`** | **`angleton`** (`teapot`, *bench: **`iris`**)* | **`galadriel`** *(bench: **`celebrimbor`**)* | **`vetinari`** *(bench: **`weatherwax`**)* | **`dsquared`** *(bench: **`wallace`**)* | **`morrigan`** | **`gwydion`** *(bench: **`adaon`**)* | **`georgie`** *(bench: **`minister`**)* | **`arch`** |
-| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`harry`** | **`benedict`** | **`mo`** *(bench: **`fred`**)* | **`gimli`** | **`detritus`** | **`sokolov`** *(bench: **`ivanov`**)* | **`owen`** *(bench: **`perun`**)* | **`coll`** *(bench: **`hevydd`**)* | **`dim`** | **`strike`** |
-| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`murphy`** | **`julian`** | **`brain`** | **`faramir`** | **`cheery`** | **`csongor`** | **`hal`** | **`fflewddur`** (`fflam`) | **`brodsky`** | **`audit`** |
-| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`thomas`** *(bench: **`toot`**)* | **`random`** | **`persephone`** (`cassie`) | **`legolas`** *(courier: **`smeagol`**)* | **`moist`** (`lipwig`) | **`yuxia`** | **`granuaile`** *(bench: **`starbuck`**)* | **`gurgi`** *(bench: **`kaw`**)* | **`branom`** | **`pulse`** |
-| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`marcone`** *(bench: **`michael`**)* | **`brand`** *(bench: **`eric`**)* | **`mhari`** | **`eowyn`** *(bench: **`boromir`**)* | **`adorabelle`** (`spike`, *bench: **`death`**)* | **`olivia`** | **`leif`** *(bench: **`coyote`**)* | **`doli`** | **`deltoid`** *(bench: **`catlady`**)* | **`redteam`** |
-| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`grasshopper`** | **`dworkin`** *(bench: **`flora`**)* | **`holly`** | **`samwise`** (`sam`) | **`carrot`** | **`pluto`** | **`brighid`** (`brigid`) | **`eilonwy`** | **`falexander`** | **`ux`** |
-| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ivy`** (`archive`) | **`ghostwheel`** (`ghost`) | **`stacks`** (`registry`) | **`elrond`** | **`librarian`** (`ook`) | **`skraelin`** | **`ogma`** | **`taliesin`** | **`chaplain`** (`charlie`) | **`ledger`** |
+| Seat & Color Badge | Phase & Engineering Role | `sprawl` | `nightcity` | `anathem` | `cryptonomicon` | `shadowrun` | `dresden` | `amber` | `laundry` | `tolkien` | `discworld` | `reamde` | `irondruid` | `prydain` | `clockwork` | `cybertron` | `generic` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 🔵 **1A (`recon`)** | **Unfamiliar-Stack Scout & Conceptual Guide** | **`colin`** | **`judy`** | **`erasmus`** (`raz`) | **`lawrence`** (`waterhouse`) | **`talon`** (`shaman`) | **`bob`** | **`corwin`** | **`bobhoward`** (`howard`) | **`gandalf`** (`mithrandir`) | **`ponder`** (`stibbons`) | **`richard`** (`dodge`) | **`atticus`** (`siodhachan`) | **`dallben`** | **`alex`** (`littlealex`) | **`jazz`** | **`guide`** |
+| 🟠 **1B (`diagnostics`)** | **Trench Bug Trace & Wire-Fault Hunter** | **`dixie`** | **`vik`** | **`sammann`** | **`goto`** | **`streetdoc`** | **`butters`** | **`merlin`** *(bench: **`caine`**)* | **`pinky`** *(bench: **`bridget`**)* | **`aragorn`** (`strider`, *bench: **`frodo`**)* | **`vimes`** *(bench: **`angua`**)* | **`zula`** *(bench: **`marlon`**)* | **`oberon`** | **`taran`** | **`pete`** *(bench: **`barnes`**)* | **`wheeljack`** *(bench: **`prowl`**)* | **`trace`** |
+| 🟣 **2 (`architect`)** | **State Geometry, Invariants & Alignment Gate** | **`wintermute`** | **`tbug`** *(bench: **`takemura`**)* | **`jad`** *(bench: **`lodoghir`**)* | **`enoch`** *(bench: **`turing`**)* | **`fastjack`** *(bench: **`johnson`**)* | **`mab`** *(bench: **`ebenezar`**)* | **`fiona`** | **`angleton`** (`teapot`, *bench: **`iris`**)* | **`galadriel`** *(bench: **`celebrimbor`**)* | **`vetinari`** *(bench: **`weatherwax`**)* | **`dsquared`** *(bench: **`wallace`**)* | **`morrigan`** | **`gwydion`** *(bench: **`adaon`**)* | **`georgie`** *(bench: **`minister`**)* | **`optimus`** | **`arch`** |
+| 🔴 **3 (`blitz`)** | **Full-Depth Execution & Red-First Mutation Proof** | **`molly`** | **`v`** *(bench: **`panam`**)* | **`cord`** | **`randy`** *(bench: **`bobby`**)* | **`hatchetman`** (`samurai`) | **`harry`** | **`benedict`** | **`mo`** *(bench: **`fred`**)* | **`gimli`** | **`detritus`** | **`sokolov`** *(bench: **`ivanov`**)* | **`owen`** *(bench: **`perun`**)* | **`coll`** *(bench: **`hevydd`**)* | **`dim`** | **`grimlock`** | **`strike`** |
+| 🟢 **4A (`forensics`)** | **Binary, Artifact, Zip & SDK Examiner** | **`finn`** | **`mitch`** | **`orolo`** *(bench: **`paphlagon`**)* | **`doug`** *(bench: **`rudy`**)* | **`rigger`** | **`murphy`** | **`julian`** | **`brain`** | **`faramir`** | **`cheery`** | **`csongor`** | **`hal`** | **`fflewddur`** (`fflam`) | **`brodsky`** | **`perceptor`** | **`audit`** |
+| ⚡ **4B (`velocity`)** | **Latency, Cold-Start & Runtime Profiler** | **`case`** | **`songbird`** | **`jesry`** *(bench: **`jules`**)* | **`avi`** | **`dodger`** *(bench: **`decker`**)* | **`thomas`** *(bench: **`toot`**)* | **`random`** | **`persephone`** (`cassie`) | **`legolas`** *(courier: **`smeagol`**)* | **`moist`** (`lipwig`) | **`yuxia`** | **`granuaile`** *(bench: **`starbuck`**)* | **`gurgi`** *(bench: **`kaw`**)* | **`branom`** | **`bluestreak`** | **`pulse`** |
+| 🛡️ **4C (`redteam`)** | **Adversarial Security & Perimeter Breaker** | **`lupus`** *(bench: **`armitage`**)* | **`johnny`** *(bench: **`reed`**)* | **`lio`** | **`cantrell`** | **`harlequin`** *(bench: **`adept`**)* | **`marcone`** *(bench: **`michael`**)* | **`brand`** *(bench: **`eric`**)* | **`mhari`** | **`eowyn`** *(bench: **`boromir`**)* | **`adorabelle`** (`spike`, *bench: **`death`**)* | **`olivia`** | **`leif`** *(bench: **`coyote`**)* | **`doli`** | **`deltoid`** *(bench: **`catlady`**)* | **`megatron`** *(bench: **`starscream`**)* | **`redteam`** |
+| 🎨 **4D (`ergonomics`)** | **UI Layout, Visual Hierarchy & Human Clarity** | **`angie`** *(bench: **`marly`**, **`3jane`**)* | **`evelyn`** | **`tulia`** | **`amy`** | **`siren`** (`face`) | **`grasshopper`** | **`dworkin`** *(bench: **`flora`**)* | **`holly`** | **`samwise`** (`sam`) | **`carrot`** | **`pluto`** | **`brighid`** (`brigid`) | **`eilonwy`** | **`falexander`** | **`ratchet`** *(bench: **`teletraan`**)* | **`ux`** |
+| 📓 **5 (`archivist`)** | **Sequential Tape, Open Threads & Release Book** | **`continuity`** | **`rogue`** | **`ala`** | **`golgotha`** | **`captainchaos`** (`sysop`) | **`ivy`** (`archive`) | **`ghostwheel`** (`ghost`) | **`stacks`** (`registry`) | **`elrond`** | **`librarian`** (`ook`) | **`skraelin`** | **`ogma`** | **`taliesin`** | **`chaplain`** (`charlie`) | **`soundwave`** | **`ledger`** |
 
 ### The Room Dynamic, Phase Gates, Cross-Bank Cameos & Parallel Overwatch
 
@@ -297,7 +298,7 @@ As you and the crew work, Construct records inflection points onto the tape in r
 - *"Where do we stand on this project, and what threads are still open?"*
 - *"Why is `src/crdt.js` shaped like that?"* (`construct why <file_or_symbol>` searches synced CRDT frames with operator attribution, project/global gotchas, and local `git log -S`, and can automatically query a teammate's Construct over encrypted comms if a symbol has no local provenance.)
 - *"Sync our GitHub issues and pull requests into Construct threads."* (`construct issues sync <project>` and `construct pr sync <project>` import open GitHub issues (`[GH #N]`) and pull requests (`[PR #N]`) as open threads and automatically resolve any thread whose issue or PR was merged/closed. `construct pr open`, `construct pr review`, and `construct pr merge` drive the full PR lifecycle while automatically recording `#seq` frames and dispatching Courier notifications to your teammates.)
-- *"Check if Construct has an update and upgrade it."* (`construct upgrade --check` and `construct upgrade` pull `origin/main`, reseed all 15 Crew Banks, refresh `active-rom.md`, reinstall the OpenCode plugin, and update all 178 Claude Code subagents in one command -- or via the one-click `⬆️ CONSTRUCT UPDATE AVAILABLE` banner at the top of the HUD.)
+- *"Check if Construct has an update and upgrade it."* (`construct upgrade --check` and `construct upgrade` pull `origin/main`, reseed all 16 Crew Banks, refresh `active-rom.md`, reinstall the OpenCode plugin, and update all 190 Claude Code subagents in one command -- or via the one-click `⬆️ CONSTRUCT UPDATE AVAILABLE` banner at the top of the HUD.)
 - *"Switch to `acme/billing_service`."* (Updates the current project head, moves the OpenCode session directory to `acme/billing_service`'s local checkout, and loads that project's tape and gotchas automatically.)
 - *"Zoom into frame `#13` on the tape and show me why we reverted the circular saw."*
 - *"Search the tape across all projects for `exit code 134`."*
@@ -430,7 +431,7 @@ Pair this in `~/.config/opencode/opencode.jsonc` so OpenCode's `explore`, `gener
 
 | Component | Implementation (`causal-lattice` Library) | Latency / Footprint |
 |---|---|---|
-| **World-Track III Evolved Branchless ROM Arena** | `EvolvedConstructArena` + `evolvePerfectLookupCircuit` (`causal-lattice`) evolves a zero-collision (`collisions = 0`) 4-step immediate-literal CPU circuit over all 179 ROMs | **`~93 ns/op`** branchless 64B register read (**`46.5x faster`** than SQLite `SELECT` + `JSON.parse`) |
+| **World-Track III Evolved Branchless ROM Arena** | `EvolvedConstructArena` + `evolvePerfectLookupCircuit` (`causal-lattice`) evolves a zero-collision (`collisions = 0`) 4-step immediate-literal CPU circuit over all 191 ROMs | **`~93 ns/op`** branchless 64B register read (**`46.5x faster`** than SQLite `SELECT` + `JSON.parse`) |
 | **World-Track III Evolved Cross-Field Predictor** | `evolveCrossFieldGenome` + `EvolvedCrossFieldCodec` (`causal-lattice`) evolves 16-term fixed-point integer coupling weights and residual rANS tables | **`61 B`** for 100 6-field states (**`4.88 bits/state`**: **`14.64x smaller`** than static World-Track II, **`135.3x smaller`** than JSON, 100% lossless) |
 | **Schema-Compiled rANS + String-Slab CRDT Codec** | `encodeLatticeCrdtBatch` / `decodeLatticeCrdtBatch` (`causal-lattice`) | **`21.88x smaller`** wire batches than legacy UTF-8 JSON (`1,203 B` vs `26,321 B` on 40 CRDT ops); **`13.56x smaller`** sealed MLS envelopes |
 | **Chaskey-12 Attenuated Capabilities** | `mintProjectCapability`, `attenuateProjectCapability`, `verifyProjectCapability` (`causal-lattice`, ISO/IEC 29192-6 128-bit ARX MAC) | **`~4.7 us`** verification (**`~34.6x faster`** than Ed25519 signature verification, zero DB lookups) |
@@ -519,7 +520,7 @@ You are free to use, modify, and share Construct for personal or internal work, 
 
 ### Literary & Creative Homage Policy
 
-The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, and `clockwork`) are non-commercial fan homages written out of love and respect for the authors, world-builders, and game designers who shaped how our generation thinks about systems, networks, and craft:
+The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anathem`, `cryptonomicon`, `shadowrun`, `dresden`, `amber`, `laundry`, `tolkien`, `discworld`, `reamde`, `irondruid`, `prydain`, `clockwork`, and `cybertron`) are non-commercial fan homages written out of love and respect for the authors, world-builders, game designers, and philosophers who shaped how our generation thinks about systems, networks, and craft:
 - **William Gibson** (*Neuromancer*, *Count Zero*, *Mona Lisa Overdrive*)
 - **Neal Stephenson** (*Anathem*, *Cryptonomicon*, *REAMDE*)
 - **Jim Butcher** (*The Dresden Files*)
@@ -530,6 +531,7 @@ The fictional Crew Banks included in `src/packs/` (`sprawl`, `nightcity`, `anath
 - **Kevin Hearne** (*The Iron Druid Chronicles*)
 - **Lloyd Alexander** (*The Chronicles of Prydain*)
 - **Anthony Burgess & Stanley Kubrick** (*A Clockwork Orange*)
+- **Hasbro & Takara** (*Transformers Generation 1*)
 - **Mike Pondsmith, R. Talsorian Games & CD Projekt Red** (*Cyberpunk 2020 / Cyberpunk 2077 / Phantom Liberty*)
 - **Jordan Weisman & the creators of *Shadowrun*** (*Sixth World*)
 

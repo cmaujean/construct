@@ -9,12 +9,12 @@ const fs = require('node:fs');
 const store = require('../src/store.ts');
 const mcp = require('../src/mcp.ts');
 
-const USAGE = `CONSTRUCT-LATTICE: Sequential Memory Tape, 15 Crew Banks (179 ROMs) & Causal Lattice Sync
+const USAGE = `CONSTRUCT-LATTICE: Sequential Memory Tape, 16 Crew Banks (191 ROMs) & Causal Lattice Sync
 usage: construct <command> [args] [options]    (In-session: /construct <command> [args])
        construct help <command>                (Detailed flags & examples: /construct help <command>)
 
 SETUP, SELF-UPDATE & ASSIMILATION
-  init [--rom <name>] [--dir <cfg_dir>]    Initialize DID identity, DB, 179 ROMs & OpenCode V2 plugin
+  init [--rom <name>] [--dir <cfg_dir>]    Initialize DID identity, DB, 191 ROMs & OpenCode V2 plugin
   upgrade [--check]                        Pull origin/main, reseed ROMs & refresh OpenCode plugin
   reload                                   Re-stamp configs & hot-reload plugin engine in memory (/construct)
   assimilate [<dir>] [--project <proj>]    Import AGENTS.md, CLAUDE.md, GEMINI.md & .cursorrules into DB
@@ -36,7 +36,7 @@ SEQUENTIAL TAPE, PROVENANCE & GITHUB
 
 CREW BANKS, PERSONALITY ROMS, OPERATORS & GOTCHAS
   <bank>  |  sub <specialist>              Quick-switch Crew Bank (/construct nightcity) or sub Bench second
-  rom [packs | list | show | use | sub]    List or slot the 15 Crew Banks (179 ROMs) & Bench seconds
+  rom [packs | list | show | use | sub]    List or slot the 16 Crew Banks (191 ROMs) & Bench seconds
   rom [default | tune | burn | unburn]     Set default ROM, tune 0..1 behavioral dials, or burn directives
   rom [set | clone | sync]                 Create/clone custom ROMs or recompile active-rom.md
   user [show | list | use | set <id>]      Inspect or update operator working agreements & calibration
@@ -88,14 +88,14 @@ const COMMAND_HELP_ALIASES = Object.freeze({
 
 const COMMAND_HELP = Object.freeze({
   init: `NAME
-  construct init - Initialize Construct identity, database, 179 ROMs, and OpenCode V2 plugin
+  construct init - Initialize Construct identity, database, 191 ROMs, and OpenCode V2 plugin
 
 SYNOPSIS
   construct init [--rom <name>] [--dir <config_dir>] [--json]
   /construct init
 
 DESCRIPTION
-  Generates local W3C did:key identity, seeds all 15 Crew Banks (179 ROMs) in construct.db,
+  Generates local W3C did:key identity, seeds all 16 Crew Banks (191 ROMs) in construct.db,
   assimilates any existing global instruction files, installs the OpenCode V2 plugin, and
   compiles active-rom.md.
 
@@ -406,9 +406,9 @@ SYNOPSIS
   construct rom sync
 
 DESCRIPTION
-  Controls the 15 lazy-loaded Crew Banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun,
-  dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic)
-  and 179 specialist ROMs. Per-project defaults in project_roms are strictly reserved for Crew
+  Controls the 16 lazy-loaded Crew Banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun,
+  dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork,
+  cybertron, generic) and 191 specialist ROMs. Per-project defaults in project_roms are strictly reserved for Crew
   Banks/rosters (solo subagent specialists bind only to their child session_id).
 
 OPTIONS
