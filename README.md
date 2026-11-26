@@ -223,7 +223,7 @@ Every Crew Bank is a standalone file exporting `{ metadata, roms }`.
 Construct surfaces live telemetry across both the **OpenCode Desktop/Web App** and the **OpenCode TUI**:
 - **Session Tab & Header Badges:** Automatically prefixes active session tab titles with the slotted Crew emblem, bank name, head frame `#seq`, and open thread count (for example, `🕯️ [dresden #129 · 2 open]`).
 - **Tab- & Project-Sensitive Review Pane Control Deck (`~/.config/opencode/construct-hud.html`):** Open `construct-hud.html` in the OpenCode Review pane (via `tools.browser.preview` or `/construct`) for a dark-mode HUD with an interactive **Target Tab & Project Selector Bar** (`🎯 Auto-Follow Active Tab` plus individual open tab and project pills) and one-click buttons to switch between all 7 Crew Banks or sub Bench specialists in place (`127.0.0.1:47420` loopback control server).
-- **TUI Slots & Full-CLI `/construct` Slash Command (`plugin/construct.js` & `plugin/tui.tsx`):** Mounts live status indicators into `prompt.footer.status`, `home.footer.status`, `sidebar.footer`, and `session.composer.top`, with `/construct` supporting **every Construct CLI command** directly in-session (`/construct upgrade`, `/construct reload`, `/construct boot`, `/construct rec ...`, `/construct tape`, `/construct rom ...`, `/construct inbox`, `/construct sync`) plus shorthands (`/construct <bank>`, `/construct sub <specialist>`, or bare `/construct` for the HUD & Crew selector) and in-memory `src/mcp.js` + `ctx.tool.reload()` hot-reloading.
+- **TUI HUD Package, Sidebar Dashboard & `/inbox` (`plugin/construct.js` & `plugin/construct-tui/`):** Installs a V2 TUI package (`plugins/construct-tui/{package.json,tui.tsx}`) registered in `~/.config/opencode/cli.json` talking directly to `127.0.0.1:47420`, surfacing structured `sidebar.content` sections (Inbox with `pending`+`seen` alerts, Next, Open Threads, Gotchas, Recent Tape, upstream updates), clickable `xlarge` scrollable modals (`Ack`, `Reply`, `Hide`), `prompt.footer.status` / `home.footer.status`, `session.composer.top`, `Ctrl+Shift+I` (`/inbox`), and `Ctrl+Shift+G` (`/construct`).
 
 ### Multi-Tab & Per-Project Session Isolation (`session_roms` & `project_roms`)
 
@@ -436,7 +436,7 @@ Pair this in `~/.config/opencode/opencode.jsonc` so OpenCode's `explore`, `gener
 | **Chaskey-12 Attenuated Capabilities** | `mintProjectCapability`, `attenuateProjectCapability`, `verifyProjectCapability` (`causal-lattice`, ISO/IEC 29192-6 128-bit ARX MAC) | **`~4.7 us`** verification (**`~34.6x faster`** than Ed25519 signature verification, zero DB lookups) |
 | **1-RTT Rateless IBLT Relay Sync** | `CompactRibltSketch` (`causal-lattice`) speaking `IBLT_SYNC` over WebSocket relays (`src/relay.ts`) | **`1,399x less wire traffic`** than full `REQ` envelope fetches when reconciling 1 new envelope across 50 shared envelopes (`1,292 B` vs `1.8 MB`) |
 | **Storage Engine & Compaction** | Node.js `node:sqlite` (`WAL` + `FTS5` BM25) + frontier-preserving `compactProjectCrdtLog` (`src/crdt.ts`) | Prunes superseded LWW operations while preserving the exact 64-bit Merkle-XOR frontier |
-| **OpenCode V2 Integration** | `~/.config/opencode/plugins/construct.js` + `tui.tsx` + `src/mcp.ts` | Zero round-trip ROM/Crew switching, `<construct-voice-lock>`, and `0`-token shell guards |
+| **OpenCode V2 Integration** | `~/.config/opencode/plugins/construct.js` + `construct-tui/` (`cli.json`) + `src/mcp.ts` | Zero round-trip ROM/Crew switching, V2 TUI sidebar HUD & `/inbox`, `<construct-voice-lock>`, and `0`-token shell guards |
 
 ---
 

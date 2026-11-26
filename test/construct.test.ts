@@ -2701,5 +2701,41 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(cliBench.status, 0);
     const cliBenchJson = JSON.parse(cliBench.stdout);
     assert.equal(cliBenchJson.relaySync.peeledIdentically, true);
+
+    // Verify `installPluginFile` installs `plugins/construct-tui/{package.json,tui.tsx}`, registers it idempotently in `cli.json`,
+    // cleans up stale loose `plugins/tui.tsx`, and ships the V2 HTTP/xlarge HUD contract
+    const v2CfgDir = path.join(tmp.dir, 'opencode-v2-cfg');
+    fs.mkdirSync(path.join(v2CfgDir, 'plugins'), { recursive: true });
+    fs.writeFileSync(path.join(v2CfgDir, 'plugins', 'tui.tsx'), '// stale loose v1 tui\n', 'utf8');
+    fs.writeFileSync(
+      path.join(v2CfgDir, 'cli.json'),
+      JSON.stringify({ $schema: 'https://opencode.ai/v2/cli.json', theme: { name: 'vesper', mode: 'dark' } }, null, 2) + '\n',
+      'utf8'
+    );
+    store.installPluginFile(v2CfgDir);
+    store.installPluginFile(v2CfgDir); // idempotent second call must not duplicate plugin entry
+
+    const tuiPkgDir = path.join(v2CfgDir, 'plugins', 'construct-tui');
+    assert.ok(fs.existsSync(path.join(v2CfgDir, 'plugins', 'construct.js')));
+    assert.equal(fs.existsSync(path.join(v2CfgDir, 'plugins', 'tui.tsx')), false, 'stale loose plugins/tui.tsx should be removed');
+    assert.ok(fs.existsSync(path.join(tuiPkgDir, 'package.json')));
+    assert.ok(fs.existsSync(path.join(tuiPkgDir, 'tui.tsx')));
+    const tuiPkgJson = JSON.parse(fs.readFileSync(path.join(tuiPkgDir, 'package.json'), 'utf8'));
+    assert.equal(tuiPkgJson.exports['./tui'], './tui.tsx');
+
+    const installedCliJson = JSON.parse(fs.readFileSync(path.join(v2CfgDir, 'cli.json'), 'utf8'));
+    assert.deepEqual(installedCliJson.theme, { name: 'vesper', mode: 'dark' });
+    assert.equal(
+      installedCliJson.plugins.filter((p) => p === tuiPkgDir || (p && p.package === tuiPkgDir)).length,
+      1,
+      'cli.json must register construct-tui exactly once'
+    );
+
+    const installedTuiSrc = fs.readFileSync(path.join(tuiPkgDir, 'tui.tsx'), 'utf8');
+    assert.match(installedTuiSrc, /http:\/\/127\.0\.0\.1:47420/);
+    assert.doesNotMatch(installedTuiSrc, /ConstructRpc/);
+    assert.match(installedTuiSrc, /m\.status === "pending" \|\| m\.status === "seen"/);
+    assert.match(installedTuiSrc, /size: "xlarge"/);
+    assert.match(installedTuiSrc, /hide-msg/);
   });
 });

@@ -39,9 +39,43 @@ function createInstallerModule(deps) {
         fs.unlinkSync(legacyRpcDest);
       } catch (_) {}
     }
+    const legacyTuiDest = path.join(pluginDestDir, 'tui.tsx');
+    if (fs.existsSync(legacyTuiDest)) {
+      try {
+        fs.unlinkSync(legacyTuiDest);
+      } catch (_) {}
+    }
     const tuiSrc = path.join(pluginSrcDir, 'tui.tsx');
+    const tuiPkgDir = path.join(pluginDestDir, 'construct-tui');
     if (fs.existsSync(tuiSrc)) {
-      fs.copyFileSync(tuiSrc, path.join(pluginDestDir, 'tui.tsx'));
+      fs.mkdirSync(tuiPkgDir, { recursive: true });
+      fs.copyFileSync(tuiSrc, path.join(tuiPkgDir, 'tui.tsx'));
+      const tuiPkgJson = {
+        name: 'construct-tui',
+        version: '1.0.0',
+        type: 'module',
+        exports: {
+          './tui': './tui.tsx',
+        },
+      };
+      fs.writeFileSync(path.join(tuiPkgDir, 'package.json'), JSON.stringify(tuiPkgJson, null, 2) + '\n', 'utf8');
+
+      // Register `construct-tui` in `<configDir>/cli.json` (OpenCode V2 CLI plugin discovery)
+      const cliJsonPath = path.join(configDir, 'cli.json');
+      try {
+        let cliCfg: Record<string, unknown> = { $schema: 'https://opencode.ai/v2/cli.json' };
+        if (fs.existsSync(cliJsonPath)) {
+          cliCfg = JSON.parse(fs.readFileSync(cliJsonPath, 'utf8'));
+        }
+        const existingPlugins = Array.isArray(cliCfg.plugins) ? cliCfg.plugins : [];
+        const filtered = existingPlugins.filter((p) => {
+          const entry = typeof p === 'string' ? p : (p as any)?.package;
+          return entry !== legacyTuiDest && entry !== tuiPkgDir;
+        });
+        filtered.push(tuiPkgDir);
+        cliCfg.plugins = filtered;
+        fs.writeFileSync(cliJsonPath, JSON.stringify(cliCfg, null, 2) + '\n', 'utf8');
+      } catch (_) {}
     }
 
     const shimDir = path.join(configDir, 'src');
