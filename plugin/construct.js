@@ -192,12 +192,15 @@ export function resolveBootWithFallback(rawOutput, cacheMap, sessionId = "", dir
   return cacheMap.get(key) || ""
 }
 
-// Stamp or update the Construct HUD badge (`🦾 [nightcity #97 · 2 open]`) at the front of a session title
-// while preserving the clean human session title and replacing any older Construct badge in place.
+// Stamp or update the Construct Crew emblem (`🦾`) at the front of a session title
+// while preserving the clean human session title and replacing any older Construct badge (including legacy `[...]` prefixes) in place.
 export function formatTitleWithHudBadge(existingTitle = "", tabBadge = "") {
   const badge = String(tabBadge || "").trim()
   const cleanTitle = String(existingTitle || "")
-    .replace(/^(?:(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*)+/u, "")
+    .replace(
+      /^(?:(?:(?:\p{Extended_Pictographic}|[\u2600-\u27BF])\uFE0F?\s*\[[^\]]+\](?:\s+|$))|(?:(?:🌃|🦾|🤖|🏛️?|🔐|🐉|🕯️?|🦄|🐙|💍|🐢|🏔️?|🐺|⚔️?|🥛|⚙️?|🔪)(?:\s+|$)))+/u,
+      ""
+    )
     .trim()
   if (!badge) return cleanTitle
   if (!cleanTitle) return badge
@@ -302,11 +305,12 @@ export function injectFrontierVoiceLock(messages, bootOutput = "") {
   return false
 }
 
-function fetchHudSnapshot(dir = "", sessionID = "", project = "") {
+function fetchHudSnapshot(dir = "", sessionID = "", project = "", tabLimit = 0) {
   const args = ["hud", "--json"]
   if (project) args.push("--project", String(project))
   if (dir) args.push("--dir", String(dir))
   if (sessionID) args.push("--session", String(sessionID))
+  if (Number(tabLimit) > 0) args.push("--tab-limit", String(Number(tabLimit)))
   const raw = runConstruct(args)
   if (!raw || raw.startsWith("error:")) return null
   try {
@@ -385,6 +389,38 @@ export default {
       return snap
     }
 
+    let badgeSweepInFlight = false
+    const syncRecentSessionBadges = async () => {
+      if (badgeSweepInFlight || !ctx.session?.get || !ctx.session?.update) return
+      badgeSweepInFlight = true
+      try {
+        const wideSnap = fetchHudSnapshot(lastActiveDir || ctx.location?.directory || "", "", "", 50)
+        const tabs = Array.isArray(wideSnap?.tabs) ? wideSnap.tabs : []
+        for (const tab of tabs) {
+          const sid = String(tab?.sessionId || "")
+          const badge = String(tab?.emblem || "").trim()
+          if (!sid || !badge || subagentSessions.has(sid)) continue
+          try {
+            const sess = await ctx.session.get({ sessionID: sid })
+            if (sess?.parentID || sess?.parentId) {
+              subagentSessions.add(sid)
+              continue
+            }
+            const curTitle = String(sess?.title || "")
+            if (!curTitle) continue
+            const nextTitle = formatTitleWithHudBadge(curTitle, badge)
+            lastBadgeBySession.set(sid, badge)
+            if (nextTitle && nextTitle !== curTitle) {
+              await ctx.session.update({ sessionID: sid, title: nextTitle })
+            }
+          } catch (_) {}
+        }
+      } catch (_) {
+      } finally {
+        badgeSweepInFlight = false
+      }
+    }
+
     let mcpEngine = loadSharedMcpEngine()
     const reloadConstructEngine = async () => {
       const fresh = loadSharedMcpEngine({ bustCache: true })
@@ -394,6 +430,7 @@ export default {
           await ctx.tool.reload()
         } catch (_) {}
       }
+      void syncRecentSessionBadges()
       return mcpEngine
     }
 
@@ -461,16 +498,20 @@ export default {
           const sessionID = ev?.data?.id || ev?.data?.sessionID || ""
           if (
             sessionID &&
-            !promptedSessions.has(sessionID) &&
             (type === "session.created" || type === "session.opened")
           ) {
-            promptedSessions.add(sessionID)
-            const check = runConstruct(["projects", "--session", String(sessionID)])
-            if (check.includes("SESSION BOOTLOADER:")) {
-              await ctx.session.synthetic({
-                sessionID: String(sessionID),
-                text: "Session opened. Call the `question` tool now to present the Construct Crew Bank radio-button selector.",
-              })
+            if (type === "session.opened") {
+              void syncSessionHud(String(sessionID))
+            }
+            if (!promptedSessions.has(sessionID)) {
+              promptedSessions.add(sessionID)
+              const check = runConstruct(["projects", "--session", String(sessionID)])
+              if (check.includes("SESSION BOOTLOADER:")) {
+                await ctx.session.synthetic({
+                  sessionID: String(sessionID),
+                  text: "Session opened. Call the `question` tool now to present the Construct Crew Bank radio-button selector.",
+                })
+              }
             }
           }
         }
@@ -644,7 +685,8 @@ export default {
     const seenCourierKeys =
       globalThis.__constructSeenCourierKeys || (globalThis.__constructSeenCourierKeys = new Set())
 
-    // Seed `seenCourierKeys` with any already-present messages at boot so we only wake on newly arrived dispatches
+    // Seed `seenCourierKeys` with any already-present messages at boot so we only wake on newly arrived dispatches,
+    // and sweep recent session titles so idle tabs in the left sidebar drop legacy `[...]` badges cleanly.
     try {
       const initSnap = fetchHudSnapshot(lastActiveDir, lastActiveSessionId)
       if (Array.isArray(initSnap?.comms)) {
@@ -653,6 +695,7 @@ export default {
         }
       }
     } catch (_) {}
+    void syncRecentSessionBadges()
 
     const checkIdleCourierWakeup = async (snap) => {
       if (!snap || !Array.isArray(snap.comms) || !ctx.session?.synthetic) return

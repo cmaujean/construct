@@ -614,8 +614,12 @@ SYNOPSIS
   construct hud (alias: status) - Print compact status pill, refresh HTML HUD, or output JSON snapshot
 
 SYNOPSIS
-  construct hud [reload|refresh|<project>] [--dir <repo_dir>] [--session <session_id>] [--json]
-  /construct hud [reload]`,
+  construct hud [reload|refresh|<project>] [--dir <repo_dir>] [--session <session_id>] [--tab-limit <n>] [--json]
+  /construct hud [reload]
+  /construct upcoming
+
+DESCRIPTION
+  Queries Construct telemetry and OpenCode's read-only automation schedule (projecting upcoming active and paused automations and notifications across all workspaces for the next 72 hours into \`upcomingAutomations\` and \`upcomingCount\` when \`--json\` is passed).`,
 
   dashboard: `NAME
   construct dashboard (alias: view) - Generate dark-mode interactive HTML HUD files
@@ -1868,6 +1872,7 @@ async function main(argv) {
         project: projArg,
         dir: o.dir,
         sessionId: o.session,
+        tabLimit: o['tab-limit'] ? Number(o['tab-limit']) : undefined,
       });
       if (o.json) {
         console.log(JSON.stringify(snap));

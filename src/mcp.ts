@@ -128,7 +128,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
       reloadPlugin: false,
       openHud: true,
       hudFile,
-      statusText: snap?.tabBadge || snap?.pill || '',
+      statusText: snap?.pill || snap?.tabBadge || '',
       message: `Construct active: ${snap?.pill || snap?.rom || 'crew'}`,
       promptText:
         `Open \`${hudFile}\` in the Review pane with \`tools.browser.preview\` and call the \`question\` tool to present the Construct Crew Bank & Bench Switcher selector.`,
@@ -189,7 +189,7 @@ function executeConstructSlashCommand(rawArgs = '', options = {}) {
   try {
     snap = store.getHudSnapshot({ dir: cwd, sessionId });
   } catch (_) {}
-  const statusText = snap?.tabBadge || snap?.pill || '';
+  const statusText = snap?.pill || snap?.tabBadge || '';
   const hudFile = resolveHudFileForSnap(snap);
 
   let message = '';
@@ -1648,7 +1648,7 @@ function runOmpHook(mode, stdinText = '') {
     exitCode: 0,
     stdout: JSON.stringify({
       additionalSystemPrompt: xml,
-      statusText: snap?.tabBadge || snap?.pill || '',
+      statusText: snap?.pill || snap?.tabBadge || '',
       sessionId: targetSessionId,
     }),
     stderr: '',

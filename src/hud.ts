@@ -112,7 +112,8 @@ function detectFocusedDirFromOpenCodeLog() {
   return '';
 }
 
-function listActiveTabsInDb(db, file = dbPath()) {
+function listActiveTabsInDb(db, file = dbPath(), limit = 8) {
+  const tabLimit = Math.max(1, Math.min(100, Number(limit) || 8));
   const sessRows = db
     .prepare(
       "SELECT session_id, rom_name, project, directory, updated FROM session_roms WHERE session_id NOT LIKE 'pending_subagent:%' AND session_id NOT LIKE '%:%' ORDER BY updated DESC"
@@ -150,9 +151,9 @@ function listActiveTabsInDb(db, file = dbPath()) {
         }
         const ocRows = ocDb
           .prepare(
-            'SELECT id, title, directory, time_viewed, time_updated FROM session_v2 WHERE parent_id IS NULL AND time_archived IS NULL ORDER BY COALESCE(time_viewed, time_updated) DESC LIMIT 10'
+            'SELECT id, title, directory, time_viewed, time_updated FROM session_v2 WHERE parent_id IS NULL AND time_archived IS NULL ORDER BY COALESCE(time_viewed, time_updated) DESC LIMIT ?'
           )
-          .all();
+          .all(Math.max(10, tabLimit + 4));
         for (const row of ocRows) {
           if (!row.id) continue;
           const existing = bySid.get(row.id) || {
@@ -168,7 +169,10 @@ function listActiveTabsInDb(db, file = dbPath()) {
           if (row.directory) existing.directory = row.directory;
           if (row.title) {
             existing.title = String(row.title)
-              .replace(/^(?:(?:🌃|🦾|🏛️|🔐|🐉|🕯️|🦄|🐙|💍|🐢|🏔️|🐺|⚔️|🥛|⚙️|🔪)\s*\[[^\]]+\]\s*)+/u, '')
+              .replace(
+                /^(?:(?:(?:\p{Extended_Pictographic}|[\u2600-\u27BF])\uFE0F?\s*\[[^\]]+\](?:\s+|$))|(?:(?:🌃|🦾|🤖|🏛️?|🔐|🐉|🕯️?|🦄|🐙|💍|🐢|🏔️?|🐺|⚔️?|🥛|⚙️?|🔪)(?:\s+|$)))+/u,
+                ''
+              )
               .trim();
           }
           const ocTs = Math.max(Number(row.time_viewed || 0), Number(row.time_updated || 0));
@@ -228,7 +232,7 @@ function listActiveTabsInDb(db, file = dbPath()) {
       out.unshift(focusedTab);
     }
   }
-  return out.slice(0, 8);
+  return out.slice(0, tabLimit);
 }
 
 function getLastCliOutputInDb(db) {
@@ -304,9 +308,402 @@ function setHudUiPrefs(prefs = {}, file = dbPath()) {
   }, file);
 }
 
+function parseDurationToMs(expr) {
+  const m = String(expr || '')
+    .trim()
+    .match(/^(\d+(?:\.\d+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)$/i);
+  if (!m) return 0;
+  const val = Number(m[1]);
+  if (!Number.isFinite(val) || val <= 0) return 0;
+  const unit = m[2].toLowerCase();
+  if (unit.startsWith('s')) return Math.round(val * 1000);
+  if (unit.startsWith('m')) return Math.round(val * 60 * 1000);
+  if (unit.startsWith('h')) return Math.round(val * 3600 * 1000);
+  if (unit.startsWith('d')) return Math.round(val * 86400 * 1000);
+  if (unit.startsWith('w')) return Math.round(val * 7 * 86400 * 1000);
+  return 0;
+}
+
+const DTF_CACHE = new Map();
+function getCachedDtf(tz) {
+  const key = String(tz || 'UTC');
+  let entry = DTF_CACHE.get(key);
+  if (!entry) {
+    try {
+      entry = {
+        tz: key,
+        dtf: new Intl.DateTimeFormat('en-US', {
+          timeZone: key,
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        }),
+      };
+    } catch (_) {
+      entry = {
+        tz: 'UTC',
+        dtf: new Intl.DateTimeFormat('en-US', {
+          timeZone: 'UTC',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          weekday: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+        }),
+      };
+    }
+    DTF_CACHE.set(key, entry);
+  }
+  return entry;
+}
+
+const WEEKDAY_TO_DOW = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function getZonedParts(utcMs, tz) {
+  const { dtf, tz: resolvedTz } = getCachedDtf(tz);
+  const parts = dtf.formatToParts(utcMs);
+  const map = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  const year = Number(map.year || 1970);
+  const month = Number(map.month || 1);
+  const day = Number(map.day || 1);
+  const hour = Number(map.hour || 0) % 24;
+  const minute = Number(map.minute || 0);
+  const weekday = String(map.weekday || 'Sun');
+  const dow = WEEKDAY_TO_DOW[weekday] ?? 0;
+  const isoDate = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const hhmm = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  return {
+    tz: resolvedTz,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    weekday,
+    dow,
+    isoDate,
+    dueLocal: `${weekday} ${hhmm}`,
+    dueDateTime: `${weekday} ${isoDate} ${hhmm} ${resolvedTz}`,
+  };
+}
+
+function zonedWallClockToUtcMs(year, month, day, hour, minute, second, tz) {
+  let guess = Date.UTC(year, month - 1, day, hour, minute, second || 0);
+  for (let i = 0; i < 2; i++) {
+    const p = getZonedParts(guess, tz);
+    const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, second || 0);
+    const targetUtc = Date.UTC(year, month - 1, day, hour, minute, second || 0);
+    const diff = targetUtc - asUtc;
+    if (diff === 0) break;
+    guess += diff;
+  }
+  return guess;
+}
+
+function parseAtTriggerMs(atStr, tz) {
+  const s = String(atStr || '').trim();
+  if (!s) return NaN;
+  if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    return Date.parse(s);
+  }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) {
+    return zonedWallClockToUtcMs(
+      Number(m[1]),
+      Number(m[2]),
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      Number(m[6] || 0),
+      tz || 'UTC'
+    );
+  }
+  return Date.parse(s);
+}
+
+const CRON_MONTH_NAMES = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+const CRON_DOW_NAMES = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+
+function parseCronField(fieldStr, min, max, nameMap = null, isDow = false) {
+  const raw = String(fieldStr || '').trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === '*') return { wildcard: true, set: null };
+  const set = new Set();
+  const normVal = (tok) => {
+    if (nameMap && nameMap[tok] !== undefined) return nameMap[tok];
+    if (!/^\d+$/.test(tok)) return NaN;
+    let n = Number(tok);
+    if (isDow && n === 7) n = 0;
+    return n;
+  };
+  for (const part of raw.split(',')) {
+    const [rangePart, stepPart] = part.split('/');
+    const step = stepPart !== undefined ? Number(stepPart) : 1;
+    if (!Number.isInteger(step) || step <= 0) return null;
+    if (rangePart === '*') {
+      for (let v = min; v <= max; v += step) set.add(isDow && v === 7 ? 0 : v);
+    } else if (rangePart.includes('-')) {
+      const [aStr, bStr] = rangePart.split('-');
+      const a = normVal(aStr);
+      const b = normVal(bStr);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || a < min || b > max || a > b) return null;
+      for (let v = a; v <= b; v += step) set.add(isDow && v === 7 ? 0 : v);
+    } else {
+      const v = normVal(rangePart);
+      if (!Number.isFinite(v) || v < min || v > max) return null;
+      set.add(isDow && v === 7 ? 0 : v);
+    }
+  }
+  return { wildcard: false, set };
+}
+
+function parseCronExpression(expr) {
+  const raw = String(expr || '').trim();
+  const presets = {
+    '@hourly': '0 * * * *',
+    '@daily': '0 0 * * *',
+    '@midnight': '0 0 * * *',
+    '@weekly': '0 0 * * 0',
+    '@monthly': '0 0 1 * *',
+  };
+  const normalized = presets[raw.toLowerCase()] || raw;
+  const fields = normalized.split(/\s+/);
+  if (fields.length !== 5) return null;
+  const minute = parseCronField(fields[0], 0, 59);
+  const hour = parseCronField(fields[1], 0, 23);
+  const dom = parseCronField(fields[2], 1, 31);
+  const month = parseCronField(fields[3], 1, 12, CRON_MONTH_NAMES);
+  const dow = parseCronField(fields[4], 0, 7, CRON_DOW_NAMES, true);
+  if (!minute || !hour || !dom || !month || !dow) return null;
+  return { minute, hour, dom, month, dow };
+}
+
+function cronMatchesParts(spec, p) {
+  if (!spec.month.wildcard && !spec.month.set.has(p.month)) return false;
+  if (!spec.hour.wildcard && !spec.hour.set.has(p.hour)) return false;
+  if (!spec.minute.wildcard && !spec.minute.set.has(p.minute)) return false;
+  if (spec.dom.wildcard && spec.dow.wildcard) return true;
+  if (spec.dom.wildcard) return spec.dow.set.has(p.dow);
+  if (spec.dow.wildcard) return spec.dom.set.has(p.day);
+  return spec.dom.set.has(p.day) || spec.dow.set.has(p.dow);
+}
+
+function projectAutomationOccurrences(row, trigger, nowMs, endMs) {
+  const MAX_OCCURRENCES = 24;
+  const tz = String(trigger?.tz || row.tz || 'UTC');
+  const expiresAt = Number.isFinite(Number(row.expires_at)) && row.expires_at !== null ? Number(row.expires_at) : null;
+  const effectiveEnd = expiresAt !== null ? Math.min(endMs, expiresAt) : endMs;
+  if (effectiveEnd < nowMs) return [];
+
+  const nextDue = Number.isFinite(Number(row.next_due_at)) && row.next_due_at !== null ? Number(row.next_due_at) : NaN;
+  const tType = String(trigger?.type || '');
+
+  if (tType === 'at') {
+    let ts = Number.isFinite(nextDue) ? nextDue : parseAtTriggerMs(trigger?.at, tz);
+    if (!Number.isFinite(ts)) return [];
+    if (ts >= nowMs && ts <= effectiveEnd) return [ts];
+    return [];
+  }
+
+  if (tType === 'every') {
+    const intervalMs = parseDurationToMs(trigger?.every);
+    if (!intervalMs) return [];
+    let ts = Number.isFinite(nextDue) && nextDue > 0 ? nextDue : nowMs + intervalMs;
+    if (ts < nowMs) {
+      ts += Math.ceil((nowMs - ts) / intervalMs) * intervalMs;
+    }
+    const out = [];
+    while (ts <= effectiveEnd && out.length < MAX_OCCURRENCES) {
+      if (ts >= nowMs) out.push(ts);
+      ts += intervalMs;
+    }
+    return out;
+  }
+
+  if (tType === 'cron') {
+    const spec = parseCronExpression(trigger?.cron);
+    if (!spec) return [];
+    const baseStart = Math.ceil(nowMs / 60000) * 60000;
+    let cur = row.status === 'active' && Number.isFinite(nextDue) && nextDue > baseStart
+      ? Math.floor(nextDue / 60000) * 60000
+      : baseStart;
+    const out = [];
+    let guard = 0;
+    while (cur <= effectiveEnd && out.length < MAX_OCCURRENCES && guard < 4500) {
+      guard++;
+      const p = getZonedParts(cur, tz);
+      if (!spec.hour.wildcard && !spec.hour.set.has(p.hour)) {
+        const minsToNextHour = Math.max(1, 60 - p.minute);
+        cur += minsToNextHour * 60000;
+        continue;
+      }
+      if (cronMatchesParts(spec, p)) {
+        if (cur >= nowMs) out.push(cur);
+      }
+      cur += 60000;
+    }
+    return out;
+  }
+
+  return [];
+}
+
+function classifyAutomationCategory(row, action) {
+  const aType = String(action?.type || '');
+  const codeStr = String(action?.code || '');
+  const promptStr = String(action?.prompt || '');
+  const nameStr = String(row?.name || '');
+  if (aType === 'code' && /construct\.comms|\bnotify\b|\bremind/i.test(codeStr)) {
+    return 'notification';
+  }
+  if (aType === 'prompt' && /\b(remind|notify|notification|alert|check-in|comms)\b/i.test(`${nameStr} ${promptStr}`)) {
+    return 'notification';
+  }
+  if (/\b(notif|notification|remind|reminder|alert|comms)\b/i.test(nameStr)) {
+    return 'notification';
+  }
+  return 'automation';
+}
+
+function extractAutomationPreview(action, dueIsoDate) {
+  const aType = String(action?.type || '');
+  if (aType === 'shell') {
+    return String(action?.command || '').replace(/\s+/g, ' ').trim();
+  }
+  if (aType === 'prompt') {
+    return String(action?.prompt || '').replace(/\s+/g, ' ').trim();
+  }
+  if (aType === 'code') {
+    const code = String(action?.code || '');
+    if (dueIsoDate) {
+      const escapedDate = dueIsoDate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const dateEntryRe = new RegExp(`["']${escapedDate}["']\\s*:\\s*\\{[\\s\\S]*?\\bbody\\s*:\\s*(["'])((?:\\\\.|(?!\\1)[\\s\\S])*)\\1`);
+      const dm = code.match(dateEntryRe);
+      if (dm && dm[2]) {
+        return dm[2].replace(/\\(['"\\])/g, '$1').replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+      }
+    }
+    const bodyMatch = code.match(/\bbody\s*:\s*(["'])((?:\\.|(?!\1)[\s\S])*)\1/);
+    if (bodyMatch && bodyMatch[2]) {
+      return bodyMatch[2].replace(/\\(['"\\])/g, '$1').replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+    return code.replace(/\s+/g, ' ').trim();
+  }
+  return '';
+}
+
+function listUpcomingAutomationsInDb(db, options = {}) {
+  let ocDbPath = options.opencodeDbPath || process.env.CONSTRUCT_OPENCODE_DB || '';
+  if (!ocDbPath && !process.env.CONSTRUCT_DB) {
+    ocDbPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'opencode.db');
+  }
+  if (!ocDbPath || !fs.existsSync(ocDbPath)) return [];
+
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+  const windowMs = Number.isFinite(Number(options.upcomingWindowMs))
+    ? Number(options.upcomingWindowMs)
+    : 72 * 3600 * 1000;
+  const endMs = nowMs + windowMs;
+
+  let ocDb = null;
+  try {
+    ocDb = new DatabaseSync(ocDbPath, { readOnly: true });
+    const hasTable = ocDb
+      .prepare("SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'automation' LIMIT 1")
+      .get();
+    if (!hasTable) return [];
+
+    const rows = ocDb
+      .prepare(
+        "SELECT id, project_id, session_id, directory, name, trigger, tz, action, status, next_due_at, expires_at, run_count, last_run_at, last_outcome FROM automation WHERE status IN ('active', 'paused') ORDER BY COALESCE(next_due_at, time_created) ASC"
+      )
+      .all();
+
+    const items = [];
+    for (const row of rows) {
+      let trigger = null;
+      let action = null;
+      try {
+        trigger = JSON.parse(row.trigger || '{}');
+      } catch (_) {
+        continue;
+      }
+      try {
+        action = JSON.parse(row.action || '{}');
+      } catch (_) {
+        action = {};
+      }
+      if (!trigger || trigger.type === 'event') continue;
+
+      const occurrences = projectAutomationOccurrences(row, trigger, nowMs, endMs);
+      if (!occurrences.length) continue;
+
+      const dir = String(row.directory || '');
+      const resolvedProj = dir ? resolveProjectFromDirInDb(db, dir) : '';
+      const dirBase = dir ? path.basename(dir.replace(/[\\/]+$/, '')) : '';
+      const project = resolvedProj || dirBase || 'workspace';
+      const shortProject = project.includes('/') ? project.split('/').pop() : project;
+      const category = classifyAutomationCategory(row, action);
+      const triggerSummary =
+        trigger.type === 'cron'
+          ? `cron (${trigger.cron})`
+          : trigger.type === 'every'
+          ? `every ${trigger.every}`
+          : `at ${trigger.at || ''}`;
+
+      for (const dueAtMs of occurrences) {
+        const tz = String(trigger.tz || row.tz || 'UTC');
+        const zoned = getZonedParts(dueAtMs, tz);
+        const preview = extractAutomationPreview(action, zoned.isoDate);
+        items.push({
+          id: row.id,
+          name: row.name,
+          project,
+          shortProject,
+          directory: dir,
+          status: row.status,
+          triggerType: trigger.type,
+          triggerSummary,
+          actionType: String(action?.type || 'unknown'),
+          category,
+          tz,
+          dueAtMs,
+          dueIso: new Date(dueAtMs).toISOString(),
+          dueLocal: zoned.dueLocal,
+          dueDateTime: zoned.dueDateTime,
+          preview,
+        });
+      }
+    }
+
+    items.sort((a, b) => a.dueAtMs - b.dueAtMs || String(a.name).localeCompare(String(b.name)));
+    return items;
+  } catch (_) {
+    return [];
+  } finally {
+    try {
+      ocDb?.close();
+    } catch (_) {}
+  }
+}
+
 function getHudSnapshot(options = {}, file = dbPath()) {
   return withDb((db) => {
-    const tabs = listActiveTabsInDb(db, file);
+    const tabs = listActiveTabsInDb(db, file, options.tabLimit);
     let sessionId = options.sessionId || process.env.CONSTRUCT_SESSION_ID || '';
     let dir = options.dir || '';
     let project = options.project ? normalizeProject(options.project) : '';
@@ -451,12 +848,32 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       if (msgRows.length >= 25) break;
     }
 
+    const projectRepoByKey = new Map();
+    const projectRepoByTail = new Map();
+    for (const hr of db.prepare("SELECT project, repo FROM heads WHERE repo != ''").all()) {
+      const rPath = String(hr.repo || '').trim();
+      if (!rPath || !fs.existsSync(rPath)) continue;
+      const pKey = String(hr.project || '').toLowerCase();
+      if (pKey) {
+        projectRepoByKey.set(pKey, rPath);
+        const tail = pKey.split('/').pop();
+        if (tail && !projectRepoByTail.has(tail)) projectRepoByTail.set(tail, rPath);
+      }
+    }
+
     const commsItems = msgRows.map((m) => {
       const fromCourier = buildCourierProfileInDb(db, m.fromRom, m.fromUser, 'COURIER');
       const replyCourier = m.replyRom ? buildCourierProfileInDb(db, m.replyRom, m.toUser, 'RETURN COURIER') : null;
+      const mProjKey = String(m.project || '').trim().toLowerCase();
+      const mTail = mProjKey.split('/').pop() || '';
+      const projectDir =
+        (mProjKey && projectRepoByKey.get(mProjKey)) ||
+        (mTail && projectRepoByTail.get(mTail)) ||
+        '';
       return {
         id: m.id,
         project: m.project,
+        projectDir,
         fromUser: m.fromUser,
         fromRom: fromCourier.name,
         fromGlyph: fromCourier.glyph,
@@ -486,9 +903,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     }
 
     const pill = pillParts.join(' · ');
-    const tabBadge = `${emblem} [${displayRom}${headSeq ? ` #${headSeq}` : ''} · ${openCount} open${
-      inboxPendingCount + inboxReplyCount > 0 ? ` · 📬${inboxPendingCount + inboxReplyCount}` : ''
-    }]`;
+    const tabBadge = emblem;
 
     const projectRoms = {};
     for (const r of db.prepare('SELECT project, rom_name FROM project_roms').all()) {
@@ -507,6 +922,7 @@ function getHudSnapshot(options = {}, file = dbPath()) {
     }
     const lastCliOutput = getLastCliOutputInDb(db);
     const uiPrefs = getHudUiPrefsInDb(db);
+    const upcomingAutomations = listUpcomingAutomationsInDb(db, options);
 
     return {
       hudSchemaVersion: 7,
@@ -531,6 +947,8 @@ function getHudSnapshot(options = {}, file = dbPath()) {
       recentTape,
       gotchas: gotchaItems,
       comms: commsItems,
+      upcomingAutomations,
+      upcomingCount: upcomingAutomations.length,
       gotchaCount: projectGotchas.length,
       guardCount,
       inboxPendingCount,

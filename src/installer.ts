@@ -68,11 +68,16 @@ function createInstallerModule(deps) {
           cliCfg = JSON.parse(fs.readFileSync(cliJsonPath, 'utf8'));
         }
         const existingPlugins = Array.isArray(cliCfg.plugins) ? cliCfg.plugins : [];
+        const suppressedBuiltins = ['-opencode.sidebar.context', '-opencode.sidebar.mcp'];
         const filtered = existingPlugins.filter((p) => {
           const entry = typeof p === 'string' ? p : (p as any)?.package;
-          return entry !== legacyTuiDest && entry !== tuiPkgDir;
+          return (
+            entry !== legacyTuiDest &&
+            entry !== tuiPkgDir &&
+            !suppressedBuiltins.includes(String(entry || ''))
+          );
         });
-        filtered.push(tuiPkgDir);
+        filtered.push(...suppressedBuiltins, tuiPkgDir);
         cliCfg.plugins = filtered;
         fs.writeFileSync(cliJsonPath, JSON.stringify(cliCfg, null, 2) + '\n', 'utf8');
       } catch (_) {}

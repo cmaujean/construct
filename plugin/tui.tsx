@@ -7,6 +7,7 @@ const HUD_BASE = "http://127.0.0.1:47420"
 
 const CREW_OPTIONS = [
   { title: "📬 inbox: View, Reply, Ack & Hide Construct Comms", value: "ui:inbox", category: "Construct Tools", description: "Read reminders or messages, send replies, ack, or hide" },
+  { title: "📅 upcoming: Next 3 Days Automations & Notifications", value: "ui:upcoming", category: "Construct Tools", description: "Inspect scheduled jobs and reminders across all workspaces for the next 72h" },
   { title: "💻 cli: Run Construct CLI Command", value: "ui:cli", category: "Construct Tools", description: "Run tape, projects, boot, gotcha search, or any construct command" },
   { title: "🛡️ gotchas: Browse Project Gotchas & Fixes", value: "ui:gotchas", category: "Construct Tools", description: "Inspect recorded pitfalls and fixes for this project" },
   { title: "🧵 threads: Inspect All Open Threads", value: "ui:threads", category: "Construct Tools", description: "Browse and zoom into open #seq threads" },
@@ -77,6 +78,7 @@ export default Plugin.define({
   async setup(context) {
     const [hud, updateHud] = context.storage.memory("construct.hud", {
       initial: {
+        sessionId: "",
         project: "construct",
         pack: "sprawl",
         emblem: "🦾",
@@ -96,6 +98,8 @@ export default Plugin.define({
         state: "",
         next: "",
         comms: [] as any[],
+        upcomingAutomations: [] as any[],
+        upcomingCount: 0,
         upstreamUpdate: null as any,
         inboxPendingCount: 0,
         inboxReplyCount: 0,
@@ -105,18 +109,33 @@ export default Plugin.define({
       },
     })
 
+    const [uiPrefs, updateUiPrefs] = context.storage.store("construct.ui", {
+      initial: {
+        upcomingExpanded: false,
+        mcpExpanded: false,
+      },
+    })
+
     const pickHex = (v: unknown, fallback: string) =>
       typeof v === "string" && v.trim() ? v : fallback
     const AMBER = pickHex((context.theme as any)?.hue?.orange?.[300] ?? (context.theme as any)?.hue?.yellow?.[300], "#F59E0B")
     const AMBER_BRIGHT = pickHex((context.theme as any)?.hue?.yellow?.[200], "#FBBF24")
     const GREEN = pickHex((context.theme as any)?.hue?.green?.[300], "#34D399")
+    const RED = pickHex((context.theme as any)?.text?.feedback?.error?.base ?? (context.theme as any)?.hue?.red?.[300], "#F87171")
     const TEXT_BASE = (context.theme as any)?.text?.base ?? "#F3F4F6"
     const TEXT_MUTED = (context.theme as any)?.text?.muted ?? "#9CA3AF"
+    const USD_FMT = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" })
 
     let initialized = false
     let lastAlertTotal = 0
     let refreshInFlight = false
     let dialogOpen = false
+    let lastSlotSid = ""
+    let lastRenderedSid = ""
+    let latestRefreshSeq = 0
+    let activeFetchSid = ""
+    let pendingRefreshForSid: string | null = null
+    const snapBySession = new Map<string, any>()
 
     const withDialogLock = async (fn: () => Promise<void>) => {
       if (dialogOpen) return
@@ -255,23 +274,31 @@ export default Plugin.define({
       return await context.ui.dialog.select(opts)
     }
 
-    const getDir = () => {
+    const getSessionId = () => {
       try {
+        const cur = context.ui.router.current()
+        if (cur) {
+          if (cur.type === "session" && "sessionID" in cur) {
+            return String(cur.sessionID || "")
+          }
+          return ""
+        }
+      } catch (_) {}
+      return lastSlotSid
+    }
+
+    const getDir = (sid = "") => {
+      try {
+        const targetSid = sid || getSessionId()
+        if (targetSid) {
+          const sess = (context.data as any)?.session?.get?.(targetSid)
+          const sessDir = sess?.location?.directory || sess?.directory
+          if (sessDir) return String(sessDir)
+        }
         return String(context.location?.directory || context.data.location.default()?.directory || "")
       } catch (_) {
         return ""
       }
-    }
-
-    const getSessionId = (explicitSid = "") => {
-      if (explicitSid) return explicitSid
-      try {
-        const cur = context.ui.router.current()
-        if (cur && cur.type === "session" && "sessionID" in cur) {
-          return String(cur.sessionID || "")
-        }
-      } catch (_) {}
-      return ""
     }
 
     const getUnread = (commsList: any[], operatorId: string) => {
@@ -289,8 +316,17 @@ export default Plugin.define({
       return Math.max(unread.length, serverCount)
     }
 
-    const applySnap = (snap: any) => {
+    const applySnap = (snap: any, expectedSid = "") => {
       if (!snap || !snap.pill) return
+      const snapSid = String(snap.sessionId || expectedSid || "")
+      if (snapSid) {
+        snapBySession.set(snapSid, snap)
+      }
+      const liveSid = getSessionId()
+      if (liveSid) {
+        if (expectedSid && expectedSid !== liveSid) return
+        if (snap.sessionId && String(snap.sessionId) !== liveSid) return
+      }
       const nextTotal = getAlertCount(snap)
       if (initialized && nextTotal > lastAlertTotal) {
         const unread = getUnread(snap.comms, snap.operatorId)
@@ -312,40 +348,69 @@ export default Plugin.define({
       })
     }
 
-    const refreshHud = async (explicitSid = "") => {
-      if (refreshInFlight) return
+    const refreshHud = async (requestedSid = "") => {
+      const targetSid = requestedSid || getSessionId()
+      if (refreshInFlight) {
+        if (targetSid !== activeFetchSid) {
+          pendingRefreshForSid = targetSid
+        }
+        return
+      }
       refreshInFlight = true
+      activeFetchSid = targetSid
+      const reqSeq = ++latestRefreshSeq
       try {
-        const dir = getDir()
-        const sid = getSessionId(explicitSid)
+        const dir = getDir(targetSid)
         const url = new URL(`${HUD_BASE}/hud`)
         if (dir) url.searchParams.set("dir", dir)
-        if (sid) url.searchParams.set("sessionID", sid)
+        if (targetSid) url.searchParams.set("sessionID", targetSid)
         const res = await fetch(url.toString())
         if (!res.ok) {
-          updateHud((draft: any) => {
-            draft.connected = false
-          })
+          if (reqSeq === latestRefreshSeq && (!getSessionId() || targetSid === getSessionId())) {
+            updateHud((draft: any) => {
+              draft.connected = false
+            })
+          }
           return
         }
         const data = (await res.json()) as any
-        applySnap(data?.hud)
+        if (reqSeq !== latestRefreshSeq) return
+        const liveSid = getSessionId()
+        if (liveSid && targetSid !== liveSid) {
+          if (data?.hud?.pill && targetSid) {
+            snapBySession.set(String(data.hud.sessionId || targetSid), data.hud)
+          }
+          pendingRefreshForSid = liveSid
+          return
+        }
+        applySnap(data?.hud, targetSid)
       } catch (_) {
-        updateHud((draft: any) => {
-          draft.connected = false
-        })
+        if (reqSeq === latestRefreshSeq && (!getSessionId() || targetSid === getSessionId())) {
+          updateHud((draft: any) => {
+            draft.connected = false
+          })
+        }
       } finally {
         refreshInFlight = false
+        activeFetchSid = ""
+        const queuedSid = pendingRefreshForSid
+        pendingRefreshForSid = null
+        if (queuedSid !== null && queuedSid !== targetSid) {
+          queueMicrotask(() => {
+            void refreshHud(queuedSid)
+          })
+        }
       }
     }
 
     const postAction = async (payload: Record<string, unknown>) => {
+      const targetSid = getSessionId()
       const res = await fetch(`${HUD_BASE}/action`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dir: getDir(),
-          sessionID: getSessionId(),
+          dir: getDir(targetSid),
+          sessionID: targetSid,
           ...payload,
         }),
       })
@@ -353,13 +418,72 @@ export default Plugin.define({
         throw new Error(`Construct HUD HTTP ${res.status}`)
       }
       const data = (await res.json()) as any
-      applySnap(data?.hud)
+      applySnap(data?.hud, targetSid)
       return data
+    }
+
+    const discussInNewSession = async (opts: {
+      promptTitle: string
+      sessionTitle: string
+      targetDir?: string
+      contextText: string
+      onAfterCreate?: () => Promise<void>
+    }) => {
+      queueMicrotask(() => {
+        try {
+          context.ui.dialog.set({ size: "xlarge", centered: true })
+        } catch (_) {}
+      })
+      const note = await context.ui.dialog.prompt({
+        title: opts.promptTitle,
+        placeholder: "Optional outcome / question (e.g. Reel posted, still 0 views) - press Enter to launch",
+      })
+      if (note === undefined || note === null) return
+
+      const targetDir = String(opts.targetDir || getDir() || "").trim()
+      const createInput: any = {
+        title: clipText(note.trim() || opts.sessionTitle, 48),
+      }
+      if (targetDir) createInput.location = { directory: targetDir }
+
+      const created = await (context.client as any).session.create(createInput)
+      const newSid = String((created as any)?.id || (created as any)?.data?.id || "")
+      if (!newSid) {
+        throw new Error("OpenCode did not return a session ID")
+      }
+
+      if (opts.onAfterCreate) {
+        try {
+          await opts.onAfterCreate()
+        } catch (_) {}
+      }
+
+      const trimmedNote = note.trim()
+      const fullPrompt = trimmedNote
+        ? `${opts.contextText}\n\nOperator update / question:\n${trimmedNote}`
+        : `${opts.contextText}\n\nLet's review this item and discuss status, outcomes, and next steps.`
+
+      if ((context.ui as any)?.tabs?.enabled?.()) {
+        try {
+          ;(context.ui as any).tabs.open(newSid)
+          ;(context.ui as any).tabs.focus(newSid)
+        } catch (_) {}
+      }
+      context.ui.router.navigate({ type: "session", sessionID: newSid })
+      await (context.client as any).session.prompt({
+        sessionID: newSid,
+        text: fullPrompt,
+      })
     }
 
     const showMessageDetail = async (msg: any) => {
       const op = String(hud.operatorId || "").toLowerCase()
       const isReplyNotification = msg.status === "replied" && (!op || String(msg.fromUser || "").toLowerCase() === op)
+      const isSelfReminder = Boolean(
+        op &&
+          String(msg.fromUser || "").toLowerCase() === op &&
+          String(msg.toUser || "").toLowerCase() === op,
+      )
       const isPending =
         ((msg.status === "pending" || msg.status === "seen") && (!op || String(msg.toUser || "").toLowerCase() === op)) ||
         isReplyNotification
@@ -367,12 +491,13 @@ export default Plugin.define({
         ? `\n\n--- RETURN COURIER (${msg.replyRom || msg.toUser}) ---\n${msg.replyBody}`
         : ""
       const fullBody = `${String(msg.body || "")}${replySection}`
-      const canReply = (!op || String(msg.toUser || "").toLowerCase() === op) && msg.status !== "replied"
+      const canReply = !isSelfReminder && (!op || String(msg.toUser || "").toLowerCase() === op) && msg.status !== "replied"
 
       const actions: Array<{ id: string; label: string; bind?: string; accent?: string }> = []
       if (isPending) {
         actions.push({ id: "ack", label: "✓ Ack [Enter]", bind: "return", accent: AMBER_BRIGHT })
       }
+      actions.push({ id: "discuss", label: "💬 Discuss in Session [s]", bind: "s", accent: GREEN })
       if (canReply) {
         actions.push({ id: "reply", label: "↩ Reply [r]", bind: "r", accent: GREEN })
       }
@@ -392,6 +517,18 @@ export default Plugin.define({
           message: `Acked M#${msg.id}`,
           variant: "success",
           duration: 2500,
+        })
+      } else if (choice === "discuss") {
+        await discussInNewSession({
+          promptTitle: `Discuss [M#${msg.id}] in ${msg.project || "workspace"}`,
+          sessionTitle: `M#${msg.id}: ${clipText(msg.body, 38)}`,
+          targetDir: msg.projectDir || "",
+          contextText: `Construct Notification [M#${msg.id}] (${msg.project || "global"} · via ${msg.fromRom || msg.fromUser}):\n"${String(msg.body || "").trim()}"${replySection}`,
+          onAfterCreate: isPending
+            ? async () => {
+                await postAction({ action: "ack", id: msg.id })
+              }
+            : undefined,
         })
       } else if (choice === "reply") {
         queueMicrotask(() => {
@@ -570,6 +707,60 @@ export default Plugin.define({
       }
     }
 
+    const showUpcomingDetail = async (item: any) => {
+      const icon = item.status === "paused" ? "⏸️" : item.category === "notification" ? "🔔" : "⚙️"
+      const body = [
+        `NAME: ${item.name}`,
+        `STATUS: ${item.status} · CATEGORY: ${item.category}`,
+        `WHEN: ${item.dueDateTime || item.dueLocal || item.dueIso}`,
+        `TRIGGER: ${item.triggerSummary || item.triggerType}`,
+        `ACTION: ${item.actionType}`,
+        `WORKSPACE: ${item.project || "workspace"} (${item.directory || ""})`,
+        "",
+        "PREVIEW / PAYLOAD:",
+        String(item.preview || "(none)"),
+      ].join("\n")
+      const choice = await showActionModal({
+        title: `${icon} ${item.name} (${item.dueLocal})`,
+        body,
+        highlight: item.category === "notification" && item.status === "active",
+        actions: [{ id: "discuss", label: "💬 Discuss in Session [s]", bind: "s", accent: GREEN }],
+      })
+      if (choice === "discuss") {
+        await discussInNewSession({
+          promptTitle: `Discuss "${item.name}" in ${item.shortProject || item.project || "workspace"}`,
+          sessionTitle: item.name,
+          targetDir: item.directory || "",
+          contextText: `Scheduled ${item.category} "${item.name}" (${item.dueDateTime || item.dueLocal}, ${item.project || "workspace"}):\n${String(item.preview || item.triggerSummary || "").trim()}`,
+        })
+      }
+    }
+
+    const openUpcomingDialog = async () => {
+      await refreshHud()
+      const list = Array.isArray(hud.upcomingAutomations) ? hud.upcomingAutomations : []
+      if (list.length === 0) {
+        await showWideAlert("Upcoming (Next 3 Days)", "No automations or notifications scheduled in the next 72 hours.")
+        return
+      }
+      const selectedKey = await selectWide({
+        title: `Upcoming Next 3 Days (${list.length} across all workspaces)`,
+        options: list.map((u: any, idx: number) => {
+          const icon = u.status === "paused" ? "⏸️" : u.category === "notification" ? "🔔" : "⚙️"
+          const statusTag = u.status === "paused" ? " [paused]" : ""
+          return {
+            title: `${icon} ${u.dueLocal} · ${u.name}${statusTag}`,
+            value: String(idx),
+            category: u.status === "paused" ? "Paused" : u.category === "notification" ? "Notifications" : "Automations",
+            description: `${u.project} · ${clipText(u.preview || u.triggerSummary, 85)}`,
+          }
+        }),
+      })
+      if (selectedKey === undefined || selectedKey === null) return
+      const chosen = list[Number(selectedKey)]
+      if (chosen) await showUpcomingDetail(chosen)
+    }
+
     const openCrewDialog = async () => {
       await refreshHud()
       const choice = await selectWide({
@@ -579,6 +770,10 @@ export default Plugin.define({
       if (!choice) return
       if (choice === "ui:inbox") {
         await openInboxDialog()
+        return
+      }
+      if (choice === "ui:upcoming") {
+        await openUpcomingDialog()
         return
       }
       if (choice === "ui:cli") {
@@ -625,35 +820,25 @@ export default Plugin.define({
 
     const stopEvents = context.data.listen(({ details }) => {
       const t = String(details?.type || "")
-      if (t.includes("session") || t.includes("message") || t.includes("tool")) {
-        const sid = String((details as any)?.data?.sessionID || (details as any)?.data?.id || "")
-        void refreshHud(sid)
+      if (!t.includes("session") && !t.includes("message") && !t.includes("tool")) return
+      const d = (details as any)?.data
+      const eventSid = String(
+        d?.sessionID ||
+        d?.info?.sessionID ||
+        (t.startsWith("session.") ? (d?.id || d?.info?.id || "") : ""),
+      )
+      const activeSid = getSessionId()
+      if (activeSid) {
+        if (!eventSid || eventSid !== activeSid) return
+        void refreshHud()
+        return
+      }
+      if (t.startsWith("session.")) {
+        void refreshHud()
       }
     })
 
-    // 1. Session Prompt Footer (`prompt.footer.status`)
-    const unslotPromptStatus = context.ui.slot({
-      append: "prompt.footer.status",
-      render: () => {
-        const totalAlerts = getAlertCount(hud)
-        const label = totalAlerts > 0 ? `📬${totalAlerts} · ${hud.pill}` : hud.pill
-        return (
-          <text
-            fg={
-              totalAlerts > 0 || hud.driftCount > 0
-                ? AMBER_BRIGHT
-                : hud.openCount > 0
-                  ? TEXT_BASE
-                  : GREEN
-            }
-          >
-            {label}
-          </text>
-        )
-      },
-    })
-
-    // 2. Home Screen Footer (`home.footer.status`)
+    // 1. Home Screen Footer (`home.footer.status`) — only shown on Home screen where no sidebar exists
     const unslotHomeStatus = context.ui.slot({
       append: "home.footer.status",
       render: () => {
@@ -673,10 +858,26 @@ export default Plugin.define({
       },
     })
 
-    // 3. Structured Clickable Sidebar Sections (`sidebar.content`)
+    // 2. Structured Clickable Sidebar Sections (`sidebar.content`)
     const unslotSidebarTop = context.ui.slot({
       prepend: "sidebar.content",
-      render: () => {
+      render: (slotInput: any) => {
+        const slotSid = String(slotInput?.sessionID || getSessionId() || "")
+        if (slotSid) {
+          lastSlotSid = slotSid
+          if (slotSid !== lastRenderedSid) {
+            lastRenderedSid = slotSid
+            if (hud.sessionId !== slotSid) {
+              queueMicrotask(() => {
+                const liveSid = getSessionId()
+                if (liveSid && liveSid !== slotSid) return
+                const cached = snapBySession.get(slotSid)
+                if (cached) applySnap(cached, slotSid)
+                void refreshHud(slotSid)
+              })
+            }
+          }
+        }
         const unread = getUnread(hud.comms, hud.operatorId)
         const totalAlerts = getAlertCount(hud)
         const hasAlerts = totalAlerts > 0
@@ -690,13 +891,24 @@ export default Plugin.define({
         const latestFrames = Array.isArray(hud.recentTape)
           ? hud.recentTape.slice(0, 2)
           : []
+        const upcomingList = Array.isArray(hud.upcomingAutomations)
+          ? hud.upcomingAutomations
+          : []
+        const upcomingExpanded = Boolean(uiPrefs.upcomingExpanded)
+        const upcomingPreview = upcomingList.slice(0, 12)
+        const notifCount = upcomingList.filter((u: any) => u.category === "notification").length
+        const autoCount = upcomingList.length - notifCount
+        const upcomingBreakdown = upcomingList.length > 0
+          ? `${notifCount > 0 ? `🔔${notifCount}` : ""}${notifCount > 0 && autoCount > 0 ? " " : ""}${autoCount > 0 ? `⚙️${autoCount}` : ""}`
+          : ""
 
         return (
           <box flexDirection="column" gap={1} paddingBottom={1}>
-            {/* Section 1: Clickable Construct Header + Upstream Update Notice */}
+            {/* Section 1: Clickable Project + Crew Switcher Header + Offline/Update Notice */}
             <box flexDirection="column">
               <box
-                flexDirection="column"
+                flexDirection="row"
+                justifyContent="space-between"
                 onMouseUp={(ev: any) => {
                   if (ev?.button === 0 || ev?.button === undefined) {
                     void withDialogLock(openCrewDialog)
@@ -704,14 +916,17 @@ export default Plugin.define({
                 }}
               >
                 <text fg={TEXT_BASE}>
-                  {`${hud.emblem} ${hud.pack} · ${hud.project}`}
+                  {`📁 ${clipText(hud.project, 19)}`}
                 </text>
                 <text fg={TEXT_MUTED}>
-                  {hud.connected
-                    ? `Head #${hud.headSeq} · ${hud.totalFrames} frames · ${hud.guardCount} guards`
-                    : "HUD offline (retrying 127.0.0.1:47420...)"}
+                  {`[${clipText(hud.romName || hud.pack, 13)}]`}
                 </text>
               </box>
+              {!hud.connected ? (
+                <text fg={TEXT_MUTED}>
+                  {"HUD offline (retrying :47420)"}
+                </text>
+              ) : null}
               {behindCount > 0 ? (
                 <box
                   onMouseUp={(ev: any) => {
@@ -721,7 +936,7 @@ export default Plugin.define({
                   }}
                 >
                   <text fg={AMBER_BRIGHT}>
-                    {`⚡ Construct update: ${behindCount} behind [upgrade]`}
+                    {`⚡ ${behindCount} behind [upgrade]`}
                   </text>
                 </box>
               ) : null}
@@ -759,12 +974,88 @@ export default Plugin.define({
                     )
                   })}
                   <text fg={AMBER}>
-                    {"┃ Click item or Ctrl+Shift+I to ack/reply"}
+                    {"┃ Click or Ctrl+Shift+I to reply/ack"}
                   </text>
                 </>
               ) : (
                 <text fg={GREEN}>{"✓ 0 pending (Ctrl+Shift+I)"}</text>
               )}
+            </box>
+
+            {/* Section 2b: Expandable Upcoming Automations & Notifications (Next 3 Days, All Workspaces) */}
+            <box flexDirection="column">
+              <box flexDirection="row" justifyContent="space-between">
+                <box
+                  onMouseUp={(ev: any) => {
+                    if (ev?.button === 0 || ev?.button === undefined) {
+                      void updateUiPrefs((draft: any) => {
+                        draft.upcomingExpanded = !draft.upcomingExpanded
+                      })
+                    }
+                  }}
+                >
+                  <text fg={upcomingList.length > 0 ? TEXT_BASE : TEXT_MUTED}>
+                    {`${upcomingExpanded ? "▾" : "▸"} Upcoming 3d (${upcomingList.length})${upcomingBreakdown ? ` · ${upcomingBreakdown}` : ""}`}
+                  </text>
+                </box>
+                {upcomingList.length > 0 ? (
+                  <box
+                    onMouseUp={(ev: any) => {
+                      if (ev?.button === 0 || ev?.button === undefined) {
+                        void withDialogLock(openUpcomingDialog)
+                      }
+                    }}
+                  >
+                    <text fg={TEXT_MUTED}>{"[all]"}</text>
+                  </box>
+                ) : null}
+              </box>
+              {upcomingExpanded ? (
+                upcomingPreview.length > 0 ? (
+                  <>
+                    {upcomingPreview.map((u: any) => {
+                      const icon = u.status === "paused" ? "⏸️" : u.category === "notification" ? "🔔" : "⚙️"
+                      const timeFg = u.status === "paused"
+                        ? TEXT_MUTED
+                        : u.category === "notification"
+                          ? AMBER_BRIGHT
+                          : TEXT_BASE
+                      return (
+                        <box
+                          flexDirection="column"
+                          onMouseUp={(ev: any) => {
+                            if (ev?.button === 0 || ev?.button === undefined) {
+                              void withDialogLock(() => showUpcomingDetail(u))
+                            }
+                          }}
+                        >
+                          <text fg={timeFg}>
+                            {`${icon} ${u.dueLocal} · ${clipText(u.shortProject || u.project, 16)}${u.status === "paused" ? " [paused]" : ""}`}
+                          </text>
+                          <text wrapMode="word" fg={TEXT_MUTED}>
+                            {`  ${clipText(u.name, 68)}`}
+                          </text>
+                        </box>
+                      )
+                    })}
+                    {upcomingList.length > upcomingPreview.length ? (
+                      <box
+                        onMouseUp={(ev: any) => {
+                          if (ev?.button === 0 || ev?.button === undefined) {
+                            void withDialogLock(openUpcomingDialog)
+                          }
+                        }}
+                      >
+                        <text fg={TEXT_MUTED}>
+                          {`+${upcomingList.length - upcomingPreview.length} more [all]`}
+                        </text>
+                      </box>
+                    ) : null}
+                  </>
+                ) : (
+                  <text fg={GREEN}>{"✓ 0 scheduled in next 72h"}</text>
+                )
+              ) : null}
             </box>
 
             {/* Section 3: Next Milestone (word-wrapped, click for full State + Next) */}
@@ -872,34 +1163,139 @@ export default Plugin.define({
       },
     })
 
-    // 4. Sidebar Footer (`sidebar.footer`) with Web HUD link + CLI trigger + shortcuts
+    // 4. Sidebar Footer (`sidebar.footer`): Context (tokens, %, cost) + MCP accordion
     const unslotSidebarFooter = context.ui.slot({
       append: "sidebar.footer",
-      render: () => (
-        <box flexDirection="column" paddingTop={1}>
-          {hud.driftCount > 0 ? (
-            <text fg={AMBER_BRIGHT}>
-              {`⚠️ ${hud.driftCount} repo instruction file(s) drifted`}
-            </text>
-          ) : null}
-          <text fg={TEXT_MUTED}>
-            {"Web HUD: "}
-            <a href="http://127.0.0.1:47420/">http://127.0.0.1:47420/</a>
-          </text>
-          <box
-            onMouseUp={(ev: any) => {
-              if (ev?.button === 0 || ev?.button === undefined) {
-                void withDialogLock(openCliPromptDialog)
-              }
-            }}
-          >
-            <text fg={TEXT_MUTED}>{"💻 Run Construct CLI [open]"}</text>
+      render: (slotInput: any) => {
+        const sid = String(slotInput?.sessionID || getSessionId() || "")
+        const data = context.data as any
+        let tokens = 0
+        let percent: number | undefined = undefined
+        let cost = 0
+        let servers: any[] = []
+        try {
+          const sess = sid ? data?.session?.get?.(sid) : undefined
+          const loc = sess?.location ?? (context as any)?.location
+          cost = sid ? Number(data?.session?.cost?.(sid) || 0) : 0
+          const msgs: any[] = sid ? (data?.session?.message?.list?.(sid) ?? []) : []
+          const revertId = sess?.revert?.messageID
+          const revertIdx = revertId ? msgs.findIndex((m: any) => m?.id === revertId) : -1
+          const endIdx = revertIdx === -1 ? msgs.length : revertIdx
+          let compIdx = -1
+          for (let i = endIdx - 1; i >= 0; i--) {
+            if (msgs[i]?.type === "compaction" && msgs[i]?.status === "completed") {
+              compIdx = i
+              break
+            }
+          }
+          let lastAssistant: any = null
+          for (let i = endIdx - 1; i > compIdx; i--) {
+            if (msgs[i]?.type === "assistant" && msgs[i]?.tokens !== undefined) {
+              lastAssistant = msgs[i]
+              break
+            }
+          }
+          if (lastAssistant?.tokens) {
+            const tk = lastAssistant.tokens
+            tokens =
+              Number(tk.input || 0) +
+              Number(tk.output || 0) +
+              Number(tk.reasoning || 0) +
+              Number(tk.cache?.read || 0) +
+              Number(tk.cache?.write || 0)
+            const models: any[] = data?.location?.model?.list?.(loc) ?? []
+            const matched = models.find(
+              (m: any) =>
+                m?.providerID === lastAssistant?.model?.providerID &&
+                m?.id === lastAssistant?.model?.id,
+            )
+            const ctxLimit = Number(matched?.limit?.context || 0)
+            if (tokens > 0 && ctxLimit > 0) {
+              percent = Math.round((tokens / ctxLimit) * 100)
+            }
+          }
+          servers = data?.location?.mcp?.server?.list?.(loc) ?? []
+        } catch (_) {}
+
+        const hasContext = tokens > 0 || cost > 0
+        const hasMcp = servers.length > 0
+        if (!hasContext && !hasMcp) return null
+
+        const mcpExpanded = Boolean((uiPrefs as any).mcpExpanded)
+        const activeCount = servers.filter((s: any) => s?.status?.status === "connected").length
+        const errorCount = servers.filter(
+          (s: any) => s?.status?.status === "failed" || s?.status?.status === "needs_auth",
+        ).length
+        const ctxLineParts = [
+          tokens > 0 ? `${tokens.toLocaleString()} tok` : "",
+          percent !== undefined ? `${percent}%` : "",
+          cost > 0 ? USD_FMT.format(cost) : "",
+        ].filter(Boolean)
+
+        const statusFg = (st: string) => {
+          if (st === "connected") return GREEN
+          if (st === "failed") return RED
+          if (st === "needs_auth") return AMBER_BRIGHT
+          return TEXT_MUTED
+        }
+        const statusLabel = (st: string) => {
+          if (st === "connected") return "Connected"
+          if (st === "pending") return "Connecting"
+          if (st === "failed") return "Error"
+          if (st === "disabled") return "Disabled"
+          if (st === "needs_auth") return "Sign in"
+          return st || "unknown"
+        }
+
+        return (
+          <box flexDirection="column" gap={1} paddingTop={1}>
+            {hasContext ? (
+              <box flexDirection="column">
+                <text fg={TEXT_BASE}>{"Context"}</text>
+                <text fg={TEXT_MUTED}>{ctxLineParts.join(" · ")}</text>
+              </box>
+            ) : null}
+            {hasMcp ? (
+              <box flexDirection="column">
+                <box
+                  onMouseUp={(ev: any) => {
+                    if (ev?.button === 0 || ev?.button === undefined) {
+                      void updateUiPrefs((draft: any) => {
+                        draft.mcpExpanded = !draft.mcpExpanded
+                      })
+                    }
+                  }}
+                >
+                  <text fg={TEXT_BASE}>
+                    {`${mcpExpanded ? "▾" : "▸"} MCP${!mcpExpanded ? ` (${activeCount} active${errorCount > 0 ? `, ${errorCount} err` : ""})` : ""}`}
+                  </text>
+                </box>
+                {mcpExpanded
+                  ? servers.map((srv: any) => {
+                      const st = String(srv?.status?.status || "")
+                      return (
+                        <box
+                          flexDirection="row"
+                          justifyContent="space-between"
+                          onMouseUp={(ev: any) => {
+                            if (ev?.button === 0 || ev?.button === undefined) {
+                              try {
+                                void context.keymap.dispatch("mcp.list")
+                              } catch (_) {}
+                            }
+                          }}
+                        >
+                          <text fg={TEXT_BASE}>{`• ${clipText(srv?.name, 20)}`}</text>
+                          <text fg={statusFg(st)}>{statusLabel(st)}</text>
+                        </box>
+                      )
+                    })
+                  : null}
+              </box>
+            ) : null}
           </box>
-          <text fg={TEXT_MUTED}>
-            {"Ctrl+Shift+G HUD · Ctrl+Shift+I Inbox"}
-          </text>
-        </box>
-      ),
+        )
+      },
     })
 
     // 5. Composer Alert Bar (`session.composer.top`)
@@ -959,6 +1355,10 @@ export default Plugin.define({
               await withDialogLock(openInboxDialog)
               return
             }
+            if (rawArg === "upcoming" || rawArg === "schedule" || rawArg === "automations") {
+              await withDialogLock(openUpcomingDialog)
+              return
+            }
             if (rawArg === "open" || rawArg === "threads") {
               await withDialogLock(openThreadsDialog)
               return
@@ -991,7 +1391,6 @@ export default Plugin.define({
     return () => {
       clearInterval(pollTimer)
       stopEvents()
-      unslotPromptStatus()
       unslotHomeStatus()
       unslotSidebarTop()
       unslotSidebarFooter()

@@ -817,7 +817,7 @@ ${renderNavBar('')}
       <tr>
         <td><strong>OpenCode V2</strong></td>
         <td><code>construct init</code></td>
-        <td>Installs <code>~/.config/opencode/plugins/construct.js</code> + <code>construct-tui/</code> (wired into <code>cli.json</code>), wires <code>active-rom.md</code>, zero-roundtrip <code>prompt</code>/<code>context</code>/<code>shell</code> hooks, full-CLI <code>/construct &lt;cmd&gt;</code> and <code>/inbox</code> TUI HUD with <code>xlarge</code> scrollable modals, tab badges, idle Courier wake-up, and the <code>127.0.0.1:47420</code> HUD server.</td>
+        <td>Installs <code>~/.config/opencode/plugins/construct.js</code> + <code>construct-tui/</code> (wired into <code>cli.json</code>), wires <code>active-rom.md</code>, zero-roundtrip <code>prompt</code>/<code>context</code>/<code>shell</code> hooks, full-CLI <code>/construct &lt;cmd&gt;</code> (including <code>/construct upcoming</code>) and <code>/inbox</code> TUI HUD with expandable 72h upcoming automations/notifications across all workspaces, one-click <code>Discuss in Session</code> handoff into target repos, <code>xlarge</code> scrollable modals, tab badges, idle Courier wake-up, and the <code>127.0.0.1:47420</code> HUD server.</td>
       </tr>
       <tr>
         <td><strong>Claude Code</strong></td>
