@@ -1698,6 +1698,8 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     const lockText = buildFrontierVoiceLock(sprawlCrew.voice);
     assert.match(lockText, /<construct-voice-lock>/);
     assert.match(lockText, /MOLLY \/\/ THE BLITZ/);
+    assert.match(lockText, /write every internal thinking\/reasoning block 100% in the active Crew\/ROM voice/);
+    assert.match(sprawlCrew.voice, /write every internal thinking\/reasoning block 100% in the active specialist's voice/);
     const mockMsgs = [
       { type: 'user', text: 'Earlier cached user turn' },
       { type: 'assistant', content: [{ type: 'text', text: 'Earlier cached assistant turn' }] },
@@ -1939,6 +1941,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(mcp.resolveNodeExecutable('/usr/local/bin/node'), '/usr/local/bin/node');
     const protocolMod = require('../src/protocol.ts');
     assert.match(protocolMod.CORE_PROTOCOL, /Check and update documentation parity on every change/);
+    assert.match(protocolMod.CORE_PROTOCOL, /never re-seed or overwrite existing user data/);
     assert.match(store.getRom('clockwork').voice, /Execution, Overwatch & Documentation Parity/);
 
     // 4. Causal Lattice Engine: rANS + String-Slab Codec, Chaskey-12 Capabilities, 64B Arena, Compaction & 1-RTT IBLT

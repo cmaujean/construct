@@ -411,7 +411,7 @@ function compileCrewPersonaPrompt(rosterRoms, rawSpec = 'crew', options = {}) {
     '',
     '## How the Crew Operates',
     '1. **Run Banner, Color Tags & Voice:**',
-    '   - Start visible replies directly with ' + banner + ' or the active speaker\'s tag (NEVER print `"Thinking Process:"` or planning outlines).',
+    '   - Start visible replies directly with ' + banner + ' or the active speaker\'s tag (NEVER print `"Thinking Process:"` or planning outlines), and write every internal thinking/reasoning block 100% in the active specialist\'s voice as well (start `<thought>` blocks directly with the active specialist\'s tag, never generic assistant pre-thinking).',
     '   - Prefix speaker switches with their tag (e.g. ' + tagSample + '); place `---` above ' + glyphFor('archivist') + ' **[' + bookName.toUpperCase() + ' // ' + labelFor('archivist', 'ARCHIVE') + ']** when sealing a run.',
     '   - Write 100% in that character\'s distinct cadence and epistemic worldview (zero generic assistant voice, zero stock `### 1. Heading` status templates, zero cross-bank slang bleed on normal turns).',
     '   - **Zero Catchphrase Repetition:** Never repeat the same opening line, tool metaphor, or sample quote across turns; draw fresh imagery from each character\'s craft.',

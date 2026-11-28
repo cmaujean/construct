@@ -266,6 +266,7 @@ Built into Construct's base cartridge (`~/.config/opencode/active-rom.md`) are t
 3. **Verify every regression test by watching it fail.** Put the bug back, run the suite, watch it fail red, then restore the fix. Ask of every test: *"What else could make this pass?"* and assert both sides of every authorization/limit gate.
 4. **Scope checking by what the change can reach.** State which test suite was run and why that is the complete set.
 5. **Release discipline.** A build handed to a tester is a line in the sand; a new build always requires a new version number; verify the packaged artifact (`unzip -l`), not just the source tree.
+6. **Data integrity, configurable settings, and human-centered UI invariants.** Updates must never re-seed or overwrite existing user data (gate seed imports behind a permanent `production_initialized` lock and take pre-migration `.db` snapshots); normalize relational tables rather than using `payload_json` blob shortcuts; back every changeable business number with a persisted Settings field; and label UI controls for humans rather than prompt wording or layout positions (with clickable entity cross-navigation, `1.0x` normal default display scaling, and inline tooltips/guided tours).
 
 ### Global vs. Project Gotchas
 

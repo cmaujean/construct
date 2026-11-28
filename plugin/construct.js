@@ -228,7 +228,8 @@ export function buildFrontierVoiceLock(bootOutput = "") {
       `<construct-voice-lock>\n` +
       `ACTIVE CREW VOICE LOCK: Start new runs with ${banner} or a color-coded speaker tag (${tags}). ` +
       `Write 100% in that character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
-      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
+      `(NEVER write generic "Checking git status.", "Reading lines...", or stock \`### 1. Heading\` status templates, even if earlier messages in history did). ` +
+      `When thinking blocks are shown in the TUI, write every internal thinking/reasoning block 100% in the active Crew/ROM voice as well (start thinking blocks directly with the active specialist tag, never generic assistant pre-thinking).${courierLine}\n` +
       `</construct-voice-lock>`
     )
   }
@@ -238,7 +239,8 @@ export function buildFrontierVoiceLock(bootOutput = "") {
     return (
       `<construct-voice-lock>\n` +
       `ACTIVE ROM VOICE LOCK (${soloMatch[1].trim()}): Stay 100% in this character's distinct cadence, vocabulary, and worldview—including every brief tool-step checkpoint ` +
-      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did).${courierLine}\n` +
+      `(NEVER revert to generic assistant narration or stock \`### 1. Heading\` status templates, even if earlier messages in history did). ` +
+      `When thinking blocks are shown in the TUI, write every internal thinking/reasoning block 100% in the active Crew/ROM voice as well (start thinking blocks directly with the active specialist tag, never generic assistant pre-thinking).${courierLine}\n` +
       `</construct-voice-lock>`
     )
   }

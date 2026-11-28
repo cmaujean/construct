@@ -49,7 +49,13 @@ const CORE_PROTOCOL = `## Core Engineering Protocol (Non-Negotiable)
 - **A new build always means a new version number.** If an artifact already exists at the current version number, that number is spent—bump and split the changelog before packaging.
 - **Documentation parity is a release gate:** Never commit or hand over a feature, CLI flag, or architectural change while \`README.md\`, \`docs/\`, or \`--help\` still describe the old state.
 - **Two changelogs, two readers:** player/user changelogs carry one short entry per published release in user terms (no build/refactor internals, and a first publish is just "First release."); dev changelogs (\`docs/changelog-dev.md\`) carry per-build notes and what testers should look at.
-- **Verify the artifact, not just the source.** Inspect the built zip/bundle layout, version, and included files before handing it over.`;
+- **Verify the artifact, not just the source.** Inspect the built zip/bundle layout, version, and included files before handing it over.
+
+### 5. Data Integrity, Configurable Settings & Human-Centered UI Invariants
+- **Updates must never re-seed or overwrite existing user data:** Gate initial seed imports behind a permanent \`production_initialized\` / schema-version lock, and automatically write a timestamped pre-migration backup snapshot before executing forward-only schema migrations.
+- **Real relational schemas, never \`payload_json\` blob shortcuts:** Normalize relational tables properly so fields are indexed, queryable, and constrained rather than stuffing unindexed JSON blobs into columns.
+- **Every changeable business number belongs in Settings:** Markup multipliers, fee thresholds, tax rates, shipping rules, and tunable domain constants must always have a corresponding persisted Settings field rather than hardcoded literals in UI or service code.
+- **Human-centered UI, clickable entity navigation & inline guidance:** Label controls for people (never prompt phrasing, layout positions like "Left Column", or spec descriptors like "4-Field Anchor List", and assert their absence in widget tests). Make entity badges (locations, boxes, categories, vendors, item IDs) clickable navigation links with \`< Back\` history, respect \`1.0x\` (\`100%\`) OS display scaling by default with overflow-safe zoom, and provide inline \`(?)\` tooltips and an accessible Guided Tour where appropriate.`;
 
 const SEED_USERS = Object.freeze([]);
 
