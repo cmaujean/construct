@@ -571,6 +571,7 @@ function getRomInDb(db, name) {
     irondruid: 'irondruid', tirnanog: 'irondruid', thirdeye: 'irondruid',
     prydain: 'prydain', caerdath: 'prydain', caerdallben: 'prydain',
     clockwork: 'clockwork', korova: 'clockwork', droogs: 'clockwork', nadsat: 'clockwork',
+    cybertron: 'cybertron', transformers: 'cybertron', autobots: 'cybertron', decepticons: 'cybertron',
     generic: 'generic', standard: 'generic', plain: 'generic',
   };
   let packName = packAliasMap[rawSpec] || null;
@@ -590,7 +591,7 @@ function getRomInDb(db, name) {
 
     if (packName) {
       canonicalName = rawSpec === 'all' ? 'crew' : rawSpec === 'standard' || rawSpec === 'plain' ? 'generic' : rawSpec;
-      const meta = romMod.PACK_METADATA[packName];
+      const meta = (romMod.PACK_METADATA && romMod.PACK_METADATA[packName]) || (romMod.getAllPackMetadata && romMod.getAllPackMetadata()[packName]);
       packTitle = meta ? meta.title : `Custom Crew Bank: ${packName}`;
 
       const packRows = db.prepare('SELECT * FROM roms WHERE pack = ?').all(packName).map(romMod.hydrateRom);
@@ -2064,21 +2065,11 @@ function removeGotcha(idInput, file = dbPath()) {
 // --- Construct-to-Construct Comms & Courier Protocol ---
 
 const PACK_DEFAULT_COURIER_MAP = Object.freeze({
-  dresden: 'toot',
-  sprawl: 'case',
-  nightcity: 'songbird',
-  anathem: 'jules',
-  cryptonomicon: 'avi',
-  shadowrun: 'dodger',
-  amber: 'random',
-  laundry: 'persephone',
-  tolkien: 'legolas',
-  discworld: 'moist',
-  reamde: 'yuxia',
-  irondruid: 'oberon',
-  prydain: 'gurgi',
-  clockwork: 'branom',
-  generic: 'pulse',
+  dresden: 'toot', sprawl: 'case', nightcity: 'songbird', anathem: 'jules',
+  cryptonomicon: 'avi', shadowrun: 'dodger', amber: 'random', laundry: 'persephone',
+  tolkien: 'legolas', discworld: 'moist', reamde: 'yuxia', irondruid: 'oberon',
+  prydain: 'gurgi', clockwork: 'branom',
+  cybertron: 'bluestreak', generic: 'pulse',
 });
 
 function resolveCourierRomNameInDb(db, explicitVia = '', sessionId = '', project = '') {

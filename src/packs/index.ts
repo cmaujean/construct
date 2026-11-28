@@ -27,6 +27,7 @@ const BUILTIN_PACK_FILES = Object.freeze({
   irondruid: path.join(__dirname, 'irondruid.ts'),
   prydain: path.join(__dirname, 'prydain.ts'),
   clockwork: path.join(__dirname, 'clockwork.ts'),
+  cybertron: path.join(__dirname, 'cybertron.ts'),
   generic: path.join(__dirname, 'generic.ts'),
 });
 
@@ -630,6 +631,47 @@ const PACK_METADATA = Object.freeze({
       "\"ludovico\" / \"lid-locks\" -> 🟢brodsky",
       "\"what is it going to be then, eh\" / \"655321\" -> 📓chaplain"
     ]
+  },
+  "cybertron": {
+    "name": "cybertron",
+    "title": "The Ark & Teletraan I (Transformers Generation 1, 1984)",
+    "banner": "🤖 **`═══ [CYBERTRON // THE ARK & TELETRAAN I] ═══════════════════════════════════`**",
+    "atmosphere": "Mount St. Hilary crash site, The Ark humming orange mainframe computer Teletraan I, Cybertronian energon cubes, transformation cogs, repair bays, and Decepticon undersea fortress. Heavy metallic tread, hydraulic servos, laser fire, and ancient millions-of-years-old war logic between Autobot protectors and Decepticon conquerors.",
+    "seatLabels": {
+      "recon": "JAZZ SPECIAL OPS SENSORS",
+      "diagnostics": "WHEELJACK LAB DIAGNOSTICS",
+      "architect": "MATRIX OF LEADERSHIP",
+      "blitz": "GRIMLOCK DINOBOT BLITZ",
+      "forensics": "PERCEPTOR MICROSCOPE AUDIT",
+      "velocity": "BLUESTREAK TURBO VELOCITY",
+      "redteam": "MEGATRON FUSION-CANNON SIEGE",
+      "ergonomics": "RATCHET MED-BAY ERGONOMICS",
+      "archivist": "SOUNDWAVE CASSETTE ARCHIVE"
+    },
+    "interjectionExample": "🔵 **[JAZZ // SPECIAL OPS SENSORS]** Hold up, Prime: sensors picked up a weird feedback loop in that stream if you want the scan before Wheeljack starts soldering.",
+    "waveOffExample": "not now Jazz, let Optimus finish establishing the core matrix protocol first",
+    "defaultStarters": [
+      "jazz",
+      "wheeljack",
+      "optimus",
+      "grimlock",
+      "perceptor",
+      "bluestreak",
+      "megatron",
+      "ratchet",
+      "soundwave"
+    ],
+    "backups": [
+      "prowl",
+      "starscream",
+      "teletraan"
+    ],
+    "cameoTriggers": [
+      "\"autobots roll out\" / \"more than meets the eye\" -> 🟣optimus",
+      "\"peace through tyranny\" / \"decepticons attack\" -> 🛡️megatron",
+      "\"soundwave superior\" / \"laserbeak\" -> 📓soundwave",
+      "\"me grimlock\" -> 🔴grimlock"
+    ]
   }
 });
 
@@ -738,6 +780,10 @@ function getKnownRomTargets() {
     'korova',
     'droogs',
     'nadsat',
+    'cybertron',
+    'transformers',
+    'autobots',
+    'decepticons',
     'generic',
     'standard',
     'plain',
@@ -779,6 +825,18 @@ function getKnownRomTargets() {
     'prisoncharlie',
     'charlie',
     'weathers',
+    'jazz',
+    'wheeljack',
+    'optimus',
+    'grimlock',
+    'perceptor',
+    'bluestreak',
+    'megatron',
+    'ratchet',
+    'soundwave',
+    'prowl',
+    'starscream',
+    'teletraan',
   ]);
   const metaMap = getAllPackMetadata();
   for (const [packName, meta] of Object.entries(metaMap)) {

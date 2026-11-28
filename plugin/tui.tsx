@@ -27,6 +27,7 @@ const CREW_OPTIONS = [
   { title: "🐺 irondruid: Third Eye Books, Tempe Pack & The World Tree (Hearne)", value: "use:irondruid", category: "Crew Banks", description: "Atticus · Oberon · Morrigan · Owen · Hal · Granuaile · Leif · Brighid · Ogma" },
   { title: "⚔️ prydain: Caer Dallben, Caer Dathyl & The Free Commots (Alexander)", value: "use:prydain", category: "Crew Banks", description: "Dallben · Taran · Gwydion · Coll · Fflewddur · Gurgi · Doli · Eilonwy · Taliesin" },
   { title: "🥛 clockwork: The Korova Milkbar & Ludovico Center (Burgess)", value: "use:clockwork", category: "Crew Banks", description: "Alex · Pete · Georgie · Dim · Brodsky · Branom · Deltoid · F. Alexander · Chaplain" },
+  { title: "🤖 cybertron: The Ark & Teletraan I (Transformers G1)", value: "use:cybertron", category: "Crew Banks", description: "Jazz · Wheeljack · Optimus · Grimlock · Perceptor · Bluestreak · Megatron · Ratchet · Soundwave" },
   { title: "⚙️ generic: Zero-Fiction Engineering Pipeline", value: "use:generic", category: "Crew Banks", description: "Guide · Trace · Arch · Strike · Audit · Pulse · RedTeam · UX · Ledger" },
   { title: "🟣 Sub Minister of the Interior (Ruthless State-Systems Architect)", value: "sub:minister", category: "Bench / Seconds", description: "Substitutes into Seat 2 (Architect)" },
   { title: "🛡️ Sub Miss Weathers / The Cat Lady (Woodmere Perimeter Defender)", value: "sub:catlady", category: "Bench / Seconds", description: "Substitutes into Seat 4C (Red-Team)" },

@@ -3,9 +3,9 @@
 // Generates:
 //   - `docs/.nojekyll`
 //   - `docs/assets/style.css`
-//   - `docs/index.html` (Flagship Adopter Brochure, Interactive 15-Crew Preview, Token & Speed Benchmarks, 15-Crew Grid)
+//   - `docs/index.html` (Flagship Adopter Brochure, Interactive 16-Crew Preview, Token & Speed Benchmarks, 16-Crew Grid)
 //   - `docs/guide.html` (In-Depth Architecture, 6-Agent Setup, Sequential Tape, MLS/CRDT Sync, Personal Comms & CLI Reference)
-//   - `docs/crews/<bank>.html` (15 Dedicated Crew Introduction Pages with all 179 ROMs, 5-bar dial meters, and Wrong/Right calibration pairs)
+//   - `docs/crews/<bank>.html` (16 Dedicated Crew Introduction Pages with all 191 ROMs, 5-bar dial meters, and Wrong/Right calibration pairs)
 //
 // Enforces zero em dashes in all generated HTML so user-facing pages stay 100% compliant with operator calibration.
 
@@ -31,6 +31,7 @@ const PACK_EMBLEMS = Object.freeze({
   irondruid: '🐺',
   prydain: '⚔️',
   clockwork: '🥛',
+  cybertron: '🤖',
   generic: '⚙️',
 });
 
@@ -49,6 +50,7 @@ const PACK_ALIASES = Object.freeze({
   irondruid: ['irondruid', 'tirnanog', 'thirdeye'],
   prydain: ['prydain', 'caerdath', 'caerdallben'],
   clockwork: ['clockwork', 'korova', 'droogs', 'nadsat'],
+  cybertron: ['cybertron', 'transformers', 'autobots', 'decepticons'],
   generic: ['generic', 'standard', 'plain'],
 });
 
@@ -67,6 +69,7 @@ const PACK_DEFAULT_COURIER = Object.freeze({
   irondruid: 'oberon',
   prydain: 'gurgi (or --via kaw)',
   clockwork: 'branom',
+  cybertron: 'bluestreak',
   generic: 'pulse',
 });
 
@@ -403,7 +406,7 @@ function renderNavBar(prefix = '') {
   <div class="nav-brand"><a href="${prefix}index.html" style="color:#fff;text-decoration:none;">🦾 CONSTRUCT // 9-SEAT CREW &amp; SEQUENTIAL MEMORY</a></div>
   <div class="nav-links">
     <a href="${prefix}index.html">Overview &amp; Benchmarks</a>
-    <a href="${prefix}index.html#crews">The 15 Crew Banks (179 ROMs)</a>
+    <a href="${prefix}index.html#crews">The 16 Crew Banks (191 ROMs)</a>
     <a href="${prefix}guide.html">Architecture &amp; Multi-Agent Guide</a>
     <a href="${prefix}guide.html#personal-comms">Personal Comms (@comms)</a>
     <a href="https://github.com/cmaujean/construct">GitHub</a>
@@ -613,7 +616,7 @@ function generateIndexHtml(allMeta, romCountsByPack) {
 ${renderNavBar('')}
 <div class="container">
   <div class="hero">
-    <div class="hero-eyebrow">Zero External Dependencies &bull; Node.js Built-In SQLite (WAL + FTS5) &bull; 15 Crew Banks (179 ROMs)</div>
+    <div class="hero-eyebrow">Zero External Dependencies &bull; Node.js Built-In SQLite (WAL + FTS5) &bull; 16 Crew Banks (191 ROMs)</div>
     <h1>Stop Asking One Generalist Chatbot to Do Nine Different Engineering Jobs.</h1>
     <p class="lead">
       <strong>Construct</strong> replaces amnesia-prone markdown handoff files and single-persona AI assistants with a
@@ -641,7 +644,7 @@ construct init --all</pre>
       <div class="stat-label">In-process MCP tool execution (<code>51x</code> faster than CLI spawn) &amp; <code>83 &micro;s</code> pre-execution shell guard</div>
     </div>
     <div class="stat-card">
-      <div class="stat-value">179 ROMs / 15 Banks</div>
+      <div class="stat-value">191 ROMs / 16 Banks</div>
       <div class="stat-label">Lazy-loaded 9-seat Crews + Bench seconds + Person-to-Person Courier Cameos (<code>@comms</code> &amp; per-project MLS)</div>
     </div>
   </div>
@@ -753,7 +756,7 @@ construct init --all</pre>
     <div style="margin-top:12px;"><a id="preview-link" class="pill-btn active" href="crews/sprawl.html">Open Full Crew Roster Page &rarr;</a></div>
   </div>
 
-  <h2 class="section-title" id="crews">3. The 15 Crew Banks (179 Full-Depth ROMs)</h2>
+  <h2 class="section-title" id="crews">3. The 16 Crew Banks (191 Full-Depth ROMs)</h2>
   <p style="color:var(--muted);">Each Crew Bank lives in its own lazy-loaded module (<code>src/packs/&lt;bank&gt;.js</code>) so inactive banks consume <code>0</code> bytes of memory. Click any Crew Bank to inspect all 9 starter specialists, Bench seconds, behavioral dial meters, and Wrong vs. Right calibration pairs:</p>
   <div class="crew-grid">
     ${crewCardsHtml}

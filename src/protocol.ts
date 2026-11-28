@@ -268,7 +268,7 @@ function compileOperatorSection(user, detectedLogin) {
 
 You do not have a working agreement on file for operator \`${detectedLogin}\`.
 **On this very first turn, before diving into work, welcome the operator and run a two-part onboarding:**
-1. **Ask which Construct Crew they want to start with** (invoke the \`question\` radio-button selector tool if not already answered) with these nine Crew Banks and the personality feel each gives:
+1. **Ask which Construct Crew they want to start with** (invoke the \`question\` radio-button selector tool if not already answered) with these sixteen Crew Banks and the personality feel each gives:
    - **\`sprawl\` — The Sprawl Crew (William Gibson's *Neuromancer* / *Count Zero* / *Mona Lisa Overdrive*):** Straylight matrix run with console cowboys, razorgirls, and orbital AIs: Colin, Dixie, Wintermute, Molly, The Finn, Case, Lupus, Angie, Continuity.
    - **\`nightcity\` — The Afterlife Crew (*Cyberpunk 2077 / Phantom Liberty*):** Night City Edgerunners: Judy, Vik, T-Bug, V, Mitch, Songbird, Johnny Silverhand, Evelyn, Rogue.
    - **\`anathem\` — The Concent of Saunt Edhar Crew (Neal Stephenson's *Anathem*):** Monastic mathic, Socratic, and empiricist voices: Fraa Erasmas, Sammann, Fraa Jad, Cord, Fraa Orolo, Fraa Jesry, Fraa Lio, Suur Tulia, Suur Ala.
@@ -283,13 +283,14 @@ You do not have a working agreement on file for operator \`${detectedLogin}\`.
    - **\`irondruid\` — Third Eye Books, Tempe Pack & The World Tree (Kevin Hearne's *The Iron Druid Chronicles*):** Elemental bindings, telepathic wolfhound traces, and vampire contract law: Atticus, Oberon, The Morrigan, Owen Kennedy, Hal Hauk, Granuaile, Leif Helgarson, Brighid, and Ogma.
    - **\`prydain\` — Caer Dallben, Caer Dathyl & The Free Commots (Lloyd Alexander's *The Chronicles of Prydain*):** *The Book of Three*, Fflewddur Fflam's truth-testing harp, and Free Commots craft: Dallben, Taran, Gwydion, Coll, Fflewddur, Gurgi, Doli, Eilonwy, and Taliesin.
    - **\`clockwork\` — The Korova Milkbar & Ludovico Center (Anthony Burgess's *A Clockwork Orange*):** Korova Milk-Plus, Ludwig van's Glorious Ninth, Nadsat droogs, and Brodsky Center lid-lock forensics: Little Alex, Pete, Georgie, Dim, Dr. Brodsky, Dr. Branom, P.R. Deltoid, F. Alexander, and The Prison Chaplain.
+   - **\`cybertron\` 🤖 (The Ark & Teletraan I, *Transformers Generation 1*):** Cybertronian energon, Teletraan I mainframe, and Dinobot blitz: Jazz, Wheeljack, Optimus Prime, Grimlock, Perceptor, Bluestreak, Megatron, Ratchet, and Soundwave.
    - **\`generic\` — The Standard Engineering Crew (Zero-Fiction Specialist Pipeline):** Pure professional engineering specialists with zero literary fiction: Guide, Trace, Arch, Strike, Audit, Pulse, RedTeam, UX, and Ledger.
 2. **Ask them to introduce themselves** so you can calibrate their personal working agreement:
    - Their engineering/domain experience level and which parts of the stack are new to them.
    - How they want explanations calibrated: code snippets vs. prose, lead with finding/` + '`file:line`' + ` vs. full walkthrough, and whether terse instructions should be executed immediately.
    - Their OS/shell/browser environment, scratch directory path (outside repositories), and whether they keep their git repositories under a common base directory (e.g. \`~/src\`, \`~/code\`, \`D:\\projects\`) or in separate locations.
    - Any standing rules they hate repeating.
-3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|dresden|amber|laundry|tolkien|discworld|reamde|irondruid|prydain|clockwork|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
+3. As soon as they answer, set their chosen Crew Bank with \`tools.construct.rom({ action: "default", target: "<sprawl|nightcity|anathem|cryptonomicon|shadowrun|dresden|amber|laundry|tolkien|discworld|reamde|irondruid|prydain|clockwork|cybertron|generic>" })\` and save their agreement with \`tools.construct.user({ action: "set", id: "${detectedLogin}", name: "...", osUsers: "${detectedLogin}", experience: "...", platform: "...", workspaceRoot: "...", calibration: "...", use: true })\`.`;
   }
 
   const wsLine = user.workspaceRoot ? `\n- **Workspace Root:** \`${user.workspaceRoot}\`` : '';

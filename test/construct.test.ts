@@ -224,13 +224,13 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     fs.rmSync(tmp.dir, { recursive: true, force: true });
   });
 
-  it('seeds all 179 ROMs across 15 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
+  it('seeds all 191 ROMs across 16 crew banks (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, cybertron, generic), defaults to crew mode, supports bench substitutions, and isolates sessions', () => {
     const roms = store.listRoms();
-    assert.equal(roms.length, 179);
+    assert.equal(roms.length, 191);
     const packs = store.listPacks();
     assert.deepEqual(
       packs.map((p) => p.pack),
-      ['amber', 'anathem', 'clockwork', 'cryptonomicon', 'discworld', 'dresden', 'generic', 'irondruid', 'laundry', 'nightcity', 'prydain', 'reamde', 'shadowrun', 'sprawl', 'tolkien']
+      ['amber', 'anathem', 'clockwork', 'cryptonomicon', 'cybertron', 'discworld', 'dresden', 'generic', 'irondruid', 'laundry', 'nightcity', 'prydain', 'reamde', 'shadowrun', 'sprawl', 'tolkien']
     );
     const active = store.getRom();
     assert.equal(active.name, 'crew');
@@ -569,6 +569,18 @@ describe('construct ROMs, onboarding, LDK assimilation & DIDComm/MLS/CRDT sync',
     const subbedClockwork = store.subRom('minister', { sessionId: 'ses_clockwork' });
     assert.ok(subbedClockwork.roster.includes('minister'));
     assert.ok(!subbedClockwork.roster.includes('georgie'));
+
+    const cybertronCrew = store.useRom('cybertron', { sessionId: 'ses_cybertron' });
+    assert.equal(cybertronCrew.isCrew, true);
+    assert.deepEqual(cybertronCrew.roster, ['jazz', 'wheeljack', 'optimus', 'grimlock', 'perceptor', 'bluestreak', 'megatron', 'ratchet', 'soundwave']);
+    assert.deepEqual(cybertronCrew.backups, ['prowl', 'starscream', 'teletraan']);
+    assert.match(cybertronCrew.voice, /═══ \[CYBERTRON \/\/ THE ARK & TELETRAAN I\]/);
+    const tfCrew = store.useRom('transformers', { sessionId: 'ses_transformers' });
+    assert.equal(tfCrew.isCrew, true);
+    assert.deepEqual(tfCrew.roster, cybertronCrew.roster);
+    const subbedCybertron = store.subRom('starscream', { sessionId: 'ses_cybertron' });
+    assert.ok(subbedCybertron.roster.includes('starscream'));
+    assert.ok(!subbedCybertron.roster.includes('megatron'));
 
     // Every non-generic Crew Bank must define `cameoTriggers` (world-cue -> specialist cameo mappings)
     const allPackMeta = require('../src/packs/index.ts').getAllPackMetadata();
@@ -2687,7 +2699,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     // 5. GitHub Pages Brochure & Docs Hub generator (`store.generateDocsSite`)
     const siteOutDir = path.join(tmp.dir, 'docs-site');
     const siteRes = store.generateDocsSite({ outDir: siteOutDir });
-    assert.equal(siteRes.crewPages.length, 15);
+    assert.equal(siteRes.crewPages.length, 16);
     assert.ok(fs.existsSync(path.join(siteOutDir, 'index.html')));
     assert.ok(fs.existsSync(path.join(siteOutDir, 'guide.html')));
     assert.ok(fs.existsSync(path.join(siteOutDir, 'assets', 'style.css')));

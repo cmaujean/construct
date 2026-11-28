@@ -69,6 +69,7 @@ const PACK_EMBLEM_MAP = Object.freeze({
   irondruid: '🐺',
   prydain: '⚔️',
   clockwork: '🥛',
+  cybertron: '🤖',
   generic: '⚙️',
   core: '🔪',
 });
@@ -1301,6 +1302,7 @@ function generateDashboardHtml(options = {}, file = dbPath()) {
       <button class="crew-btn ${hud.pack === 'irondruid' ? 'active' : ''}" data-pack="irondruid" onclick="switchCrew('use','irondruid')">🐺 Iron Druid</button>
       <button class="crew-btn ${hud.pack === 'prydain' ? 'active' : ''}" data-pack="prydain" onclick="switchCrew('use','prydain')">⚔️ Prydain</button>
       <button class="crew-btn ${hud.pack === 'clockwork' ? 'active' : ''}" data-pack="clockwork" onclick="switchCrew('use','clockwork')">🥛 Clockwork</button>
+      <button class="crew-btn ${hud.pack === 'cybertron' ? 'active' : ''}" data-pack="cybertron" onclick="switchCrew('use','cybertron')">🤖 Cybertron</button>
       <button class="crew-btn ${hud.pack === 'generic' ? 'active' : ''}" data-pack="generic" onclick="switchCrew('use','generic')">⚙️ Generic</button>
     </div>
     <div class="btn-row" style="margin-top:8px;">

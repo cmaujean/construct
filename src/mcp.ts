@@ -439,7 +439,7 @@ const CONSTRUCT_TOOL_SPECS = Object.freeze([
   },
   {
     name: 'rom',
-    description: 'List, inspect, slot a ROM or Crew Bank (`use`: sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic, or solo/roster), substitute a bench backup (`sub`), set/clear default (`default`), list banks (`packs`), tune dials, or create custom ROMs (`set`).',
+    description: 'List, inspect, slot a ROM or Crew Bank (`use`: sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, cybertron, generic, or solo/roster), substitute a bench backup (`sub`), set/clear default (`default`), list banks (`packs`), tune dials, or create custom ROMs (`set`).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -449,7 +449,7 @@ const CONSTRUCT_TOOL_SPECS = Object.freeze([
         },
         target: {
           type: 'string',
-          description: "ROM or Crew Bank name (sprawl, discworld, reamde, clockwork, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, or index for unburn)",
+          description: "ROM or Crew Bank name (sprawl, discworld, reamde, clockwork, cybertron, generic, or solo/roster for show/use/default, backup name for sub, 'off' to clear default, dial=val pairs for tune, directive text for burn, or index for unburn)",
         },
         rom: { type: 'string', description: 'Optional ROM name when tuning or burning a non-active ROM' },
         pack: { type: 'string', description: 'Crew bank name when filtering list or creating a custom ROM with `set`' },
@@ -600,8 +600,8 @@ const MCP_TOOLS = Object.freeze(
 const MCP_PROMPTS = Object.freeze([
   {
     name: 'crew',
-    description: 'Switch Construct Crew Bank for this session or project (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, generic)',
-    arguments: [{ name: 'bank', description: 'Crew Bank name (e.g. discworld, reamde, clockwork)', required: true }],
+    description: 'Switch Construct Crew Bank for this session or project (sprawl, nightcity, anathem, cryptonomicon, shadowrun, dresden, amber, laundry, tolkien, discworld, reamde, irondruid, prydain, clockwork, cybertron, generic)',
+    arguments: [{ name: 'bank', description: 'Crew Bank name (e.g. discworld, reamde, clockwork, cybertron)', required: true }],
   },
   {
     name: 'sub',
@@ -1150,7 +1150,8 @@ function normalizeMultiWordRomPhrases(rawText = '') {
     .replace(/\bcouncil\s+of\s+elrond\b/gi, 'tolkien')
     .replace(/\bchronicles\s+of\s+prydain\b/gi, 'prydain')
     .replace(/\bchronicles\s+of\s+amber\b/gi, 'amber')
-    .replace(/\bankh[\s-]+morpork\b/gi, 'discworld');
+    .replace(/\bankh[\s-]+morpork\b/gi, 'discworld')
+    .replace(/\boptimus\s+prime\b/gi, 'optimus');
 }
 
 function detectPreSlotRomDirective(promptText) {
@@ -1750,7 +1751,8 @@ export default function constructOmpExtension(pi) {
       "inbox", "drop", "apply-drop", "issues", "pr", "sync", "invite", "join", "did", "hud",
       "dashboard", "site", "upgrade", "reload", "init", "assimilate",
       "sprawl", "nightcity", "anathem", "cryptonomicon", "shadowrun", "dresden", "amber",
-      "laundry", "tolkien", "discworld", "reamde", "irondruid", "prydain", "clockwork", "generic"
+      "laundry", "tolkien", "discworld", "reamde", "irondruid", "prydain", "clockwork",
+      "cybertron", "generic"
     ];
     pi.registerCommand("construct", {
       description: "Run any Construct CLI command, get help (/construct help [cmd]), switch Crew Bank, or sub a Bench specialist",
