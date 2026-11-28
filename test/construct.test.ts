@@ -1409,7 +1409,7 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       const hudSnap = store.getHudSnapshot({ project: 'acme/shared_app' });
       assert.equal(hudSnap.project, 'acme/shared_app');
       assert.match(hudSnap.pill, /acme\/shared_app · #\d+ · 1 open · 🛡️6/);
-      assert.match(hudSnap.tabBadge, /\[dixie #\d+ · 1 open/);
+      assert.equal(hudSnap.tabBadge, '🌃');
 
       // Multi-tab + multi-project Crew sensitivity:
       // Tab A on `acme/shared_app` switches to `nightcity`, Tab B on `acme/other_app` switches to `anathem`
@@ -1431,6 +1431,13 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       store.useRom('cryptonomicon', { sessionId: 'ses_tab_c' });
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_c' }).romName, 'cryptonomicon');
       assert.equal(store.getHudSnapshot({ sessionId: 'ses_tab_a' }).romName, 'nightcity');
+
+      // `tabLimit` expands `hud.tabs` beyond the default 8-tab cap for full-sidebar badge sweeps
+      for (let i = 0; i < 8; i++) {
+        store.useRom('sprawl', { sessionId: `ses_tab_extra_${i}`, project: 'acme/shared_app' });
+      }
+      assert.equal(store.getHudSnapshot({ project: 'acme/shared_app' }).tabs.length, 8);
+      assert.ok(store.getHudSnapshot({ project: 'acme/shared_app', tabLimit: 25 }).tabs.length >= 11);
 
       // Switching project `acme/shared_app` directly (no sessionId) updates `project_roms` and all tabs bound to `acme/shared_app`
       // without touching `acme/other_app` (`ses_tab_b`)
@@ -1630,14 +1637,26 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
       injectFrontierVoiceLock,
     } = await import('../plugin/construct.js');
 
-    // HUD session tab badge formatter replaces old badges cleanly without duplicating emblems
+    // HUD session tab badge formatter replaces old badges cleanly (including legacy `[...]` prefixes) without duplicating emblems
     assert.equal(
-      formatTitleWithHudBadge('Build sequential memory construct', '🦾 [nightcity #97 · 2 open]'),
-      '🦾 [nightcity #97 · 2 open] Build sequential memory construct'
+      formatTitleWithHudBadge('Build sequential memory construct', '🦾'),
+      '🦾 Build sequential memory construct'
     );
     assert.equal(
-      formatTitleWithHudBadge('🏛️ [anathem #95 · 2 open] Build sequential memory construct', '🦾 [nightcity #97 · 2 open]'),
-      '🦾 [nightcity #97 · 2 open] Build sequential memory construct'
+      formatTitleWithHudBadge('🏛️ [anathem #95 · 2 open] Build sequential memory construct', '🦾'),
+      '🦾 Build sequential memory construct'
+    );
+    assert.equal(
+      formatTitleWithHudBadge('🌃 Construct sidebar update', '🐢'),
+      '🐢 Construct sidebar update'
+    );
+    assert.equal(
+      formatTitleWithHudBadge('🤖 [cybertron #992 · 0 open] LinkedIn campaign bills', '🦾'),
+      '🦾 LinkedIn campaign bills'
+    );
+    assert.equal(
+      formatTitleWithHudBadge('🌃', '🐢'),
+      '🐢'
     );
 
     // Bounded last-known-good boot cache prevents transient edits/errors from dropping a session's ROM mid-loop
@@ -2713,5 +2732,407 @@ Found 2026-09-28 (migrated from GEMINI.md). Extended 2026-09-30, see #30.
     assert.equal(cliBench.status, 0);
     const cliBenchJson = JSON.parse(cliBench.stdout);
     assert.equal(cliBenchJson.relaySync.peeledIdentically, true);
+
+    // Verify `installPluginFile` installs `plugins/construct-tui/{package.json,tui.tsx}`, registers it idempotently in `cli.json`,
+    // cleans up stale loose `plugins/tui.tsx`, and ships the V2 HTTP/xlarge HUD contract
+    const v2CfgDir = path.join(tmp.dir, 'opencode-v2-cfg');
+    fs.mkdirSync(path.join(v2CfgDir, 'plugins'), { recursive: true });
+    fs.writeFileSync(path.join(v2CfgDir, 'plugins', 'tui.tsx'), '// stale loose v1 tui\n', 'utf8');
+    fs.writeFileSync(
+      path.join(v2CfgDir, 'cli.json'),
+      JSON.stringify({ $schema: 'https://opencode.ai/v2/cli.json', theme: { name: 'vesper', mode: 'dark' } }, null, 2) + '\n',
+      'utf8'
+    );
+    store.installPluginFile(v2CfgDir);
+    store.installPluginFile(v2CfgDir); // idempotent second call must not duplicate plugin entry
+
+    const tuiPkgDir = path.join(v2CfgDir, 'plugins', 'construct-tui');
+    assert.ok(fs.existsSync(path.join(v2CfgDir, 'plugins', 'construct.js')));
+    assert.equal(fs.existsSync(path.join(v2CfgDir, 'plugins', 'tui.tsx')), false, 'stale loose plugins/tui.tsx should be removed');
+    assert.ok(fs.existsSync(path.join(tuiPkgDir, 'package.json')));
+    assert.ok(fs.existsSync(path.join(tuiPkgDir, 'tui.tsx')));
+    const tuiPkgJson = JSON.parse(fs.readFileSync(path.join(tuiPkgDir, 'package.json'), 'utf8'));
+    assert.equal(tuiPkgJson.exports['./tui'], './tui.tsx');
+
+    const installedCliJson = JSON.parse(fs.readFileSync(path.join(v2CfgDir, 'cli.json'), 'utf8'));
+    assert.deepEqual(installedCliJson.theme, { name: 'vesper', mode: 'dark' });
+    assert.equal(
+      installedCliJson.plugins.filter((p) => p === tuiPkgDir || (p && p.package === tuiPkgDir)).length,
+      1,
+      'cli.json must register construct-tui exactly once'
+    );
+    assert.equal(
+      installedCliJson.plugins.filter((p) => p === '-opencode.sidebar.context').length,
+      1,
+      'cli.json must disable duplicate opencode.sidebar.context once'
+    );
+    assert.equal(
+      installedCliJson.plugins.filter((p) => p === '-opencode.sidebar.mcp').length,
+      1,
+      'cli.json must disable duplicate opencode.sidebar.mcp once'
+    );
+
+    const installedTuiSrc = fs.readFileSync(path.join(tuiPkgDir, 'tui.tsx'), 'utf8');
+    assert.match(installedTuiSrc, /http:\/\/127\.0\.0\.1:47420/);
+    assert.doesNotMatch(installedTuiSrc, /ConstructRpc/);
+    assert.match(installedTuiSrc, /m\.status === "pending" \|\| m\.status === "seen"/);
+    assert.match(installedTuiSrc, /size: "xlarge"/);
+    assert.match(installedTuiSrc, /hide-msg/);
+    assert.match(installedTuiSrc, /upcomingExpanded/);
+    assert.match(installedTuiSrc, /upcomingAutomations/);
+    assert.match(installedTuiSrc, /openUpcomingDialog/);
+    assert.match(installedTuiSrc, /ui:upcoming/);
+    assert.match(installedTuiSrc, /discussInNewSession/);
+    assert.match(installedTuiSrc, /session\.create/);
+    assert.match(installedTuiSrc, /session\.prompt/);
+    assert.match(installedTuiSrc, /router\.navigate/);
+    assert.match(installedTuiSrc, /isSelfReminder/);
+    assert.doesNotMatch(installedTuiSrc, /frames · \$\{hud\.guardCount\} guards/);
+    assert.doesNotMatch(installedTuiSrc, /Run Construct CLI \[open\]/);
+    assert.doesNotMatch(installedTuiSrc, /"Web HUD: "/);
+    assert.doesNotMatch(installedTuiSrc, /prompt\.footer\.status/);
+    assert.match(installedTuiSrc, /mcpExpanded/);
+    assert.match(installedTuiSrc, /mcp\?\.server\?\.list/);
+    assert.match(installedTuiSrc, /mcp\.list/);
+    assert.match(installedTuiSrc, /📁 \$\{clipText\(hud\.project, 19\)\}/);
+    assert.match(installedTuiSrc, /\[\$\{clipText\(hud\.romName \|\| hud\.pack, 13\)\}\]/);
+
+    // Verify 72-hour upcoming automations & notifications across all workspaces (`getHudSnapshot`)
+    const { DatabaseSync } = require('node:sqlite');
+    const mockOcDbPath = path.join(tmp.dir, 'mock-opencode.db');
+    const mockOcDb = new DatabaseSync(mockOcDbPath);
+    try {
+      mockOcDb.exec(`
+        CREATE TABLE automation (
+          id text PRIMARY KEY,
+          project_id text NOT NULL,
+          session_id text,
+          directory text NOT NULL,
+          name text NOT NULL,
+          trigger text NOT NULL,
+          tz text NOT NULL,
+          action text NOT NULL,
+          status text DEFAULT 'active' NOT NULL,
+          next_due_at integer,
+          expires_at integer,
+          run_count integer DEFAULT 0 NOT NULL,
+          failures integer DEFAULT 0 NOT NULL,
+          last_run_at integer,
+          last_message_id text,
+          last_outcome text,
+          last_output text,
+          retry_at integer,
+          state text,
+          time_created integer NOT NULL,
+          time_updated integer NOT NULL,
+          event_position text
+        );
+      `);
+      const baseNowMs = Date.parse('2026-11-27T00:00:00.000Z'); // Fri Nov 27 10:00 in Australia/Brisbane (+10:00)
+      const alphaDir = path.join(tmp.dir, 'acme-alpha');
+      const betaDir = path.join(tmp.dir, 'acme-beta');
+      fs.mkdirSync(alphaDir, { recursive: true });
+      fs.mkdirSync(betaDir, { recursive: true });
+      store.setHead('acme/alpha_app', { state: 'Ready', next: 'Ship', repo: alphaDir });
+      store.setHead('acme/beta_app', { state: 'Active', next: 'Monitor', repo: betaDir });
+      const selfNotif = store.sendMessage({
+        project: 'acme/beta_app',
+        fromUser: 'alice',
+        to: 'alice',
+        via: 'toot',
+        body: 'Morning check: confirm reel views.',
+      });
+
+      const ins = mockOcDb.prepare(`
+        INSERT INTO automation (id, project_id, session_id, directory, name, trigger, tz, action, status, next_due_at, expires_at, time_created, time_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      // 1. Active one-shot notification in 2 hours (within 72h)
+      ins.run(
+        'aut_at_in', 'p1', 'ses_1', alphaDir, 'alpha-morning-checkin',
+        JSON.stringify({ type: 'at', at: '2026-11-27T12:00', tz: 'Australia/Brisbane' }),
+        'Australia/Brisbane',
+        JSON.stringify({ type: 'code', code: 'await tools.construct.comms({ action: "msg", body: "Check alpha release." });' }),
+        'active', baseNowMs + 2 * 3600 * 1000, null, baseNowMs, baseNowMs
+      );
+      // 2. Active daily cron at 09:15 Australia/Brisbane (fires Sat Nov 28 09:15 + Sun Nov 29 09:15; expires before Mon Nov 30)
+      ins.run(
+        'aut_cron_daily', 'p2', 'ses_2', betaDir, 'beta-daily-digest',
+        JSON.stringify({ type: 'cron', cron: '15 9 * * *', tz: 'Australia/Brisbane' }),
+        'Australia/Brisbane',
+        JSON.stringify({ type: 'code', code: 'const plan = { "2026-11-28": { body: "Saturday beta reminder" }, "2026-11-29": { body: "Sunday beta reminder" } };' }),
+        'active', Date.parse('2026-11-27T23:15:00.000Z'), Date.parse('2026-11-29T10:00:00.000Z'), baseNowMs, baseNowMs
+      );
+      // 3. Paused `every` automation (must still appear with status='paused' since show-all is enabled)
+      ins.run(
+        'aut_paused_every', 'p1', 'ses_1', alphaDir, 'alpha-health-ping',
+        JSON.stringify({ type: 'every', every: '24 hours', tz: 'UTC' }),
+        'UTC',
+        JSON.stringify({ type: 'shell', command: 'npm run healthcheck' }),
+        'paused', baseNowMs + 12 * 3600 * 1000, null, baseNowMs, baseNowMs
+      );
+      // 4. Active `at` beyond 72h (must be excluded)
+      ins.run(
+        'aut_too_late', 'p1', 'ses_1', alphaDir, 'alpha-next-week',
+        JSON.stringify({ type: 'at', at: '2026-12-03T09:00', tz: 'UTC' }),
+        'UTC',
+        JSON.stringify({ type: 'shell', command: 'echo later' }),
+        'active', baseNowMs + 96 * 3600 * 1000, null, baseNowMs, baseNowMs
+      );
+      // 5. Done automation (must be excluded)
+      ins.run(
+        'aut_done', 'p1', 'ses_1', alphaDir, 'alpha-finished',
+        JSON.stringify({ type: 'at', at: '2026-11-26T09:00', tz: 'UTC' }),
+        'UTC',
+        JSON.stringify({ type: 'shell', command: 'echo done' }),
+        'done', baseNowMs - 3600 * 1000, null, baseNowMs, baseNowMs
+      );
+
+      const upcomingHud = store.getHudSnapshot({
+        project: 'acme/alpha_app',
+        opencodeDbPath: mockOcDbPath,
+        nowMs: baseNowMs,
+      });
+      assert.ok(Array.isArray(upcomingHud.upcomingAutomations), 'upcomingAutomations must be an array');
+      assert.equal(upcomingHud.upcomingCount, upcomingHud.upcomingAutomations.length);
+      // Expect: 1 (aut_at_in) + 2 (aut_cron_daily Sat+Sun) + 3 (aut_paused_every at +12h, +36h, +60h) = 6 occurrences across ALL workspaces
+      assert.equal(upcomingHud.upcomingAutomations.length, 6);
+      // Chronologically sorted
+      for (let i = 1; i < upcomingHud.upcomingAutomations.length; i++) {
+        assert.ok(
+          upcomingHud.upcomingAutomations[i].dueAtMs >= upcomingHud.upcomingAutomations[i - 1].dueAtMs,
+          'upcomingAutomations must be sorted ascending by dueAtMs'
+        );
+      }
+      const firstItem = upcomingHud.upcomingAutomations[0];
+      assert.equal(firstItem.name, 'alpha-morning-checkin');
+      assert.equal(firstItem.category, 'notification');
+      assert.equal(firstItem.project, 'acme/alpha_app');
+      assert.match(firstItem.preview, /Check alpha release/);
+
+      const pausedItems = upcomingHud.upcomingAutomations.filter((u) => u.id === 'aut_paused_every');
+      assert.equal(pausedItems.length, 3);
+      assert.equal(pausedItems[0].status, 'paused');
+      assert.equal(pausedItems[0].category, 'automation');
+      assert.equal(pausedItems[0].preview, 'npm run healthcheck');
+
+      const betaCronItems = upcomingHud.upcomingAutomations.filter((u) => u.id === 'aut_cron_daily');
+      assert.equal(betaCronItems.length, 2);
+      assert.equal(betaCronItems[0].project, 'acme/beta_app');
+      assert.equal(betaCronItems[0].category, 'notification');
+      assert.match(betaCronItems[0].preview, /Saturday beta reminder/);
+      assert.match(betaCronItems[1].preview, /Sunday beta reminder/);
+
+      assert.equal(upcomingHud.upcomingAutomations.some((u) => u.id === 'aut_too_late'), false);
+      assert.equal(upcomingHud.upcomingAutomations.some((u) => u.id === 'aut_done'), false);
+
+      const notifComm = upcomingHud.comms.find((c) => c.id === selfNotif.id);
+      assert.ok(notifComm, 'self-notification must appear in HUD comms');
+      assert.equal(notifComm.projectDir, betaDir, 'comms item must resolve projectDir from heads.repo');
+    } finally {
+      mockOcDb.close();
+    }
+
+    // Regression test: TUI sidebar must stay locked to the viewed session and never flicker to foreign/subagent sessions
+    const bunBin = fs.existsSync('/home/mtp/.bun/bin/bun') ? '/home/mtp/.bun/bin/bun' : 'bun';
+    const bunCheck = spawnSync(bunBin, ['--version'], { encoding: 'utf8' });
+    assert.equal(bunCheck.status, 0, 'bun is required to execute plugin/tui.tsx regression harness');
+    const tuiHarnessPath = path.join(tmp.dir, 'tui-session-isolation.test.ts');
+    const tuiSrcAbs = path.resolve(__dirname, '..', 'plugin', 'tui.tsx');
+    fs.writeFileSync(
+      tuiHarnessPath,
+      `
+import assert from "node:assert/strict";
+
+await Bun.plugin({
+  name: "mock-opencode-tui",
+  setup(build) {
+    build.module("@opencode/plugin/tui", () => ({
+      contents: "export const Plugin = { define: (p) => p }; export const usePlugin = () => ({});",
+      loader: "js",
+    }));
+  },
+});
+
+const tuiModule = await import(${JSON.stringify(tuiSrcAbs)});
+const plugin = tuiModule.default;
+
+const hudState: any = {};
+const uiPrefs: any = {};
+let currentRoute: any = { type: "session", sessionID: "ses_alpha" };
+let listener: ((ev: any) => void) | null = null;
+const slots: Record<string, (input?: any) => any> = {};
+const requestedCalls: Array<{ sid: string; dir: string }> = [];
+let holdAlphaFetch: (() => void) | null = null;
+let holdAlphaActive = false;
+
+const snapFor = (sid: string) => {
+  if (sid === "ses_alpha") {
+    return {
+      sessionId: "ses_alpha",
+      project: "alpha-proj",
+      pack: "sprawl",
+      emblem: "🌃",
+      romName: "sprawl",
+      operatorId: "alice",
+      pill: "🌃 sprawl · alpha-proj · #10 · 0 open · 🛡️4",
+      comms: [],
+      openThreads: [],
+      recentTape: [],
+      gotchas: [],
+      upcomingAutomations: [],
+    };
+  }
+  if (sid === "ses_beta") {
+    return {
+      sessionId: "ses_beta",
+      project: "beta-proj",
+      pack: "nightcity",
+      emblem: "🦾",
+      romName: "nightcity",
+      operatorId: "alice",
+      pill: "🦾 nightcity · beta-proj · #20 · 0 open · 🛡️4",
+      comms: [],
+      openThreads: [],
+      recentTape: [],
+      gotchas: [],
+      upcomingAutomations: [],
+    };
+  }
+  return {
+    sessionId: sid || "unknown",
+    project: "foreign-" + (sid || "none"),
+    pack: "generic",
+    emblem: "⚙️",
+    romName: "colin",
+    operatorId: "alice",
+    pill: "⚙️ colin · foreign",
+    comms: [],
+    openThreads: [],
+    recentTape: [],
+    gotchas: [],
+    upcomingAutomations: [],
+  };
+};
+
+(globalThis as any).fetch = async (urlStr: string) => {
+  const u = new URL(urlStr);
+  const sid = u.searchParams.get("sessionID") || "";
+  const dir = u.searchParams.get("dir") || "";
+  requestedCalls.push({ sid, dir });
+  if (holdAlphaActive && sid === "ses_alpha") {
+    holdAlphaActive = false;
+    await new Promise<void>((resolve) => {
+      holdAlphaFetch = resolve;
+    });
+  }
+  return {
+    ok: true,
+    json: async () => ({ ok: true, hud: snapFor(sid) }),
+  };
+};
+
+const mockContext: any = {
+  location: { directory: "/repo/alpha" },
+  theme: {},
+  client: {},
+  storage: {
+    memory: (_k: string, opts: any) => {
+      Object.assign(hudState, opts.initial);
+      return [hudState, (fn: (d: any) => void) => fn(hudState)];
+    },
+    store: (_k: string, opts: any) => {
+      Object.assign(uiPrefs, opts.initial);
+      return [uiPrefs, async (fn: (d: any) => void) => fn(uiPrefs)];
+    },
+  },
+  data: {
+    location: { default: () => ({ directory: "/repo/alpha" }) },
+    listen: (cb: (ev: any) => void) => {
+      listener = cb;
+      return () => { listener = null; };
+    },
+    session: {
+      get: (sid: string) => ({
+        id: sid,
+        location: { directory: sid === "ses_beta" ? "/repo/beta" : "/repo/alpha" },
+      }),
+      cost: () => 0,
+      message: { list: () => [] },
+    },
+  },
+  ui: {
+    router: { current: () => currentRoute },
+    toast: { show: () => {} },
+    dialog: { clear: () => {}, show: () => {}, set: () => {}, select: async () => undefined, prompt: async () => undefined },
+    slot: (opts: any) => {
+      const key = opts.prepend || opts.append || opts.replace || "unknown";
+      slots[key] = opts.render;
+      return () => {};
+    },
+  },
+  keymap: { layer: () => {}, dispatch: async () => {} },
+};
+
+const cleanup = await plugin.setup(mockContext);
+try {
+  assert.equal(hudState.project, "alpha-proj");
+  assert.equal(hudState.sessionId, "ses_alpha");
+
+  const callsBeforeForeign = requestedCalls.length;
+  // Emit foreign session, subagent, and sessionID-less message events while viewing ses_alpha
+  listener?.({ details: { type: "message.updated", data: { sessionID: "ses_beta", id: "msg_beta_1" } } });
+  listener?.({ details: { type: "message.updated", data: { id: "msg_no_sid_2" } } });
+  listener?.({ details: { type: "session.updated", data: { id: "ses_beta" } } });
+  listener?.({ details: { type: "tool.execute.after", data: { sessionID: "ses_subagent" } } });
+
+  await new Promise((r) => setTimeout(r, 40));
+
+  const foreignCalls = requestedCalls.slice(callsBeforeForeign);
+  assert.equal(
+    foreignCalls.some((c) => c.sid === "ses_beta" || c.sid === "ses_subagent" || c.sid === "msg_no_sid_2"),
+    false,
+    "Foreign/message IDs must never be sent to /hud: " + JSON.stringify(foreignCalls),
+  );
+  assert.equal(hudState.project, "alpha-proj", "Foreign session events must not overwrite active sidebar project");
+  assert.equal(hudState.romName, "sprawl", "Foreign session events must not overwrite active sidebar ROM");
+
+  // Active session event refreshes ses_alpha cleanly
+  const callsBeforeActive = requestedCalls.length;
+  listener?.({ details: { type: "message.updated", data: { sessionID: "ses_alpha", id: "msg_alpha_1" } } });
+  await new Promise((r) => setTimeout(r, 40));
+  const activeCalls = requestedCalls.slice(callsBeforeActive);
+  assert.ok(activeCalls.some((c) => c.sid === "ses_alpha"), "Active session events should refresh ses_alpha");
+
+  // Mid-flight tab switch race: ses_alpha fetch is slow, user switches to ses_beta, ses_alpha resolves late
+  holdAlphaActive = true;
+  listener?.({ details: { type: "message.updated", data: { sessionID: "ses_alpha", id: "msg_alpha_slow" } } });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.ok(holdAlphaFetch, "Expected slow ses_alpha fetch to be in flight");
+
+  // Switch tab to ses_beta and render sidebar.content with slotInput
+  currentRoute = { type: "session", sessionID: "ses_beta" };
+  slots["sidebar.content"]?.({ sessionID: "ses_beta" });
+  await new Promise((r) => setTimeout(r, 20));
+
+  // Now let stale ses_alpha response arrive late, then wait for queued ses_beta refresh
+  holdAlphaFetch?.();
+  await new Promise((r) => setTimeout(r, 60));
+
+  assert.equal(hudState.sessionId, "ses_beta", "Tab switch must resolve to ses_beta and reject late ses_alpha payload");
+  assert.equal(hudState.project, "beta-proj");
+  assert.equal(hudState.romName, "nightcity");
+  const betaCall = requestedCalls.find((c) => c.sid === "ses_beta");
+  assert.equal(betaCall?.dir, "/repo/beta", "Tab switch must resolve target session directory");
+} finally {
+  if (typeof cleanup === "function") cleanup();
+}
+console.log("TUI_ISOLATION_OK");
+`,
+      'utf8'
+    );
+    const tuiRun = spawnSync(bunBin, [tuiHarnessPath], { encoding: 'utf8' });
+    assert.equal(tuiRun.status, 0, `tui-session-isolation harness failed:\n${tuiRun.stdout}\n${tuiRun.stderr}`);
+    assert.match(tuiRun.stdout, /TUI_ISOLATION_OK/);
   });
 });
